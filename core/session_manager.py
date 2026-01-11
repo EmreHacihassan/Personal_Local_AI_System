@@ -161,27 +161,31 @@ class SessionManager:
         return self.create_session()
     
     def list_sessions(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Tüm session'ları listele (özet bilgi)."""
+        """Tüm session'ları listele (özet bilgi). 0 mesajlı session'ları dahil etmez."""
         sessions = []
         
         for file_path in sorted(
             self.storage_dir.glob("*.json"),
             key=lambda p: p.stat().st_mtime,
             reverse=True
-        )[:limit]:
+        ):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     
+                    messages = data.get("messages", [])
+                    
+                    # 0 mesajlı session'ları atla
+                    if not messages:
+                        continue
+                    
                     # İlk mesajdan önizleme oluştur
                     preview = ""
-                    messages = data.get("messages", [])
-                    if messages:
-                        for msg in messages:
-                            if msg.get("role") == "user":
-                                content = msg.get("content", "")
-                                preview = content[:80] + "..." if len(content) > 80 else content
-                                break
+                    for msg in messages:
+                        if msg.get("role") == "user":
+                            content = msg.get("content", "")
+                            preview = content[:80] + "..." if len(content) > 80 else content
+                            break
                     
                     sessions.append({
                         "id": data["id"],
@@ -191,6 +195,11 @@ class SessionManager:
                         "message_count": len(messages),
                         "preview": preview,
                     })
+                    
+                    # Limit kontrolü
+                    if len(sessions) >= limit:
+                        break
+                        
             except Exception:
                 continue
         
@@ -237,7 +246,11 @@ class SessionManager:
         return None
     
     def _save_session(self, session: Session) -> None:
-        """Session'ı dosyaya kaydet."""
+        """Session'ı dosyaya kaydet. Sadece mesaj varsa kaydeder."""
+        # 0 mesajlı session'ları kaydetme
+        if not session.messages:
+            return
+            
         file_path = self.storage_dir / f"{session.id}.json"
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(session.to_dict(), f, ensure_ascii=False, indent=2)

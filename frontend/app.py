@@ -380,20 +380,136 @@ st.markdown('<p class="main-header">🤖 Enterprise AI Assistant</p>', unsafe_al
 st.markdown('<p class="sub-header">Endüstri Standartlarında Kurumsal AI Çözümü</p>', unsafe_allow_html=True)
 
 
+# ============ VISION CHAT FUNCTION ============
+
+def stream_vision_message(message: str, image_file):
+    """Görsel ile streaming chat mesajı gönder."""
+    try:
+        files = {"image": (image_file.name, image_file.getvalue(), image_file.type)}
+        data = {
+            "message": message,
+            "session_id": st.session_state.session_id,
+        }
+        
+        response = requests.post(
+            f"{API_BASE_URL}/api/chat/vision",
+            data=data,
+            files=files,
+            stream=True,
+            timeout=120,
+        )
+        
+        if response.status_code == 200:
+            for line in response.iter_lines():
+                if line:
+                    line_text = line.decode('utf-8')
+                    if line_text.startswith('data: '):
+                        try:
+                            data = json.loads(line_text[6:])
+                            yield data
+                        except json.JSONDecodeError:
+                            continue
+        else:
+            yield {"type": "error", "message": f"HTTP {response.status_code}"}
+            
+    except requests.exceptions.RequestException as e:
+        yield {"type": "error", "message": str(e)}
+
+
 # ============ CHAT PAGE ============
 
 if st.session_state.current_page == "chat":
     st.markdown("## 💬 AI Asistan ile Sohbet")
     
+    # Görsel yükleme alanı
+    with st.expander("📷 Görsel Yükle (VLM Analizi)", expanded=False):
+        uploaded_image = st.file_uploader(
+            "Analiz için görsel yükleyin",
+            type=["jpg", "jpeg", "png", "gif", "webp"],
+            help="Görsel yükleyerek AI'dan analiz alabilirsiniz"
+        )
+        if uploaded_image:
+            st.image(uploaded_image, caption="Yüklenen Görsel", width=300)
+            vision_prompt = st.text_input(
+                "Görsel hakkında sorunuz",
+                placeholder="Bu görselde ne var? / Bu görseli analiz et..."
+            )
+            if st.button("🔍 Görseli Analiz Et", use_container_width=True):
+                if vision_prompt:
+                    # Add user message with image indicator
+                    st.session_state.messages.append({
+                        "role": "user",
+                        "content": f"📷 [Görsel] {vision_prompt}",
+                    })
+                    save_message_to_session("user", f"📷 [Görsel] {vision_prompt}")
+                    
+                    with st.chat_message("assistant"):
+                        response_placeholder = st.empty()
+                        full_response = ""
+                        
+                        for chunk in stream_vision_message(vision_prompt, uploaded_image):
+                            if chunk.get("type") == "token":
+                                full_response += chunk.get("content", "")
+                                response_placeholder.markdown(full_response + "▌")
+                            elif chunk.get("type") == "error":
+                                st.error(f"Hata: {chunk.get('message')}")
+                                break
+                            elif chunk.get("type") == "end":
+                                break
+                        
+                        if full_response:
+                            response_placeholder.markdown(full_response)
+                            save_message_to_session("assistant", full_response, ["Görsel Analizi"])
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": full_response,
+                                "sources": ["Görsel Analizi"],
+                            })
+                    st.rerun()
+                else:
+                    st.warning("Lütfen görsel hakkında bir soru yazın")
+    
+    st.markdown("---")
+    
     # Chat container
     chat_container = st.container()
     
     with chat_container:
-        # Display messages
-        for msg in st.session_state.messages:
+        # Display messages with edit option
+        for i, msg in enumerate(st.session_state.messages):
             if msg["role"] == "user":
                 with st.chat_message("user"):
-                    st.write(msg["content"])
+                    col1, col2 = st.columns([9, 1])
+                    with col1:
+                        # Check if this message is being edited
+                        if st.session_state.get(f"editing_{i}"):
+                            edited_text = st.text_area(
+                                "Mesajı düzenle",
+                                value=msg["content"],
+                                key=f"edit_text_{i}",
+                                label_visibility="collapsed"
+                            )
+                            col_save, col_cancel = st.columns(2)
+                            with col_save:
+                                if st.button("💾 Kaydet", key=f"save_{i}", use_container_width=True):
+                                    # Update message and resend
+                                    st.session_state.messages[i]["content"] = edited_text
+                                    # Remove all messages after this one
+                                    st.session_state.messages = st.session_state.messages[:i+1]
+                                    st.session_state[f"editing_{i}"] = False
+                                    st.session_state["resend_message"] = edited_text
+                                    st.rerun()
+                            with col_cancel:
+                                if st.button("❌ İptal", key=f"cancel_{i}", use_container_width=True):
+                                    st.session_state[f"editing_{i}"] = False
+                                    st.rerun()
+                        else:
+                            st.write(msg["content"])
+                    with col2:
+                        if not st.session_state.get(f"editing_{i}"):
+                            if st.button("✏️", key=f"edit_btn_{i}", help="Düzenle"):
+                                st.session_state[f"editing_{i}"] = True
+                                st.rerun()
             else:
                 with st.chat_message("assistant"):
                     st.write(msg["content"])
@@ -401,6 +517,33 @@ if st.session_state.current_page == "chat":
                         st.markdown("**📚 Kaynaklar:**")
                         for source in msg["sources"]:
                             st.markdown(f'<span class="source-tag">{source}</span>', unsafe_allow_html=True)
+    
+    # Handle resend after edit
+    if st.session_state.get("resend_message"):
+        user_input = st.session_state.pop("resend_message")
+        with st.chat_message("assistant"):
+            response_placeholder = st.empty()
+            full_response = ""
+            
+            for chunk in stream_chat_message(user_input):
+                if chunk.get("type") == "token":
+                    full_response += chunk.get("content", "")
+                    response_placeholder.markdown(full_response + "▌")
+                elif chunk.get("type") == "error":
+                    st.error(f"Hata: {chunk.get('message')}")
+                    break
+                elif chunk.get("type") == "end":
+                    break
+            
+            if full_response:
+                response_placeholder.markdown(full_response)
+                save_message_to_session("assistant", full_response)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": full_response,
+                    "sources": [],
+                })
+        st.rerun()
     
     # Chat input
     user_input = st.chat_input("Mesajınızı yazın...")

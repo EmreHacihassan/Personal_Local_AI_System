@@ -12,7 +12,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -291,6 +291,97 @@ async def chat_stream(request: ChatRequest):
             
         except Exception as e:
             analytics.track_error("chat_stream", str(e))
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.post("/api/chat/vision", tags=["Chat"])
+async def chat_with_vision(
+    message: str = Form(...),
+    image: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+):
+    """
+    Görsel analizi ile chat endpoint'i (VLM desteği).
+    
+    Görsel yükleyerek AI'dan analiz alın.
+    """
+    import json
+    
+    async def generate():
+        try:
+            # Get or create session
+            sid = session_id or str(uuid.uuid4())
+            
+            if sid not in sessions:
+                sessions[sid] = []
+            
+            # Save uploaded image
+            upload_dir = settings.DATA_DIR / "uploads" / "images"
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            
+            image_id = str(uuid.uuid4())
+            image_ext = Path(image.filename or "image.jpg").suffix or ".jpg"
+            image_path = upload_dir / f"{image_id}{image_ext}"
+            
+            with open(image_path, "wb") as f:
+                content = await image.read()
+                f.write(content)
+            
+            # Add user message to history
+            sessions[sid].append({
+                "role": "user",
+                "content": message,
+                "image": str(image_path),
+                "timestamp": datetime.now().isoformat(),
+            })
+            
+            # Send session_id first
+            yield f"data: {json.dumps({'type': 'session', 'session_id': sid})}\n\n"
+            
+            # Stream response with image
+            full_response = ""
+            system_prompt = """Sen görsel analizi yapabilen yardımcı bir AI asistanısın. 
+Görseli detaylı analiz et ve Türkçe yanıt ver."""
+            
+            for token in llm_manager.generate_stream_with_image(
+                message, 
+                str(image_path),
+                system_prompt
+            ):
+                full_response += token
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            
+            # Add assistant response to history
+            sessions[sid].append({
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": datetime.now().isoformat(),
+            })
+            
+            # Track analytics
+            analytics.track_chat(
+                query=f"[IMAGE] {message[:80]}",
+                response_length=len(full_response),
+                duration_ms=0,
+                agent="vision",
+                session_id=sid,
+            )
+            
+            # Send end event
+            yield f"data: {json.dumps({'type': 'end', 'session_id': sid})}\n\n"
+            
+        except Exception as e:
+            analytics.track_error("chat_vision", str(e))
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     return StreamingResponse(

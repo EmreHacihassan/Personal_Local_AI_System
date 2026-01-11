@@ -10,11 +10,55 @@ import sys
 import os
 import time
 import webbrowser
+import socket
 from pathlib import Path
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Default ports
+DEFAULT_API_PORT = 8001
+DEFAULT_FRONTEND_PORT = 8501
+
+
+def find_free_port(start_port: int, max_attempts: int = 10) -> int:
+    """Boş port bul. Meşgulse bir sonrakini dene."""
+    port = start_port
+    for _ in range(max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('localhost', port))
+                return port
+        except OSError:
+            print(f"   ⚠️ Port {port} meşgul, {port + 1} deneniyor...")
+            port += 1
+    raise RuntimeError(f"Boş port bulunamadı ({start_port}-{start_port + max_attempts})")
+
+
+def kill_process_on_port(port: int) -> bool:
+    """Belirtilen porttaki işlemi sonlandır."""
+    try:
+        if sys.platform == 'win32':
+            # Windows için
+            result = subprocess.run(
+                ['netstat', '-ano'],
+                capture_output=True,
+                text=True
+            )
+            for line in result.stdout.split('\n'):
+                if f':{port}' in line and 'LISTENING' in line:
+                    parts = line.split()
+                    pid = parts[-1]
+                    subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True)
+                    return True
+        else:
+            # Linux/Mac için
+            subprocess.run(['fuser', '-k', f'{port}/tcp'], capture_output=True)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def check_ollama():
@@ -33,19 +77,27 @@ def check_models():
         import ollama
         client = ollama.Client()
         models = client.list()
-        model_names = [m["name"] for m in models.get("models", [])]
         
-        required = ["qwen2.5", "nomic-embed-text"]
+        # Model listesini al (API yanıt formatına göre)
+        model_list = models.get("models", [])
+        model_names = []
+        for m in model_list:
+            if isinstance(m, dict):
+                model_names.append(m.get("name", m.get("model", "")))
+            else:
+                model_names.append(str(m))
+        
+        required = ["qwen", "nomic-embed-text"]  # qwen3-vl veya qwen2.5 olabilir
         missing = []
         
         for req in required:
-            if not any(req in m for m in model_names):
+            if not any(req in m.lower() for m in model_names):
                 missing.append(req)
         
         return missing
     except Exception as e:
         print(f"Model kontrolü hatası: {e}")
-        return ["qwen2.5:7b", "nomic-embed-text"]
+        return []  # Hata olursa model indirmeye zorlamayalım
 
 
 def pull_models(models):
@@ -62,21 +114,32 @@ def pull_models(models):
             print(f"❌ {model} indirilemedi: {e}")
 
 
-def run_api():
+def run_api(port: int):
     """API sunucusunu başlat."""
-    api_path = PROJECT_ROOT / "api" / "main.py"
+    env = os.environ.copy()
+    env['API_PORT'] = str(port)
+    
     return subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+        [sys.executable, "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", str(port)],
         cwd=str(PROJECT_ROOT),
+        env=env,
     )
 
 
-def run_frontend():
+def run_frontend(port: int, api_port: int):
     """Streamlit frontend'i başlat."""
     frontend_path = PROJECT_ROOT / "frontend" / "app.py"
+    
+    env = os.environ.copy()
+    env['API_BASE_URL'] = f'http://localhost:{api_port}'
+    env['STREAMLIT_SERVER_PORT'] = str(port)
+    
     return subprocess.Popen(
-        [sys.executable, "-m", "streamlit", "run", str(frontend_path), "--server.port", "8501"],
+        [sys.executable, "-m", "streamlit", "run", str(frontend_path), 
+         "--server.port", str(port),
+         "--server.headless", "true"],
         cwd=str(PROJECT_ROOT),
+        env=env,
     )
 
 
@@ -116,33 +179,42 @@ def main():
     settings.ensure_directories()
     print("✅ Klasörler hazır")
     
-    # Step 4: Start services
+    # Step 4: Find free ports
+    print("\n🔌 Portlar kontrol ediliyor...")
+    
+    api_port = find_free_port(DEFAULT_API_PORT)
+    print(f"   ✅ API port: {api_port}")
+    
+    frontend_port = find_free_port(DEFAULT_FRONTEND_PORT)
+    print(f"   ✅ Frontend port: {frontend_port}")
+    
+    # Step 5: Start services
     print("\n🚀 Servisler başlatılıyor...")
     
     try:
         # Start API
-        print("   📡 API başlatılıyor (port 8000)...")
-        api_process = run_api()
+        print(f"   📡 API başlatılıyor (port {api_port})...")
+        api_process = run_api(api_port)
         time.sleep(3)
         
         # Start Frontend
-        print("   🌐 Frontend başlatılıyor (port 8501)...")
-        frontend_process = run_frontend()
+        print(f"   🌐 Frontend başlatılıyor (port {frontend_port})...")
+        frontend_process = run_frontend(frontend_port, api_port)
         time.sleep(3)
         
         print("\n" + "=" * 60)
         print("✅ Enterprise AI Assistant başarıyla başlatıldı!")
         print("=" * 60)
         print("\n📍 Erişim Adresleri:")
-        print("   🌐 Frontend: http://localhost:8501")
-        print("   📡 API:      http://localhost:8000")
-        print("   📚 API Docs: http://localhost:8000/docs")
+        print(f"   🌐 Frontend: http://localhost:{frontend_port}")
+        print(f"   📡 API:      http://localhost:{api_port}")
+        print(f"   📚 API Docs: http://localhost:{api_port}/docs")
         print("\n⌨️  Durdurmak için Ctrl+C")
         print("=" * 60)
         
         # Open browser
         time.sleep(2)
-        webbrowser.open("http://localhost:8501")
+        webbrowser.open(f"http://localhost:{frontend_port}")
         
         # Wait for processes
         api_process.wait()

@@ -214,6 +214,104 @@ class LLMManager:
             "primary_available": self.check_model_available(self.primary_model),
             "backup_available": self.check_model_available(self.backup_model),
         }
+    
+    def generate_with_image(
+        self,
+        prompt: str,
+        image_path: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> str:
+        """
+        Görsel ile birlikte LLM yanıtı üret (VLM desteği).
+        
+        Args:
+            prompt: Kullanıcı prompt'u
+            image_path: Görsel dosya yolu
+            system_prompt: Sistem prompt'u (opsiyonel)
+            temperature: Yaratıcılık seviyesi
+            max_tokens: Maksimum token sayısı
+            
+        Returns:
+            LLM yanıtı
+        """
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        # Görsel ile birlikte mesaj
+        messages.append({
+            "role": "user",
+            "content": prompt,
+            "images": [image_path]
+        })
+        
+        try:
+            response = self.client.chat(
+                model=self._current_model,
+                messages=messages,
+                options={
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            if self._current_model != self.backup_model:
+                print(f"⚠️ Vision model başarısız, backup deneniyor: {e}")
+                self._current_model = self.backup_model
+                return self.generate_with_image(prompt, image_path, system_prompt, temperature, max_tokens)
+            raise
+    
+    def generate_stream_with_image(
+        self,
+        prompt: str,
+        image_path: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ):
+        """
+        Görsel ile streaming LLM yanıtı üret (VLM desteği).
+        
+        Yields:
+            Token parçaları
+        """
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        messages.append({
+            "role": "user",
+            "content": prompt,
+            "images": [image_path]
+        })
+        
+        try:
+            stream = self.client.chat(
+                model=self._current_model,
+                messages=messages,
+                options={
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+                stream=True,
+            )
+            
+            for chunk in stream:
+                if "message" in chunk and "content" in chunk["message"]:
+                    yield chunk["message"]["content"]
+                    
+        except Exception as e:
+            if self._current_model != self.backup_model:
+                print(f"⚠️ Vision streaming failed, trying backup: {e}")
+                self._current_model = self.backup_model
+                yield from self.generate_stream_with_image(prompt, image_path, system_prompt, temperature, max_tokens)
+            else:
+                raise
 
 
 # Singleton instance

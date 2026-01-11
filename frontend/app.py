@@ -203,6 +203,37 @@ st.markdown("""
         margin: 0.5rem 0;
     }
     
+    /* ===== MOD SEÇİCİ KUTUSU ===== */
+    .mode-selector-box {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 1px solid #dee2e6;
+        border-radius: 12px;
+        padding: 0.8rem 1.2rem;
+        margin: 1rem 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .mode-selector-box.web-active {
+        background: linear-gradient(135deg, #e8f4fd 0%, #d0e8f9 100%);
+        border-color: #667eea40;
+    }
+    .mode-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+        color: #495057;
+    }
+    .mode-indicator.active {
+        color: #667eea;
+        font-weight: 500;
+    }
+    .mode-icon {
+        font-size: 1.1rem;
+    }
+    
     /* ===== METRIC CARDS ===== */
     .metric-card {
         background: white;
@@ -280,6 +311,12 @@ def init_session_state():
     
     if "show_timestamps" not in st.session_state:
         st.session_state.show_timestamps = False
+    
+    if "stop_generation" not in st.session_state:
+        st.session_state.stop_generation = False
+    
+    if "is_generating" not in st.session_state:
+        st.session_state.is_generating = False
 
 init_session_state()
 
@@ -672,31 +709,33 @@ if st.session_state.current_page == "chat":
                         if isinstance(sources[0], str):
                             st.caption("📚 Kaynaklar: " + ", ".join(sources))
     
-    # ===== WEB SEARCH TOGGLE (INPUT ÜSTÜNDE) =====
-    st.markdown("---")
-    
-    # Web Search Toggle - Input'un hemen üstünde
-    toggle_col1, toggle_col2 = st.columns([1, 5])
-    
-    with toggle_col1:
-        web_enabled = st.toggle(
-            "🌐",
-            value=st.session_state.web_search_enabled,
-            help="Web'de arama yaparak yanıt ver",
-            key="web_toggle"
-        )
-        st.session_state.web_search_enabled = web_enabled
-    
-    with toggle_col2:
-        if st.session_state.web_search_enabled:
-            st.markdown('<div class="web-search-badge">🌐 Web Araması Aktif</div>', unsafe_allow_html=True)
-        else:
-            st.caption("💬 Normal mod - Bilgi tabanı kullanılıyor")
+    # ===== MOD SEÇİCİ KUTUSU (INPUT ÜSTÜNDE) =====
+    with st.container(border=True):
+        col1, col2 = st.columns([1, 8])
+        
+        with col1:
+            web_enabled = st.toggle(
+                "🌐 Web",
+                value=st.session_state.web_search_enabled,
+                help="Web'de arama yaparak yanıt ver",
+                key="web_toggle"
+            )
+            st.session_state.web_search_enabled = web_enabled
+        
+        with col2:
+            if st.session_state.web_search_enabled:
+                st.markdown("🌐 **Web Araması Aktif** - İnternetten güncel bilgi alınacak")
+            else:
+                st.markdown("💬 **Normal Mod** - Bilgi tabanı kullanılıyor")
     
     # ===== CHAT INPUT =====
-    user_input = st.chat_input("Mesajınızı yazın...", key="main_chat_input")
+    user_input = st.chat_input("Mesajınızı yazın...", key="main_chat_input", disabled=st.session_state.is_generating)
     
     if user_input:
+        # Reset stop flag
+        st.session_state.stop_generation = False
+        st.session_state.is_generating = True
+        
         # Kullanıcı mesajını ekle
         st.session_state.messages.append({
             "role": "user",
@@ -710,12 +749,26 @@ if st.session_state.current_page == "chat":
         with st.chat_message("assistant"):
             response_placeholder = st.empty()
             sources_placeholder = st.empty()
+            stop_button_placeholder = st.empty()
             
             full_response = ""
             web_sources = []
+            was_stopped = False
+            
+            # Durdur butonu göster
+            with stop_button_placeholder:
+                if st.button("⏹️ Yanıtı Durdur", key="stop_gen_btn", type="secondary", use_container_width=True):
+                    st.session_state.stop_generation = True
             
             # Stream yanıt
             for chunk in stream_chat_message(user_input, st.session_state.web_search_enabled):
+                # Durdurma kontrolü
+                if st.session_state.stop_generation:
+                    was_stopped = True
+                    full_response += "\n\n*[Yanıt kullanıcı tarafından durduruldu]*"
+                    response_placeholder.markdown(full_response)
+                    break
+                
                 chunk_type = chunk.get("type")
                 
                 if chunk_type == "status":
@@ -746,6 +799,9 @@ if st.session_state.current_page == "chat":
                         web_sources = final_sources
                     break
             
+            # Durdur butonunu kaldır
+            stop_button_placeholder.empty()
+            
             # Final render
             if full_response:
                 response_placeholder.markdown(full_response)
@@ -766,6 +822,9 @@ if st.session_state.current_page == "chat":
                     "web_sources": web_sources,
                 })
         
+        # Reset flags
+        st.session_state.is_generating = False
+        st.session_state.stop_generation = False
         st.rerun()
     
     # ===== ÖRNEK SORULAR =====

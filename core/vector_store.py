@@ -3,15 +3,26 @@ Enterprise AI Assistant - Vector Store
 Endüstri Standartlarında Kurumsal AI Çözümü
 
 ChromaDB tabanlı vector veritabanı yönetimi.
+
+Features:
+- Semantic search with scores
+- Page-based retrieval
+- Metadata filtering
+- Batch operations
+- Parent-child document support
+- Embedding-based search
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 
 from .config import settings
 from .embedding import embedding_manager
+from .logger import get_logger
+
+logger = get_logger("vector_store")
 
 
 class VectorStore:
@@ -248,6 +259,246 @@ class VectorStore:
             "persist_directory": self.persist_directory,
             "document_count": self.count(),
         }
+    
+    def search_by_embedding(
+        self,
+        embedding: List[float],
+        n_results: int = 5,
+        where: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Hazır embedding ile search yap (HyDE için).
+        
+        Args:
+            embedding: Query embedding
+            n_results: Döndürülecek sonuç sayısı
+            where: Metadata filtresi
+            
+        Returns:
+            Sonuç listesi
+        """
+        try:
+            results = self.collection.query(
+                query_embeddings=[embedding],
+                n_results=n_results,
+                where=where,
+                include=["documents", "metadatas", "distances"],
+            )
+            
+            scored_results = []
+            for i, doc in enumerate(results["documents"][0] if results["documents"] else []):
+                distance = results["distances"][0][i] if results["distances"] else 1.0
+                score = 1 - distance
+                
+                scored_results.append({
+                    "document": doc,
+                    "content": doc,  # Alias
+                    "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
+                    "score": score,
+                    "id": results["ids"][0][i] if results["ids"] else None,
+                })
+            
+            return scored_results
+        except Exception as e:
+            logger.error(f"Embedding search error: {e}")
+            return []
+    
+    def get_by_page_number(
+        self,
+        page_number: int,
+        source: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Sayfa numarasına göre chunk'ları getir.
+        
+        Args:
+            page_number: Sayfa numarası
+            source: Kaynak dosya adı (opsiyonel)
+            
+        Returns:
+            Chunk listesi
+        """
+        try:
+            where_filter = {"page_number": page_number}
+            if source:
+                where_filter = {
+                    "$and": [
+                        {"page_number": page_number},
+                        {"source": {"$eq": source}},
+                    ]
+                }
+            
+            results = self.collection.get(
+                where=where_filter,
+                include=["documents", "metadatas"],
+            )
+            
+            chunks = []
+            for i, doc in enumerate(results["documents"] if results["documents"] else []):
+                chunks.append({
+                    "id": results["ids"][i] if results["ids"] else None,
+                    "document": doc,
+                    "content": doc,
+                    "text": doc,
+                    "metadata": results["metadatas"][i] if results["metadatas"] else {},
+                    "page_number": page_number,
+                    "score": 1.0,  # Exact match
+                })
+            
+            return chunks
+        except Exception as e:
+            logger.warning(f"Page search warning: {e}")
+            return []
+    
+    def get_by_page_numbers(
+        self,
+        page_numbers: List[int],
+        source: Optional[str] = None,
+        max_results: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Birden fazla sayfa numarasına göre chunk'ları getir.
+        
+        Args:
+            page_numbers: Sayfa numaraları listesi
+            source: Kaynak dosya adı (opsiyonel)
+            max_results: Maksimum sonuç sayısı
+            
+        Returns:
+            Chunk listesi (sayfa numarasına göre sıralı)
+        """
+        all_chunks = []
+        
+        for page_num in page_numbers:
+            chunks = self.get_by_page_number(page_num, source)
+            all_chunks.extend(chunks)
+        
+        # Sayfa numarasına göre sırala
+        all_chunks.sort(key=lambda x: (
+            x.get("metadata", {}).get("page_number", 0),
+            x.get("metadata", {}).get("chunk_index", 0),
+        ))
+        
+        return all_chunks[:max_results]
+    
+    def get_parent_chunk(self, child_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Child chunk'ın parent'ını getir.
+        
+        Args:
+            child_id: Child chunk ID
+            
+        Returns:
+            Parent chunk veya None
+        """
+        try:
+            # Child'ın metadata'sını al
+            child_result = self.collection.get(
+                ids=[child_id],
+                include=["metadatas"],
+            )
+            
+            if not child_result["metadatas"]:
+                return None
+            
+            parent_id = child_result["metadatas"][0].get("parent_id")
+            if not parent_id:
+                return None
+            
+            # Parent'ı al
+            return self.get_document(parent_id)
+        except Exception as e:
+            logger.error(f"Parent chunk error: {e}")
+            return None
+    
+    def get_children_chunks(self, parent_id: str) -> List[Dict[str, Any]]:
+        """
+        Parent chunk'ın children'larını getir.
+        
+        Args:
+            parent_id: Parent chunk ID
+            
+        Returns:
+            Children chunk listesi
+        """
+        try:
+            results = self.collection.get(
+                where={"parent_id": parent_id},
+                include=["documents", "metadatas"],
+            )
+            
+            children = []
+            for i, doc in enumerate(results["documents"] if results["documents"] else []):
+                children.append({
+                    "id": results["ids"][i] if results["ids"] else None,
+                    "document": doc,
+                    "content": doc,
+                    "metadata": results["metadatas"][i] if results["metadatas"] else {},
+                })
+            
+            # chunk_index'e göre sırala
+            children.sort(key=lambda x: x.get("metadata", {}).get("chunk_index", 0))
+            return children
+        except Exception as e:
+            logger.error(f"Children chunks error: {e}")
+            return []
+    
+    def get_unique_sources(self) -> List[str]:
+        """Benzersiz kaynak listesini döndür."""
+        try:
+            all_data = self.collection.get(include=["metadatas"])
+            sources = set()
+            
+            for meta in all_data.get("metadatas", []):
+                if meta:
+                    source = meta.get("source") or meta.get("filename", "")
+                    if source:
+                        sources.add(source)
+            
+            return sorted(list(sources))
+        except Exception as e:
+            logger.error(f"Get sources error: {e}")
+            return []
+    
+    def get_document_stats(self) -> Dict[str, Any]:
+        """Detaylı döküman istatistikleri."""
+        try:
+            all_data = self.collection.get(include=["metadatas"])
+            
+            stats = {
+                "total_chunks": len(all_data.get("ids", [])),
+                "sources": {},
+                "page_count": {},
+                "chunk_types": {"parent": 0, "child": 0, "standalone": 0},
+            }
+            
+            for meta in all_data.get("metadatas", []):
+                if not meta:
+                    continue
+                
+                # Source stats
+                source = meta.get("source") or meta.get("filename", "unknown")
+                if source not in stats["sources"]:
+                    stats["sources"][source] = 0
+                stats["sources"][source] += 1
+                
+                # Page stats
+                page = meta.get("page_number")
+                if page:
+                    page_key = f"{source}_page_{page}"
+                    if page_key not in stats["page_count"]:
+                        stats["page_count"][page_key] = 0
+                    stats["page_count"][page_key] += 1
+                
+                # Chunk type stats
+                chunk_type = meta.get("chunk_type", "standalone")
+                if chunk_type in stats["chunk_types"]:
+                    stats["chunk_types"][chunk_type] += 1
+            
+            return stats
+        except Exception as e:
+            logger.error(f"Document stats error: {e}")
+            return {"error": str(e)}
 
 
 # Singleton instance

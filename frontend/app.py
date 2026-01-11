@@ -21,7 +21,7 @@ from core.session_manager import session_manager
 
 # ============ CONFIGURATION ============
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8001")
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
 # Page configuration
 st.set_page_config(

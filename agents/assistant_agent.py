@@ -169,12 +169,23 @@ SINIRLAMALAR:
                 "",
             ])
         
-        if context and "chat_history" in context:
+        # Use formatted history_text if available
+        if context and "history_text" in context and context["history_text"]:
             parts.extend([
-                "=== ÖNCEKİ KONUŞMA ===",
-                str(context["chat_history"][-5:]),  # Last 5 messages
+                "=== ÖNCEKİ KONUŞMA GEÇMİŞİ ===",
+                context["history_text"],
+                "Yukarıdaki konuşma geçmişini dikkate alarak yanıt ver.",
                 "",
             ])
+        elif context and "chat_history" in context:
+            # Fallback to formatting chat_history
+            history = context["chat_history"][-5:]
+            if history:
+                parts.append("=== ÖNCEKİ KONUŞMA GEÇMİŞİ ===")
+                for msg in history:
+                    role_name = "Kullanıcı" if msg.get("role") == "user" else "Asistan"
+                    parts.append(f"{role_name}: {msg.get('content', '')}")
+                parts.extend(["", "Yukarıdaki konuşma geçmişini dikkate alarak yanıt ver.", ""])
         
         parts.extend([
             "=== KULLANICI SORUSU ===",

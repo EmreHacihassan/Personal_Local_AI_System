@@ -21,6 +21,32 @@ from .reranker import (
     reranker,
 )
 
+# Query Expansion
+from .query_expansion import (
+    ExpansionStrategy,
+    ExpandedQuery,
+    QueryExpander,
+    SynonymExpander,
+    HyDEExpander,
+    MultiQueryExpander,
+    StepBackExpander,
+    KeywordExpander,
+    QueryExpansionManager,
+    query_expansion_manager,
+)
+
+# Hybrid Search
+from .hybrid_search import (
+    SearchStrategy,
+    SearchResult,
+    Document,
+    BM25Index,
+    DenseSearcher,
+    HybridSearcher,
+    HybridSearchManager,
+    hybrid_search_manager,
+)
+
 __all__ = [
     # Basic RAG
     "DocumentLoader",
@@ -50,4 +76,24 @@ __all__ = [
     "EnsembleReranker",
     "Reranker",
     "reranker",
+    # Query Expansion
+    "ExpansionStrategy",
+    "ExpandedQuery",
+    "QueryExpander",
+    "SynonymExpander",
+    "HyDEExpander",
+    "MultiQueryExpander",
+    "StepBackExpander",
+    "KeywordExpander",
+    "QueryExpansionManager",
+    "query_expansion_manager",
+    # Hybrid Search
+    "SearchStrategy",
+    "SearchResult",
+    "Document",
+    "BM25Index",
+    "DenseSearcher",
+    "HybridSearcher",
+    "HybridSearchManager",
+    "hybrid_search_manager",
 ]

@@ -1,5 +1,6 @@
-# Enterprise AI Assistant - Requirements
+# Enterprise AI Assistant - Requirements v2.0
 # Endüstri Standartlarında Kurumsal AI Çözümü
+# 12 İleri Düzey Teknoloji Entegrasyonu
 
 # ============ CORE ============
 python-dotenv>=1.0.0
@@ -11,6 +12,7 @@ ollama>=0.1.0
 langchain>=0.1.0
 langchain-community>=0.0.10
 langchain-core>=0.1.0
+openai>=1.12.0  # For cloud fallback
 
 # ============ RAG & VECTORS ============
 chromadb>=0.4.22
@@ -44,6 +46,7 @@ sqlalchemy>=2.0.25
 
 # ============ UTILITIES ============
 httpx>=0.26.0
+aiohttp>=3.9.0
 aiofiles>=23.2.1
 tenacity>=8.2.3
 rich>=13.7.0
@@ -52,3 +55,44 @@ psutil>=5.9.0
 # ============ TESTING ============
 pytest>=7.4.0
 pytest-asyncio>=0.23.0
+
+# ============ NEW: MCP PROTOCOL ============
+# Model Context Protocol for Claude integration
+jsonrpc-base>=2.2.0
+
+# ============ NEW: OBSERVABILITY (Langfuse) ============
+langfuse>=2.0.0
+
+# ============ NEW: STRUCTURED OUTPUT (Instructor) ============
+instructor>=0.4.0
+
+# ============ NEW: AGENT ORCHESTRATION (LangGraph-style) ============
+# Custom implementation, no extra deps needed
+
+# ============ NEW: GRAPH RAG ============
+neo4j>=5.15.0  # Optional: for production graph storage
+
+# ============ NEW: EVALUATION (RAGAS) ============
+# ragas>=0.1.0  # Optional: official RAGAS lib
+# Custom implementation included
+
+# ============ NEW: GUARDRAILS ============
+# nemoguardrails>=0.7.0  # Optional: NeMo integration
+# Custom implementation included
+
+# ============ NEW: VOICE/MULTIMODAL ============
+# Speech-to-Text
+# faster-whisper>=0.10.0  # Optional: local Whisper
+# openai-whisper>=20231117  # Optional: original Whisper
+
+# Text-to-Speech
+pyttsx3>=2.90  # Local TTS
+edge-tts>=6.1.9  # Microsoft Edge TTS (free, high quality)
+
+# Vision
+# llava support via Ollama, no extra deps
+
+# ============ OPTIONAL CLOUD PROVIDERS ============
+# anthropic>=0.18.0  # Claude API
+# google-generativeai>=0.3.0  # Gemini API
+# elevenlabs>=0.3.0  # Premium TTS

@@ -214,6 +214,21 @@ class WebSearchTool(BaseTool):
         if self._client:
             await self._client.aclose()
     
+    def execute(self, **kwargs) -> "ToolResult":
+        """Sync execute metodu."""
+        import asyncio
+        from .base_tool import ToolResult
+        
+        query = kwargs.get("query", "")
+        search_type = kwargs.get("search_type", "general")
+        num_results = kwargs.get("num_results")
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(self._run(query, search_type, num_results))
+            return ToolResult(success=result.get("success", False), data=result)
+        finally:
+            loop.close()
+    
     def get_schema(self) -> Dict:
         return {
             "name": self.name,
@@ -243,5 +258,11 @@ class WebSearchTool(BaseTool):
         }
 
 
-# Tool instance
-web_search_tool = WebSearchTool()
+# Tool instance - lazy initialization
+web_search_tool = None
+
+def get_web_search_tool():
+    global web_search_tool
+    if web_search_tool is None:
+        web_search_tool = WebSearchTool()
+    return web_search_tool

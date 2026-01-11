@@ -400,3 +400,4 @@ class PromptManager:
 
 # Singleton instance
 prompts = PromptManager()
+prompt_manager = prompts  # Alias for compatibility

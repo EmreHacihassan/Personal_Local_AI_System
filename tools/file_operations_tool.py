@@ -308,6 +308,18 @@ class FileOperationsTool(BaseTool):
         
         return await operations[operation]()
     
+    def execute(self, **kwargs) -> "ToolResult":
+        """Sync execute metodu."""
+        import asyncio
+        from .base_tool import ToolResult
+        
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(self._run(**kwargs))
+            return ToolResult(success=result.get("success", False), data=result)
+        finally:
+            loop.close()
+    
     def get_schema(self) -> Dict:
         return {
             "name": self.name,
@@ -353,5 +365,11 @@ class FileOperationsTool(BaseTool):
         }
 
 
-# Tool instance
-file_operations_tool = FileOperationsTool()
+# Tool instance - lazy initialization
+file_operations_tool = None
+
+def get_file_operations_tool():
+    global file_operations_tool
+    if file_operations_tool is None:
+        file_operations_tool = FileOperationsTool()
+    return file_operations_tool

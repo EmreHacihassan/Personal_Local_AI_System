@@ -231,6 +231,7 @@ class CacheManager:
 
 # Singleton instance
 cache = CacheManager()
+cache_manager = cache  # Alias for compatibility
 
 
 def cached(ttl: int = 3600):

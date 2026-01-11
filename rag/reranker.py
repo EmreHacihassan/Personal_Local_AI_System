@@ -20,7 +20,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .logger import get_logger
+from core.logger import get_logger
 
 logger = get_logger("reranker")
 

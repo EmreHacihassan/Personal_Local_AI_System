@@ -2,7 +2,7 @@
 Enterprise AI Assistant - Streamlit Frontend
 Endüstri Standartlarında Kurumsal AI Çözümü
 
-Ana kullanıcı arayüzü - Chat, Döküman Yönetimi, Arama.
+Ana kullanıcı arayüzü - Chat, Döküman Yönetimi, Arama, Geçmiş.
 """
 
 import streamlit as st
@@ -14,6 +14,8 @@ import sys
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core.session_manager import session_manager
 
 # ============ CONFIGURATION ============
 
@@ -74,6 +76,34 @@ st.markdown("""
         border-radius: 0.5rem;
         text-align: center;
     }
+    .history-item {
+        background-color: #f8f9fa;
+        padding: 0.8rem;
+        border-radius: 0.5rem;
+        margin-bottom: 0.5rem;
+        border-left: 3px solid #1f77b4;
+        cursor: pointer;
+    }
+    .history-item:hover {
+        background-color: #e8f4f8;
+    }
+    .search-result {
+        background-color: #fff8e1;
+        padding: 0.8rem;
+        border-radius: 0.5rem;
+        margin-bottom: 0.5rem;
+        border-left: 3px solid #ffc107;
+    }
+    .session-selector {
+        background-color: #e3f2fd;
+        padding: 0.5rem;
+        border-radius: 0.3rem;
+        margin: 0.2rem 0;
+        cursor: pointer;
+    }
+    .session-selector:hover {
+        background-color: #bbdefb;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -81,13 +111,70 @@ st.markdown("""
 # ============ SESSION STATE ============
 
 if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
+    # Yeni session oluştur ve dosyaya kaydet
+    new_session = session_manager.create_session()
+    st.session_state.session_id = new_session.id
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    # Mevcut session'ı yükle
+    existing_session = session_manager.get_session(st.session_state.session_id)
+    if existing_session:
+        st.session_state.messages = [
+            {
+                "role": m.role,
+                "content": m.content,
+                "sources": m.sources,
+            }
+            for m in existing_session.messages
+        ]
+    else:
+        st.session_state.messages = []
 
 if "current_page" not in st.session_state:
     st.session_state.current_page = "chat"
+
+if "viewing_session_id" not in st.session_state:
+    st.session_state.viewing_session_id = None
+
+
+# ============ HELPER FUNCTIONS ============
+
+def save_message_to_session(role: str, content: str, sources: list = None):
+    """Mesajı session dosyasına kaydet."""
+    session_manager.add_message(
+        st.session_state.session_id,
+        role=role,
+        content=content,
+        sources=sources or [],
+    )
+    
+    # İlk mesajda otomatik başlık oluştur
+    if role == "user" and len(st.session_state.messages) == 0:
+        session_manager.auto_title_session(st.session_state.session_id, content)
+
+
+def load_session(session_id: str):
+    """Session'ı yükle."""
+    session = session_manager.get_session(session_id)
+    if session:
+        st.session_state.session_id = session_id
+        st.session_state.messages = [
+            {
+                "role": m.role,
+                "content": m.content,
+                "sources": m.sources,
+            }
+            for m in session.messages
+        ]
+        return True
+    return False
+
+
+def create_new_session():
+    """Yeni session oluştur."""
+    new_session = session_manager.create_session()
+    st.session_state.session_id = new_session.id
+    st.session_state.messages = []
 
 
 # ============ API HELPERS ============
@@ -169,18 +256,47 @@ with st.sidebar:
     # Navigation
     page = st.radio(
         "📍 Navigasyon",
-        ["💬 Chat", "📁 Dökümanlar", "🔍 Arama", "📊 Dashboard"],
+        ["💬 Chat", "� Geçmiş", "📁 Dökümanlar", "🔍 Arama", "📊 Dashboard"],
         label_visibility="collapsed",
     )
     
     if page == "💬 Chat":
         st.session_state.current_page = "chat"
+    elif page == "📜 Geçmiş":
+        st.session_state.current_page = "history"
     elif page == "📁 Dökümanlar":
         st.session_state.current_page = "documents"
     elif page == "🔍 Arama":
         st.session_state.current_page = "search"
     elif page == "📊 Dashboard":
         st.session_state.current_page = "dashboard"
+    
+    st.markdown("---")
+    
+    # ============ SESSION SELECTOR ============
+    st.markdown("### 📂 Son Konuşmalar")
+    
+    # Yeni konuşma butonu
+    if st.button("➕ Yeni Konuşma", use_container_width=True):
+        create_new_session()
+        st.rerun()
+    
+    # Son 10 konuşmayı listele
+    recent_sessions = session_manager.list_sessions(limit=10)
+    
+    for session_info in recent_sessions:
+        session_id = session_info["id"]
+        title = session_info["title"][:30] + "..." if len(session_info["title"]) > 30 else session_info["title"]
+        msg_count = session_info.get("message_count", 0)
+        is_current = session_id == st.session_state.session_id
+        
+        # Aktif session'ı vurgula
+        if is_current:
+            st.markdown(f"**🟢 {title}** ({msg_count})")
+        else:
+            if st.button(f"💬 {title} ({msg_count})", key=f"session_{session_id}", use_container_width=True):
+                load_session(session_id)
+                st.rerun()
     
     st.markdown("---")
     
@@ -220,8 +336,8 @@ with st.sidebar:
     st.text(f"Mesaj: {len(st.session_state.messages)}")
     
     if st.button("🗑️ Sohbeti Temizle"):
-        st.session_state.messages = []
-        st.session_state.session_id = str(uuid.uuid4())
+        session_manager.delete_session(st.session_state.session_id)
+        create_new_session()
         st.rerun()
 
 
@@ -258,6 +374,9 @@ if st.session_state.current_page == "chat":
     user_input = st.chat_input("Mesajınızı yazın...")
     
     if user_input:
+        # Mesajı kaydet
+        save_message_to_session("user", user_input)
+        
         # Add user message
         st.session_state.messages.append({
             "role": "user",
@@ -268,14 +387,48 @@ if st.session_state.current_page == "chat":
         with st.chat_message("user"):
             st.write(user_input)
         
+        # Geçmiş konuşma sorgularını kontrol et
+        history_keywords = [
+            "daha önce", "daha once", "önceden", "onceden",
+            "geçmişte", "gecmiste", "önceki konuşma", "onceki konusma",
+            "hatırla", "hatirla", "ne demiştim", "ne demistim",
+            "konuşmuştuk", "konusmustuk", "bahsetmiştim", "bahsetmistim"
+        ]
+        
+        is_history_query = any(kw in user_input.lower() for kw in history_keywords)
+        
+        # Geçmişten bağlam al
+        history_context = ""
+        if is_history_query:
+            history_context = session_manager.get_context_for_query(
+                user_input,
+                current_session_id=st.session_state.session_id,
+                max_results=5
+            )
+        
         # Get AI response
         with st.chat_message("assistant"):
             with st.spinner("Düşünüyorum..."):
-                response = send_chat_message(user_input)
+                # Eğer geçmiş sorgusu ise, bağlamı mesaja ekle
+                message_to_send = user_input
+                if history_context:
+                    message_to_send = f"""Kullanıcı geçmiş konuşmalardan bilgi soruyor.
+
+{history_context}
+
+Kullanıcının sorusu: {user_input}
+
+Yukarıdaki geçmiş konuşmalardan elde edilen bilgileri kullanarak yanıt ver. Eğer ilgili bir şey bulamadıysan, bunu belirt."""
+                
+                response = send_chat_message(message_to_send)
                 
                 if response:
                     ai_message = response.get("response", "Bir hata oluştu.")
                     sources = response.get("sources", [])
+                    
+                    # Geçmiş kullanıldıysa belirt
+                    if history_context:
+                        sources = sources + ["Geçmiş Konuşmalar"]
                     
                     st.write(ai_message)
                     
@@ -283,6 +436,9 @@ if st.session_state.current_page == "chat":
                         st.markdown("**📚 Kaynaklar:**")
                         for source in sources:
                             st.markdown(f'<span class="source-tag">{source}</span>', unsafe_allow_html=True)
+                    
+                    # Mesajı kaydet
+                    save_message_to_session("assistant", ai_message, sources)
                     
                     # Add to messages
                     st.session_state.messages.append({
@@ -302,17 +458,145 @@ if st.session_state.current_page == "chat":
     with col1:
         if st.button("📋 İzin politikası nedir?"):
             st.session_state.messages.append({"role": "user", "content": "İzin politikamız nedir?"})
+            save_message_to_session("user", "İzin politikamız nedir?")
             st.rerun()
     
     with col2:
         if st.button("📧 Email taslağı hazırla"):
             st.session_state.messages.append({"role": "user", "content": "Müdüre toplantı daveti için email taslağı hazırla"})
+            save_message_to_session("user", "Müdüre toplantı daveti için email taslağı hazırla")
             st.rerun()
     
     with col3:
-        if st.button("📊 Rapor özetle"):
-            st.session_state.messages.append({"role": "user", "content": "Son yüklenen raporu özetle"})
+        if st.button("🕐 Geçmişte ne sordum?"):
+            st.session_state.messages.append({"role": "user", "content": "Daha önce sana hangi konularda sorular sordum?"})
+            save_message_to_session("user", "Daha önce sana hangi konularda sorular sordum?")
             st.rerun()
+
+
+# ============ HISTORY PAGE ============
+
+elif st.session_state.current_page == "history":
+    st.markdown("## 📜 Geçmiş Konuşmalar")
+    
+    # Arama bölümü
+    st.markdown("### 🔎 Konuşmalarda Ara")
+    
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        history_search_query = st.text_input(
+            "Arama",
+            placeholder="Geçmiş konuşmalarda ne aramak istiyorsunuz?",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        search_button = st.button("🔍 Ara", use_container_width=True)
+    
+    if search_button and history_search_query:
+        with st.spinner("Aranıyor..."):
+            results = session_manager.search_all_sessions(history_search_query, limit=20)
+            
+            if results:
+                st.success(f"✅ {len(results)} sonuç bulundu")
+                
+                for i, result in enumerate(results, 1):
+                    role_icon = "👤" if result["role"] == "user" else "🤖"
+                    date_str = result.get("timestamp", "")[:10] if result.get("timestamp") else ""
+                    
+                    with st.expander(f"{role_icon} {result['session_title'][:40]}... - {date_str}"):
+                        st.markdown(f"**Mesaj:**\n{result['content'][:500]}{'...' if len(result['content']) > 500 else ''}")
+                        
+                        col1, col2 = st.columns([3, 1])
+                        with col2:
+                            if st.button("📖 Konuşmaya Git", key=f"goto_{result['session_id']}_{i}"):
+                                load_session(result["session_id"])
+                                st.session_state.current_page = "chat"
+                                st.rerun()
+            else:
+                st.warning("😔 Sonuç bulunamadı")
+    
+    st.markdown("---")
+    
+    # En çok konuşulan konular
+    st.markdown("### 🏷️ En Çok Konuşulan Konular")
+    
+    topics = session_manager.get_all_topics(limit=15)
+    
+    if topics:
+        topic_html = ""
+        for topic, count in topics:
+            topic_html += f'<span class="source-tag">{topic} ({count})</span> '
+        st.markdown(topic_html, unsafe_allow_html=True)
+    else:
+        st.info("Henüz yeterli konuşma verisi yok")
+    
+    st.markdown("---")
+    
+    # Tüm konuşmalar listesi
+    st.markdown("### 📋 Tüm Konuşmalar")
+    
+    all_sessions = session_manager.list_sessions(limit=50)
+    
+    if all_sessions:
+        for session_info in all_sessions:
+            session_id = session_info["id"]
+            title = session_info["title"]
+            created_at = session_info["created_at"][:10] if session_info.get("created_at") else ""
+            msg_count = session_info.get("message_count", 0)
+            preview = session_info.get("preview", "")[:100]
+            
+            with st.expander(f"📁 {title} ({msg_count} mesaj) - {created_at}"):
+                if preview:
+                    st.markdown(f"*{preview}...*")
+                
+                col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+                
+                with col1:
+                    if st.button("💬 Devam Et", key=f"continue_{session_id}"):
+                        load_session(session_id)
+                        st.session_state.current_page = "chat"
+                        st.rerun()
+                
+                with col2:
+                    if st.button("📖 Oku", key=f"view_{session_id}"):
+                        st.session_state.viewing_session_id = session_id
+                        st.rerun()
+                
+                with col3:
+                    if st.button("📥 İndir", key=f"export_{session_id}"):
+                        content = session_manager.export_session(session_id, "md")
+                        if content:
+                            st.download_button(
+                                label="📄 Markdown İndir",
+                                data=content,
+                                file_name=f"konusma_{session_id[:8]}.md",
+                                mime="text/markdown",
+                                key=f"download_{session_id}"
+                            )
+                
+                with col4:
+                    if st.button("🗑️", key=f"delete_{session_id}"):
+                        session_manager.delete_session(session_id)
+                        st.success("Silindi!")
+                        st.rerun()
+                
+                # Konuşma detayını göster
+                if st.session_state.viewing_session_id == session_id:
+                    st.markdown("---")
+                    st.markdown("**Konuşma İçeriği:**")
+                    
+                    session = session_manager.get_session(session_id)
+                    if session:
+                        for msg in session.messages:
+                            role_icon = "👤" if msg.role == "user" else "🤖"
+                            timestamp = msg.timestamp[:19].replace("T", " ") if msg.timestamp else ""
+                            st.markdown(f"**{role_icon} {timestamp}**")
+                            st.markdown(msg.content)
+                            st.markdown("---")
+    else:
+        st.info("📭 Henüz kayıtlı konuşma yok")
 
 
 # ============ DOCUMENTS PAGE ============

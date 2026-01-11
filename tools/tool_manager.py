@@ -437,19 +437,12 @@ tool_manager = ToolManager(tool_registry)
 
 def register_default_tools():
     """Varsayılan araçları kaydet"""
-    from .calculator_tool import calculator_tool
-    from .web_search_tool import web_search_tool
-    from .code_executor_tool import code_executor_tool
-    from .file_operations_tool import file_operations_tool
+    from .calculator_tool import get_calculator_tool
+    from .web_search_tool import get_web_search_tool
+    from .code_executor_tool import get_code_executor_tool
+    from .file_operations_tool import get_file_operations_tool
     
-    tool_manager.register_tool(calculator_tool, ToolCategory.COMPUTATION)
-    tool_manager.register_tool(web_search_tool, ToolCategory.WEB)
-    tool_manager.register_tool(code_executor_tool, ToolCategory.CODE)
-    tool_manager.register_tool(file_operations_tool, ToolCategory.FILE)
-
-
-# Varsayılan araçları otomatik kaydet
-try:
-    register_default_tools()
-except ImportError:
-    pass  # Araçlar henüz yüklenmemiş olabilir
+    tool_manager.register_tool(get_calculator_tool(), ToolCategory.COMPUTATION)
+    tool_manager.register_tool(get_web_search_tool(), ToolCategory.WEB)
+    tool_manager.register_tool(get_code_executor_tool(), ToolCategory.CODE)
+    tool_manager.register_tool(get_file_operations_tool(), ToolCategory.FILE)

@@ -189,6 +189,19 @@ class CalculatorTool(BaseTool):
                 "error": f"Hesaplama hatası: {str(e)}"
             }
     
+    def execute(self, **kwargs) -> "ToolResult":
+        """Sync execute metodu."""
+        import asyncio
+        from .base_tool import ToolResult
+        
+        expression = kwargs.get("expression", "")
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(self._run(expression))
+            return ToolResult(success=result.get("success", False), data=result)
+        finally:
+            loop.close()
+    
     def get_schema(self) -> Dict:
         return {
             "name": self.name,
@@ -206,5 +219,11 @@ class CalculatorTool(BaseTool):
         }
 
 
-# Tool instance
-calculator_tool = CalculatorTool()
+# Tool instance - lazy initialization
+calculator_tool = None
+
+def get_calculator_tool():
+    global calculator_tool
+    if calculator_tool is None:
+        calculator_tool = CalculatorTool()
+    return calculator_tool

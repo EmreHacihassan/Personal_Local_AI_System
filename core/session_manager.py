@@ -3,13 +3,15 @@ Enterprise AI Assistant - Session Manager
 Konuşma oturumu yönetimi
 
 Endüstri standardı session management.
+Kalıcı geçmiş saklama ve arama desteği.
 """
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass, asdict, field
 import uuid
 
@@ -51,6 +53,28 @@ class Session:
     def get_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Son N mesajı al."""
         return [asdict(m) for m in self.messages[-limit:]]
+    
+    def get_user_messages(self) -> List[str]:
+        """Sadece kullanıcı mesajlarını al."""
+        return [m.content for m in self.messages if m.role == "user"]
+    
+    def get_assistant_messages(self) -> List[str]:
+        """Sadece asistan mesajlarını al."""
+        return [m.content for m in self.messages if m.role == "assistant"]
+    
+    def get_summary(self) -> str:
+        """Konuşmanın kısa özetini al."""
+        if not self.messages:
+            return "Boş konuşma"
+        
+        user_msgs = self.get_user_messages()
+        if not user_msgs:
+            return "Boş konuşma"
+        
+        # İlk ve son kullanıcı mesajından özet oluştur
+        first = user_msgs[0][:100] + "..." if len(user_msgs[0]) > 100 else user_msgs[0]
+        
+        return f"Başlangıç: {first}"
     
     def to_dict(self) -> Dict[str, Any]:
         """Session'ı dict'e çevir."""
@@ -148,12 +172,24 @@ class SessionManager:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                    
+                    # İlk mesajdan önizleme oluştur
+                    preview = ""
+                    messages = data.get("messages", [])
+                    if messages:
+                        for msg in messages:
+                            if msg.get("role") == "user":
+                                content = msg.get("content", "")
+                                preview = content[:80] + "..." if len(content) > 80 else content
+                                break
+                    
                     sessions.append({
                         "id": data["id"],
                         "title": data["title"],
                         "created_at": data["created_at"],
                         "updated_at": data["updated_at"],
-                        "message_count": len(data.get("messages", [])),
+                        "message_count": len(messages),
+                        "preview": preview,
                     })
             except Exception:
                 continue
@@ -224,6 +260,233 @@ class SessionManager:
             title += "..."
         
         return self.update_session_title(session_id, title)
+    
+    # ============ YENİ: GEÇMİŞ ARAMA ÖZELLİKLERİ ============
+    
+    def search_all_sessions(
+        self,
+        query: str,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Tüm konuşmalarda arama yap.
+        
+        Args:
+            query: Arama sorgusu
+            limit: Maksimum sonuç sayısı
+            
+        Returns:
+            Eşleşen mesajlar listesi
+        """
+        results = []
+        query_lower = query.lower()
+        query_words = query_lower.split()
+        
+        for file_path in self.storage_dir.glob("*.json"):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                session_id = data["id"]
+                session_title = data["title"]
+                messages = data.get("messages", [])
+                
+                for idx, msg in enumerate(messages):
+                    content = msg.get("content", "")
+                    content_lower = content.lower()
+                    
+                    # Tüm kelimeler içerikte var mı kontrol et
+                    if all(word in content_lower for word in query_words):
+                        # Eşleşen bölümü bul
+                        match_start = content_lower.find(query_words[0])
+                        snippet_start = max(0, match_start - 50)
+                        snippet_end = min(len(content), match_start + 150)
+                        snippet = content[snippet_start:snippet_end]
+                        
+                        if snippet_start > 0:
+                            snippet = "..." + snippet
+                        if snippet_end < len(content):
+                            snippet = snippet + "..."
+                        
+                        results.append({
+                            "session_id": session_id,
+                            "session_title": session_title,
+                            "message_index": idx,
+                            "role": msg.get("role"),
+                            "content": content,
+                            "snippet": snippet,
+                            "timestamp": msg.get("timestamp"),
+                            "created_at": data.get("created_at"),
+                        })
+                        
+                        if len(results) >= limit:
+                            return results
+                            
+            except Exception:
+                continue
+        
+        # Tarihe göre sırala (en yeni önce)
+        results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        
+        return results[:limit]
+    
+    def get_context_for_query(
+        self,
+        query: str,
+        current_session_id: Optional[str] = None,
+        max_results: int = 5
+    ) -> str:
+        """
+        Sorgu için geçmiş konuşmalardan bağlam oluştur.
+        
+        "Daha önce X hakkında ne demiştim?" tarzı sorgular için.
+        
+        Args:
+            query: Kullanıcı sorgusu
+            current_session_id: Mevcut oturum (hariç tutulacak)
+            max_results: Maksimum sonuç sayısı
+            
+        Returns:
+            Bağlam metni
+        """
+        # "Daha önce", "geçmişte", "önceki konuşmada" gibi ifadeleri temizle
+        clean_query = query.lower()
+        remove_phrases = [
+            "daha önce", "daha once", "önceden", "onceden",
+            "geçmişte", "gecmiste", "önceki konuşmada", "onceki konusmada",
+            "sana söylemiştim", "sana demistim", "hakkında ne demiştim",
+            "hakkinda ne demistim", "anlat", "hatırla", "hatirla",
+            "konuşmuştuk", "konusmustuk", "bahsetmiştim", "bahsetmistim"
+        ]
+        
+        for phrase in remove_phrases:
+            clean_query = clean_query.replace(phrase, "")
+        
+        clean_query = clean_query.strip()
+        
+        if not clean_query:
+            return ""
+        
+        # Geçmişte ara
+        results = self.search_all_sessions(clean_query, limit=max_results * 2)
+        
+        # Mevcut oturumu hariç tut
+        if current_session_id:
+            results = [r for r in results if r["session_id"] != current_session_id]
+        
+        results = results[:max_results]
+        
+        if not results:
+            return ""
+        
+        # Bağlam oluştur
+        context_parts = ["## Geçmiş Konuşmalardan Bulunan Bilgiler:\n"]
+        
+        for i, result in enumerate(results, 1):
+            role_label = "Sen" if result["role"] == "user" else "Ben (AI)"
+            date_str = result.get("timestamp", "")[:10] if result.get("timestamp") else "Bilinmeyen tarih"
+            
+            context_parts.append(f"""
+### Konuşma {i} ({date_str})
+**{role_label}:** {result['content'][:500]}{'...' if len(result['content']) > 500 else ''}
+""")
+        
+        return "\n".join(context_parts)
+    
+    def get_session_full_text(self, session_id: str) -> str:
+        """
+        Bir session'ın tüm konuşmasını metin olarak al.
+        
+        Args:
+            session_id: Session ID
+            
+        Returns:
+            Konuşma metni
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return ""
+        
+        lines = [f"# {session.title}\n", f"Tarih: {session.created_at[:10]}\n", "---\n"]
+        
+        for msg in session.messages:
+            role_label = "👤 Kullanıcı" if msg.role == "user" else "🤖 AI Asistan"
+            timestamp = msg.timestamp[:19].replace("T", " ") if msg.timestamp else ""
+            
+            lines.append(f"\n**{role_label}** ({timestamp}):\n")
+            lines.append(f"{msg.content}\n")
+            
+            if msg.sources:
+                lines.append(f"\n📚 Kaynaklar: {', '.join(msg.sources)}\n")
+        
+        return "\n".join(lines)
+    
+    def export_session(self, session_id: str, format: str = "json") -> Optional[str]:
+        """
+        Session'ı dışa aktar.
+        
+        Args:
+            session_id: Session ID
+            format: Çıktı formatı (json, txt, md)
+            
+        Returns:
+            Dışa aktarılan içerik
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return None
+        
+        if format == "json":
+            return json.dumps(session.to_dict(), ensure_ascii=False, indent=2)
+        
+        elif format in ["txt", "md"]:
+            return self.get_session_full_text(session_id)
+        
+        return None
+    
+    def get_all_topics(self, limit: int = 20) -> List[Tuple[str, int]]:
+        """
+        Tüm konuşmalardan ana konuları çıkar.
+        
+        Returns:
+            (konu, sayı) tuple listesi
+        """
+        from collections import Counter
+        
+        # Türkçe stop words
+        stop_words = {
+            "bir", "bu", "şu", "ve", "veya", "ile", "için", "de", "da",
+            "den", "dan", "ne", "nasıl", "neden", "hangi", "kim", "var",
+            "yok", "değil", "mi", "mı", "mu", "mü", "ben", "sen", "biz",
+            "siz", "o", "onu", "ona", "onun", "bana", "sana", "beni",
+            "the", "a", "an", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "must", "shall",
+            "can", "of", "to", "in", "for", "on", "with", "at", "by",
+            "from", "as", "into", "through", "during", "before", "after",
+        }
+        
+        word_counts = Counter()
+        
+        for file_path in self.storage_dir.glob("*.json"):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                for msg in data.get("messages", []):
+                    if msg.get("role") == "user":
+                        content = msg.get("content", "").lower()
+                        # Sadece alfanumerik kelimeleri al
+                        words = re.findall(r'\b[a-zA-ZğüşıöçĞÜŞİÖÇ]{4,}\b', content)
+                        
+                        for word in words:
+                            if word not in stop_words:
+                                word_counts[word] += 1
+                                
+            except Exception:
+                continue
+        
+        return word_counts.most_common(limit)
 
 
 # Singleton instance

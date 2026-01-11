@@ -338,6 +338,20 @@ class CodeExecutorTool(BaseTool):
                 "code": code
             }
     
+    def execute(self, **kwargs) -> "ToolResult":
+        """Sync execute metodu."""
+        import asyncio
+        from .base_tool import ToolResult
+        
+        code = kwargs.get("code", "")
+        timeout = kwargs.get("timeout")
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(self._run(code, timeout))
+            return ToolResult(success=result.get("success", False), data=result)
+        finally:
+            loop.close()
+    
     def get_schema(self) -> Dict:
         return {
             "name": self.name,
@@ -361,5 +375,11 @@ class CodeExecutorTool(BaseTool):
         }
 
 
-# Tool instance
-code_executor_tool = CodeExecutorTool()
+# Tool instance - lazy initialization
+code_executor_tool = None
+
+def get_code_executor_tool():
+    global code_executor_tool
+    if code_executor_tool is None:
+        code_executor_tool = CodeExecutorTool()
+    return code_executor_tool

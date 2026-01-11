@@ -472,10 +472,10 @@ async def upload_document(file: UploadFile = File(...)):
         )
         
         # Track analytics
-        analytics.track_upload(
+        analytics.track_document_upload(
             filename=filename,
             file_size=file_path.stat().st_size,
-            chunks_count=len(chunks),
+            chunks_created=len(chunks),
         )
         
         return DocumentUploadResponse(
@@ -560,6 +560,7 @@ async def search_documents(request: SearchRequest):
         analytics.track_search(
             query=request.query,
             results_count=len(results),
+            duration_ms=0,  # TODO: Calculate actual duration
         )
         
         return SearchResponse(

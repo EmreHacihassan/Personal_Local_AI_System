@@ -39,8 +39,17 @@ class LLMManager:
     def check_model_available(self, model_name: str) -> bool:
         """Model'in mevcut olup olmadığını kontrol et."""
         try:
-            models = self.client.list()
-            available_models = [m["name"] for m in models.get("models", [])]
+            result = self.client.list()
+            # Handle both old (dict) and new (object) API formats
+            if hasattr(result, 'models'):
+                # New API: result.models is a list of Model objects
+                available_models = [m.model for m in result.models]
+            elif isinstance(result, dict):
+                # Old API: result is a dict with 'models' key
+                available_models = [m["name"] for m in result.get("models", [])]
+            else:
+                available_models = []
+            
             # Check for exact match or partial match (with tags)
             return any(
                 model_name in m or m.startswith(model_name.split(":")[0])

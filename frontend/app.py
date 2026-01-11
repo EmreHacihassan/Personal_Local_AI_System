@@ -248,11 +248,36 @@ def stream_chat_message(message: str):
 
 def upload_document(file):
     """Döküman yükle."""
-    return api_request(
-        "POST",
-        "/api/documents/upload",
-        files={"file": (file.name, file, file.type)},
-    )
+    # Get file type or use default based on extension
+    file_type = file.type
+    if not file_type:
+        ext = Path(file.name).suffix.lower()
+        type_map = {
+            ".pdf": "application/pdf",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".txt": "text/plain",
+            ".md": "text/markdown",
+            ".csv": "text/csv",
+            ".json": "application/json",
+            ".html": "text/html",
+            ".htm": "text/html",
+        }
+        file_type = type_map.get(ext, "application/octet-stream")
+    
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/documents/upload",
+            files={"file": (file.name, file, file_type)},
+            timeout=300,  # 5 dakika timeout (büyük dosyalar için)
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": "API'ye bağlanılamadı"}
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "İstek zaman aşımına uğradı"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 def search_documents(query: str, top_k: int = 5):
@@ -797,13 +822,18 @@ elif st.session_state.current_page == "documents":
     )
     
     if uploaded_file:
+        st.info(f"📄 Seçilen dosya: {uploaded_file.name} ({uploaded_file.size / 1024:.1f} KB)")
+        
         if st.button("📥 Yükle ve İndexle"):
-            with st.spinner("Döküman işleniyor..."):
+            with st.spinner("Döküman işleniyor... (Büyük dosyalarda biraz zaman alabilir)"):
                 result = upload_document(uploaded_file)
                 
                 if result and result.get("success"):
                     st.success(f"✅ {result.get('message')}")
                     st.info(f"📊 {result.get('chunks_created')} parça oluşturuldu")
+                    st.balloons()
+                elif result and result.get("error"):
+                    st.error(f"❌ Hata: {result.get('error')}")
                 else:
                     st.error("❌ Yükleme başarısız")
     

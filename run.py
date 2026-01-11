@@ -76,16 +76,23 @@ def check_models():
     try:
         import ollama
         client = ollama.Client()
-        models = client.list()
+        result = client.list()
         
-        # Model listesini al (API yanıt formatına göre)
-        model_list = models.get("models", [])
-        model_names = []
-        for m in model_list:
-            if isinstance(m, dict):
-                model_names.append(m.get("name", m.get("model", "")))
-            else:
-                model_names.append(str(m))
+        # Handle both old (dict) and new (object) API formats
+        if hasattr(result, 'models'):
+            # New API: result.models is a list of Model objects
+            model_names = [m.model for m in result.models]
+        elif isinstance(result, dict):
+            # Old API: result is a dict with 'models' key
+            model_list = result.get("models", [])
+            model_names = []
+            for m in model_list:
+                if isinstance(m, dict):
+                    model_names.append(m.get("name", m.get("model", "")))
+                else:
+                    model_names.append(str(m))
+        else:
+            model_names = []
         
         required = ["qwen", "nomic-embed-text"]  # qwen3-vl veya qwen2.5 olabilir
         missing = []

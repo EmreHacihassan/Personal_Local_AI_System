@@ -8,6 +8,8 @@ Ana kullanıcı arayüzü - Chat, Döküman Yönetimi, Arama, Geçmiş.
 import streamlit as st
 import requests
 import uuid
+import os
+import json
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -19,7 +21,7 @@ from core.session_manager import session_manager
 
 # ============ CONFIGURATION ============
 
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8001")
 
 # Page configuration
 st.set_page_config(
@@ -214,6 +216,36 @@ def send_chat_message(message: str):
     )
 
 
+def stream_chat_message(message: str):
+    """Streaming chat mesajı gönder - token token yanıt al."""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/api/chat/stream",
+            json={
+                "message": message,
+                "session_id": st.session_state.session_id,
+            },
+            stream=True,
+            timeout=120,
+        )
+        
+        if response.status_code == 200:
+            for line in response.iter_lines():
+                if line:
+                    line_text = line.decode('utf-8')
+                    if line_text.startswith('data: '):
+                        try:
+                            data = json.loads(line_text[6:])
+                            yield data
+                        except json.JSONDecodeError:
+                            continue
+        else:
+            yield {"type": "error", "message": f"HTTP {response.status_code}"}
+            
+    except requests.exceptions.RequestException as e:
+        yield {"type": "error", "message": str(e)}
+
+
 def upload_document(file):
     """Döküman yükle."""
     return api_request(
@@ -406,48 +438,56 @@ if st.session_state.current_page == "chat":
                 max_results=5
             )
         
-        # Get AI response
+        # Get AI response with streaming
         with st.chat_message("assistant"):
-            with st.spinner("Düşünüyorum..."):
-                # Eğer geçmiş sorgusu ise, bağlamı mesaja ekle
-                message_to_send = user_input
-                if history_context:
-                    message_to_send = f"""Kullanıcı geçmiş konuşmalardan bilgi soruyor.
+            # Eğer geçmiş sorgusu ise, bağlamı mesaja ekle
+            message_to_send = user_input
+            if history_context:
+                message_to_send = f"""Kullanıcı geçmiş konuşmalardan bilgi soruyor.
 
 {history_context}
 
 Kullanıcının sorusu: {user_input}
 
 Yukarıdaki geçmiş konuşmalardan elde edilen bilgileri kullanarak yanıt ver. Eğer ilgili bir şey bulamadıysan, bunu belirt."""
+            
+            # Streaming response
+            response_placeholder = st.empty()
+            full_response = ""
+            sources = []
+            
+            for chunk in stream_chat_message(message_to_send):
+                if chunk.get("type") == "token":
+                    full_response += chunk.get("content", "")
+                    response_placeholder.markdown(full_response + "▌")
+                elif chunk.get("type") == "error":
+                    st.error(f"Hata: {chunk.get('message')}")
+                    break
+                elif chunk.get("type") == "end":
+                    break
+            
+            # Final render without cursor
+            if full_response:
+                response_placeholder.markdown(full_response)
                 
-                response = send_chat_message(message_to_send)
+                # Geçmiş kullanıldıysa belirt
+                if history_context:
+                    sources = ["Geçmiş Konuşmalar"]
+                    st.markdown("**📚 Kaynaklar:**")
+                    for source in sources:
+                        st.markdown(f'<span class="source-tag">{source}</span>', unsafe_allow_html=True)
                 
-                if response:
-                    ai_message = response.get("response", "Bir hata oluştu.")
-                    sources = response.get("sources", [])
-                    
-                    # Geçmiş kullanıldıysa belirt
-                    if history_context:
-                        sources = sources + ["Geçmiş Konuşmalar"]
-                    
-                    st.write(ai_message)
-                    
-                    if sources:
-                        st.markdown("**📚 Kaynaklar:**")
-                        for source in sources:
-                            st.markdown(f'<span class="source-tag">{source}</span>', unsafe_allow_html=True)
-                    
-                    # Mesajı kaydet
-                    save_message_to_session("assistant", ai_message, sources)
-                    
-                    # Add to messages
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": ai_message,
-                        "sources": sources,
-                    })
-                else:
-                    st.error("Yanıt alınamadı. Lütfen tekrar deneyin.")
+                # Mesajı kaydet
+                save_message_to_session("assistant", full_response, sources)
+                
+                # Add to messages
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": full_response,
+                    "sources": sources,
+                })
+            else:
+                st.error("Yanıt alınamadı. Lütfen tekrar deneyin.")
     
     # Example prompts
     st.markdown("---")

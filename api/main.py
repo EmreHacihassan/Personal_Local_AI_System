@@ -208,10 +208,11 @@ async def chat(request: ChatRequest):
         
         # Track analytics
         analytics.track_chat(
-            session_id=session_id,
-            message_length=len(request.message),
+            query=request.message[:100],
             response_length=len(response.content),
-            agent_used=response.metadata.get("agent", "unknown"),
+            duration_ms=0,  # TODO: Calculate actual duration
+            agent=response.metadata.get("agent", "unknown"),
+            session_id=session_id,
         )
         
         return ChatResponse(
@@ -226,6 +227,81 @@ async def chat(request: ChatRequest):
         # Track error
         analytics.track_error("chat", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/stream", tags=["Chat"])
+async def chat_stream(request: ChatRequest):
+    """
+    Streaming chat endpoint - SSE (Server-Sent Events) kullanır.
+    
+    Token token yanıt gönderir.
+    """
+    import json
+    
+    async def generate():
+        try:
+            # Get or create session
+            session_id = request.session_id or str(uuid.uuid4())
+            
+            if session_id not in sessions:
+                sessions[session_id] = []
+            
+            # Add user message to history
+            sessions[session_id].append({
+                "role": "user",
+                "content": request.message,
+                "timestamp": datetime.now().isoformat(),
+            })
+            
+            # Send session_id first
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+            
+            # Prepare context
+            context = request.context or {}
+            context["chat_history"] = sessions[session_id][-10:]
+            
+            # Stream tokens from LLM
+            full_response = ""
+            
+            # Get system prompt from orchestrator
+            system_prompt = """Sen yardımcı bir AI asistanısın. Türkçe yanıt ver."""
+            
+            for token in llm_manager.generate_stream(request.message, system_prompt):
+                full_response += token
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            
+            # Add assistant response to history
+            sessions[session_id].append({
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": datetime.now().isoformat(),
+            })
+            
+            # Track analytics
+            analytics.track_chat(
+                query=request.message[:100],
+                response_length=len(full_response),
+                duration_ms=0,
+                agent="streaming",
+                session_id=session_id,
+            )
+            
+            # Send end event
+            yield f"data: {json.dumps({'type': 'end', 'session_id': session_id})}\n\n"
+            
+        except Exception as e:
+            analytics.track_error("chat_stream", str(e))
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/api/chat/history/{session_id}", tags=["Chat"])

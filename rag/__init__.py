@@ -8,6 +8,19 @@ from .advanced_rag import AdvancedRAG, advanced_rag, RAGStrategy, RAGConfig
 from .knowledge_graph import KnowledgeGraph, knowledge_graph, Entity, Relation
 from .evaluation import RAGEvaluator, rag_evaluator, RAGEvaluationReport
 
+# Reranker
+from .reranker import (
+    RankedDocument,
+    RerankerStrategy,
+    BM25Reranker,
+    CrossEncoderReranker,
+    RRFReranker,
+    LLMReranker,
+    EnsembleReranker,
+    Reranker,
+    reranker,
+)
+
 __all__ = [
     # Basic RAG
     "DocumentLoader",
@@ -27,4 +40,14 @@ __all__ = [
     "RAGEvaluator",
     "rag_evaluator",
     "RAGEvaluationReport",
+    # Reranker
+    "RankedDocument",
+    "RerankerStrategy",
+    "BM25Reranker",
+    "CrossEncoderReranker",
+    "RRFReranker",
+    "LLMReranker",
+    "EnsembleReranker",
+    "Reranker",
+    "reranker",
 ]

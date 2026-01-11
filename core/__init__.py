@@ -34,6 +34,30 @@ from .tracing import (
     trace, timed, request_counter, request_duration, llm_tokens
 )
 
+# Conversation Chain
+from .conversation import (
+    Message,
+    MessageRole,
+    ConversationTurn,
+    Conversation,
+    ConversationStore,
+    ConversationChain,
+    conversation_store,
+)
+
+# Semantic Router
+from .router import (
+    Route,
+    RouteMatch,
+    RouteType,
+    RouterStrategy,
+    KeywordRouter,
+    SemanticRouter,
+    HybridRouter,
+    SemanticRouterManager,
+    semantic_router,
+)
+
 __all__ = [
     # Config
     "settings",
@@ -134,4 +158,22 @@ __all__ = [
     "request_counter",
     "request_duration",
     "llm_tokens",
+    # Conversation Chain
+    "Message",
+    "MessageRole",
+    "ConversationTurn",
+    "Conversation",
+    "ConversationStore",
+    "ConversationChain",
+    "conversation_store",
+    # Semantic Router
+    "Route",
+    "RouteMatch",
+    "RouteType",
+    "RouterStrategy",
+    "KeywordRouter",
+    "SemanticRouter",
+    "HybridRouter",
+    "SemanticRouterManager",
+    "semantic_router",
 ]

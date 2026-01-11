@@ -214,20 +214,112 @@ class WebSearchTool(BaseTool):
         if self._client:
             await self._client.aclose()
     
+    def _sync_search(self, query: str, search_type: str = "general", num_results: int = 5) -> Dict[str, Any]:
+        """Senkron web araması - requests kullanır."""
+        import requests
+        
+        results = {
+            "query": query,
+            "search_type": search_type,
+            "timestamp": datetime.now().isoformat(),
+            "instant_answer": None,
+            "results": [],
+            "success": False,
+            "total_results": 0
+        }
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        
+        try:
+            # Instant Answer API
+            if search_type in ["general", "instant"]:
+                params = {
+                    "q": query,
+                    "format": "json",
+                    "no_html": 1,
+                    "skip_disambig": 1,
+                    "no_redirect": 1
+                }
+                
+                try:
+                    resp = requests.get(
+                        self.INSTANT_ANSWER_API,
+                        params=params,
+                        headers=headers,
+                        timeout=self.timeout
+                    )
+                    
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("Abstract"):
+                            results["instant_answer"] = {
+                                "type": "instant_answer",
+                                "title": data.get("Heading", ""),
+                                "abstract": data.get("Abstract", ""),
+                                "source": data.get("AbstractSource", ""),
+                                "url": data.get("AbstractURL", ""),
+                                "image": data.get("Image", ""),
+                            }
+                except Exception:
+                    pass
+            
+            # HTML Search
+            if search_type in ["general", "news"]:
+                data = {
+                    "q": query,
+                    "kl": self.region,
+                    "kp": "-1" if self.safe_search == "off" else "1"
+                }
+                
+                try:
+                    resp = requests.post(
+                        self.HTML_SEARCH_URL,
+                        data=data,
+                        headers=headers,
+                        timeout=self.timeout
+                    )
+                    
+                    if resp.status_code == 200:
+                        html = resp.text
+                        
+                        # Parse results
+                        link_pattern = r'class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>'
+                        snippet_pattern = r'class="result__snippet"[^>]*>([^<]+)</a>'
+                        
+                        links = re.findall(link_pattern, html)
+                        snippets = re.findall(snippet_pattern, html)
+                        
+                        for i, (url, title) in enumerate(links[:num_results]):
+                            result = {
+                                "title": title.strip(),
+                                "url": url,
+                                "snippet": snippets[i].strip() if i < len(snippets) else ""
+                            }
+                            results["results"].append(result)
+                except Exception:
+                    pass
+            
+            results["success"] = bool(results["instant_answer"] or results["results"])
+            results["total_results"] = len(results["results"])
+            
+        except Exception as e:
+            results["error"] = str(e)
+        
+        return results
+    
     def execute(self, **kwargs) -> "ToolResult":
-        """Sync execute metodu."""
-        import asyncio
+        """Sync execute metodu - FastAPI uyumlu."""
         from .base_tool import ToolResult
         
         query = kwargs.get("query", "")
         search_type = kwargs.get("search_type", "general")
-        num_results = kwargs.get("num_results")
-        loop = asyncio.new_event_loop()
-        try:
-            result = loop.run_until_complete(self._run(query, search_type, num_results))
-            return ToolResult(success=result.get("success", False), data=result)
-        finally:
-            loop.close()
+        num_results = kwargs.get("num_results", self.max_results)
+        
+        # Sync versiyon kullan
+        result = self._sync_search(query, search_type, num_results)
+        return ToolResult(success=result.get("success", False), data=result)
     
     def get_schema(self) -> Dict:
         return {

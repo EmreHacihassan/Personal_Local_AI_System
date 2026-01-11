@@ -33,6 +33,7 @@ from agents.orchestrator import orchestrator
 from rag.document_loader import document_loader
 from rag.chunker import document_chunker
 from api.websocket import websocket_endpoint, manager
+from tools.web_search_tool import WebSearchTool
 
 
 # ============ PYDANTIC MODELS ============
@@ -42,6 +43,14 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
     session_id: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
+    web_search: bool = Field(default=False, description="Web araması yapılsın mı?")
+
+
+class WebSearchRequest(BaseModel):
+    """Web arama isteği modeli."""
+    query: str = Field(..., min_length=1, max_length=1000)
+    num_results: int = Field(default=5, ge=1, le=10)
+    search_type: str = Field(default="general", pattern="^(general|news|instant)$")
 
 
 class ChatResponse(BaseModel):
@@ -334,6 +343,204 @@ Yukarıdaki konuşma geçmişini dikkate alarak kullanıcının mevcut sorusuna 
             
         except Exception as e:
             analytics.track_error("chat_stream", str(e))
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+# ============ WEB SEARCH ENDPOINTS ============
+
+@app.post("/api/web-search", tags=["Web Search"])
+async def web_search(request: WebSearchRequest):
+    """
+    Web'de arama yapar ve sonuçları döndürür.
+    
+    DuckDuckGo API kullanarak web araması yapar.
+    """
+    try:
+        search_tool = WebSearchTool(max_results=request.num_results)
+        result = search_tool.execute(
+            query=request.query,
+            search_type=request.search_type,
+            num_results=request.num_results
+        )
+        
+        if result.success:
+            return {
+                "success": True,
+                "query": request.query,
+                "instant_answer": result.data.get("instant_answer"),
+                "results": result.data.get("results", []),
+                "total": result.data.get("total_results", 0),
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            return {
+                "success": False,
+                "query": request.query,
+                "error": result.data.get("error", "Arama başarısız"),
+                "results": [],
+                "total": 0
+            }
+    except Exception as e:
+        analytics.track_error("web_search", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/web-stream", tags=["Chat"])
+async def chat_web_stream(request: ChatRequest):
+    """
+    Web araması ile desteklenen streaming chat endpoint'i.
+    
+    Önce web'de arar, sonra sonuçları kullanarak yanıt üretir.
+    Token token yanıt gönderir + kaynak URL'leri döndürür.
+    """
+    import json
+    
+    async def generate():
+        try:
+            # Get or create session
+            session_id = request.session_id or str(uuid.uuid4())
+            
+            # Load session from file-based storage
+            session = session_manager.get_session(session_id)
+            if session is None:
+                session = session_manager.create_session()
+                session_id = session.session_id
+            
+            # Also sync with in-memory cache
+            if session_id not in sessions:
+                sessions[session_id] = session.get_history(limit=50)
+            
+            # Add user message to history
+            user_msg = {
+                "role": "user",
+                "content": request.message,
+                "timestamp": datetime.now().isoformat(),
+            }
+            sessions[session_id].append(user_msg)
+            session_manager.add_message(session_id, "user", request.message)
+            
+            # Send session_id first
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+            
+            # Send searching status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Web araması yapılıyor...'})}\n\n"
+            
+            # Perform web search
+            web_sources = []
+            web_context = ""
+            
+            try:
+                search_tool = WebSearchTool(max_results=5)
+                search_result = search_tool.execute(
+                    query=request.message,
+                    search_type="general",
+                    num_results=5
+                )
+                
+                if search_result.success:
+                    # Process instant answer
+                    instant = search_result.data.get("instant_answer")
+                    if instant:
+                        web_context += f"\n### Hızlı Cevap:\n{instant.get('abstract', '')}\n"
+                        if instant.get('url'):
+                            web_sources.append({
+                                "title": instant.get('title', 'Kaynak'),
+                                "url": instant.get('url'),
+                                "snippet": instant.get('abstract', '')[:200]
+                            })
+                    
+                    # Process search results
+                    results = search_result.data.get("results", [])
+                    if results:
+                        web_context += "\n### Web Arama Sonuçları:\n"
+                        for i, r in enumerate(results, 1):
+                            web_context += f"\n[{i}] {r.get('title', 'Sonuç')}\n{r.get('snippet', '')}\n"
+                            web_sources.append({
+                                "title": r.get('title', f'Kaynak {i}'),
+                                "url": r.get('url', ''),
+                                "snippet": r.get('snippet', '')[:200]
+                            })
+                    
+                    # Send sources to frontend
+                    yield f"data: {json.dumps({'type': 'sources', 'sources': web_sources})}\n\n"
+                
+            except Exception as search_error:
+                yield f"data: {json.dumps({'type': 'warning', 'message': f'Web araması yapılamadı: {str(search_error)}'})}\n\n"
+            
+            # Build chat history context
+            recent_history = sessions[session_id][-10:]
+            history_text = ""
+            if len(recent_history) > 1:
+                history_text = "\n\nÖnceki konuşma geçmişi:\n"
+                for msg in recent_history[:-1]:
+                    role_name = "Kullanıcı" if msg["role"] == "user" else "Asistan"
+                    history_text += f"{role_name}: {msg['content']}\n"
+            
+            # Build system prompt with web context
+            system_prompt = f"""Sen yardımcı bir AI asistanısın. Türkçe yanıt ver.
+
+{history_text}
+
+### Web'den Toplanan Bilgiler:
+{web_context if web_context else "Web araması sonucu bulunamadı."}
+
+KURALLAR:
+1. Yukarıdaki web kaynaklarını kullanarak kullanıcının sorusuna kapsamlı bir yanıt ver.
+2. Bilgilerin kaynağını belirt (örn: "[1] kaynağına göre...")
+3. Emin olmadığın bilgileri "Bu konuda kesin bilgi bulunamadı" diye belirt.
+4. Yanıtın sonunda kullandığın kaynakları BELIRTME (kaynaklar ayrıca gösterilecek).
+5. Tarih, istatistik gibi güncel bilgilerde dikkatli ol.
+
+Kullanıcının sorusu: {request.message}"""
+            
+            # Stream tokens from LLM
+            full_response = ""
+            
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Yanıt hazırlanıyor...'})}\n\n"
+            
+            for token in llm_manager.generate_stream(request.message, system_prompt):
+                full_response += token
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            
+            # Add assistant response to history
+            assistant_msg = {
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": datetime.now().isoformat(),
+                "sources": [s["url"] for s in web_sources],
+            }
+            sessions[session_id].append(assistant_msg)
+            session_manager.add_message(
+                session_id, 
+                "assistant", 
+                full_response,
+                sources=[s["url"] for s in web_sources]
+            )
+            
+            # Track analytics
+            analytics.track_chat(
+                query=request.message[:100],
+                response_length=len(full_response),
+                duration_ms=0,
+                agent="web_search_stream",
+                session_id=session_id,
+            )
+            
+            # Send end event with final sources
+            yield f"data: {json.dumps({'type': 'end', 'session_id': session_id, 'sources': web_sources})}\n\n"
+            
+        except Exception as e:
+            analytics.track_error("chat_web_stream", str(e))
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     return StreamingResponse(

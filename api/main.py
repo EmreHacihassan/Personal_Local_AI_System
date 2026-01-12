@@ -29,11 +29,13 @@ from core.rate_limiter import rate_limiter
 from core.health import get_health_report
 from core.export import export_manager, import_manager
 from core.session_manager import session_manager
+from core.notes_manager import notes_manager
 from agents.orchestrator import orchestrator
 from rag.document_loader import document_loader
 from rag.chunker import document_chunker
 from api.websocket import websocket_endpoint, manager
-from tools.web_search_tool import WebSearchTool
+from tools.web_search_engine import PremiumWebSearchEngine, get_search_engine, WebSearchTool
+from tools.research_synthesizer import get_synthesizer, ResearchSynthesizer
 
 
 # ============ PYDANTIC MODELS ============
@@ -44,13 +46,16 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
     web_search: bool = Field(default=False, description="Web araması yapılsın mı?")
+    response_mode: str = Field(default="normal", pattern="^(normal|detailed)$", description="Yanıt modu: normal veya detailed")
 
 
 class WebSearchRequest(BaseModel):
     """Web arama isteği modeli."""
     query: str = Field(..., min_length=1, max_length=1000)
-    num_results: int = Field(default=5, ge=1, le=10)
-    search_type: str = Field(default="general", pattern="^(general|news|instant)$")
+    num_results: int = Field(default=8, ge=1, le=15)
+    search_type: str = Field(default="general", pattern="^(general|news|academic)$")
+    extract_content: bool = Field(default=True, description="İçerik çıkarsın mı")
+    include_wikipedia: bool = Field(default=True, description="Wikipedia dahil edilsin mi")
 
 
 class ChatResponse(BaseModel):
@@ -113,6 +118,369 @@ app.add_middleware(
 
 # Session storage (in-memory for simplicity)
 sessions: Dict[str, List[Dict[str, Any]]] = {}
+
+
+# ============ HELPER FUNCTIONS ============
+
+def get_uploaded_documents_info() -> str:
+    """Yüklenen dökümanların bilgisini döndür."""
+    upload_dir = settings.DATA_DIR / "uploads"
+    
+    if not upload_dir.exists():
+        return ""
+    
+    documents = []
+    for file_path in upload_dir.iterdir():
+        if file_path.is_file():
+            # Extract original filename from stored name
+            parts = file_path.name.split("_", 1)
+            original_name = parts[1] if len(parts) > 1 else file_path.name
+            size_kb = file_path.stat().st_size / 1024
+            documents.append(f"• {original_name} ({size_kb:.1f} KB)")
+    
+    if not documents:
+        return ""
+    
+    docs_text = "\n\n### 📁 Yüklenen Dökümanlar:\n"
+    docs_text += "Kullanıcı aşağıdaki dökümanları bilgi tabanına yüklemiş. Bu dosyalardaki bilgileri kullanarak yanıt verebilirsin:\n"
+    docs_text += "\n".join(documents)
+    docs_text += f"\n\n**Toplam:** {len(documents)} döküman"
+    
+    return docs_text
+
+
+def generate_source_ref_id(filename: str, page_num: any, source_index: int, source_map: dict) -> tuple:
+    """
+    Wikipedia tarzı referans ID'si oluştur.
+    
+    Mantık:
+    - Her döküman bir harf alır: A, B, C, D...
+    - Sayfa numarası varsa: A.1, A.2, B.3 gibi
+    - Sayfa yoksa: A, B, C gibi tek harf
+    
+    Örnek: [A.2] = A dökümanının 2. sayfası
+    
+    Returns:
+        (ref_id, is_new_source)
+    """
+    import re
+    
+    # Dosya adını normalize et - sadece orijinal dosya adını kullan
+    if '\\' in filename or '/' in filename:
+        filename = filename.replace('\\', '/').split('/')[-1]
+    
+    # UUID prefix'i varsa kaldır (örn: a3e58d19-bcb8-4766-b461-2f7b87fc747c_excel4.pdf -> excel4.pdf)
+    if '_' in filename and len(filename.split('_')[0]) == 36:
+        parts = filename.split('_', 1)
+        if len(parts) > 1:
+            filename = parts[1]
+    
+    base_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
+    base_name = re.sub(r'[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ\s_-]', '', base_name)
+    base_name = base_name[:40]  # İlk 40 karakter
+    
+    # Bu dosya için harf ata (A, B, C...)
+    is_new_source = False
+    if base_name not in source_map:
+        letter_index = len(source_map)
+        if letter_index < 26:
+            letter = chr(65 + letter_index)  # A=65
+        else:
+            first = chr(65 + (letter_index // 26) - 1)
+            second = chr(65 + (letter_index % 26))
+            letter = first + second
+        source_map[base_name] = {"letter": letter, "filename": filename, "pages": set()}
+        is_new_source = True
+    
+    letter = source_map[base_name]["letter"]
+    
+    # Sayfa numarası varsa ekle
+    if page_num:
+        try:
+            page = int(page_num)
+            source_map[base_name]["pages"].add(page)
+            ref_id = f"{letter}.{page}"
+        except (ValueError, TypeError):
+            ref_id = letter
+    else:
+        ref_id = letter
+    
+    return ref_id, is_new_source
+
+
+def format_reference_list(source_map: dict) -> str:
+    """
+    Wikipedia tarzı referans listesi oluştur.
+    """
+    if not source_map:
+        return ""
+    
+    ref_list = "\n\n---\n📚 **KAYNAKLAR**\n"
+    
+    for base_name, info in source_map.items():
+        letter = info["letter"]
+        filename = info["filename"]
+        pages = sorted(info["pages"]) if info["pages"] else []
+        
+        if pages:
+            page_str = ", ".join(str(p) for p in pages)
+            ref_list += f"**[{letter}]** {filename} (s. {page_str})\n"
+        else:
+            ref_list += f"**[{letter}]** {filename}\n"
+    
+    return ref_list
+
+
+def deduplicate_results(results: list, content_key: str = "document") -> list:
+    """
+    Sonuçlardan duplicate içerikleri kaldır.
+    İlk 200 karaktere göre karşılaştır.
+    """
+    seen_content = set()
+    unique_results = []
+    
+    for r in results:
+        content = r.get(content_key, "") if isinstance(r, dict) else getattr(r, 'content', '')
+        content_hash = hash(content[:200].strip().lower())
+        
+        if content_hash not in seen_content:
+            seen_content.add(content_hash)
+            unique_results.append(r)
+    
+    return unique_results
+
+
+def get_uploaded_document_list() -> list:
+    """
+    Yüklenen dökümanların listesini döndür.
+    """
+    upload_dir = settings.DATA_DIR / "uploads"
+    
+    if not upload_dir.exists():
+        return []
+    
+    documents = []
+    seen_names = set()
+    
+    for file_path in upload_dir.iterdir():
+        if file_path.is_file():
+            # UUID prefix'i kaldır
+            parts = file_path.name.split("_", 1)
+            original_name = parts[1] if len(parts) > 1 else file_path.name
+            
+            # Duplicate dosya adlarını atla
+            if original_name in seen_names:
+                continue
+            seen_names.add(original_name)
+            
+            size_kb = file_path.stat().st_size / 1024
+            doc_type = file_path.suffix.upper()[1:] if file_path.suffix else "FILE"
+            documents.append({
+                "name": original_name,
+                "type": doc_type,
+                "size_kb": size_kb
+            })
+    
+    return documents
+
+
+def search_knowledge_base(query: str, top_k: int = 5, strategy: str = "fusion") -> tuple:
+    """
+    Gelişmiş RAG ile bilgi tabanında arama yap ve Wikipedia tarzı referanslarla döndür.
+    
+    ENTERPRISE GRADE RAG:
+    - Filename-based priority (dosya adı eşleşmesi en yüksek öncelik)
+    - Keyword matching (içerikte kelime eşleşmesi)  
+    - Semantic search (embedding benzerliği)
+    - Duplicate filtering
+    - Source attribution with refs
+    
+    Args:
+        query: Arama sorgusu
+        top_k: Döndürülecek sonuç sayısı
+        strategy: RAG stratejisi (kullanılmıyor, future use)
+        
+    Returns:
+        tuple: (knowledge_text, reference_list, source_map)
+    """
+    source_map = {}
+    
+    # Önce yüklenmiş döküman var mı kontrol et
+    doc_count = vector_store.count()
+    if doc_count == 0:
+        return "", "", {}
+    
+    try:
+        # === SORGU ANALİZİ ===
+        query_lower = query.lower()
+        query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
+        
+        # Özel anahtar kelimeler ve dosya türleri
+        doc_type_keywords = {
+            'powerpoint': ['pptx', 'ppt', 'slayt', 'sunum', 'slide'],
+            'excel': ['xlsx', 'xls', 'tablo', 'hücre', 'formül', 'sheet'],
+            'pdf': ['pdf', 'kitap', 'döküman', 'belge'],
+            'word': ['docx', 'doc', 'metin', 'yazı'],
+        }
+        
+        # Kullanıcı hangi dosya türünü arıyor?
+        target_doc_types = set()
+        for doc_type, keywords in doc_type_keywords.items():
+            if any(kw in query_lower for kw in keywords):
+                target_doc_types.add(doc_type)
+        
+        # === TÜM DÖKÜMANLARI AL ===
+        all_data = vector_store.collection.get(include=['documents', 'metadatas', 'embeddings'])
+        
+        if not all_data.get('documents'):
+            return "", "", {}
+        
+        # === SKORLAMA SİSTEMİ ===
+        scored_results = []
+        seen_content_hashes = set()  # Duplicate tespiti için
+        
+        for i, doc in enumerate(all_data['documents']):
+            if not doc:
+                continue
+                
+            doc_lower = doc.lower()
+            meta = all_data['metadatas'][i] if all_data['metadatas'] else {}
+            
+            # Dosya adını al ve normalize et
+            filename = meta.get('original_filename') or meta.get('filename', 'unknown')
+            if '_' in filename and len(filename.split('_')[0]) == 36:
+                filename = filename.split('_', 1)[1]
+            filename_lower = filename.lower()
+            
+            # Dosya uzantısını al
+            file_ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+            
+            # === SKOR HESAPLA ===
+            score = 0.0
+            match_reasons = []
+            
+            # 1. DOSYA ADI EŞLEŞMESİ (En yüksek öncelik)
+            filename_base = filename_lower.rsplit('.', 1)[0] if '.' in filename_lower else filename_lower
+            filename_words_match = sum(1 for w in query_words if w in filename_base)
+            if filename_words_match > 0:
+                score += 0.5 + (filename_words_match * 0.15)  # 0.5 - 0.95 arası
+                match_reasons.append(f"filename({filename_words_match})")
+            
+            # 2. DOSYA TÜRÜ EŞLEŞMESİ
+            if target_doc_types:
+                type_match = False
+                if 'powerpoint' in target_doc_types and file_ext in ['pptx', 'ppt']:
+                    score += 0.4
+                    type_match = True
+                elif 'excel' in target_doc_types and file_ext in ['xlsx', 'xls']:
+                    score += 0.4
+                    type_match = True
+                elif 'pdf' in target_doc_types and file_ext == 'pdf':
+                    score += 0.3
+                    type_match = True
+                elif 'word' in target_doc_types and file_ext in ['docx', 'doc']:
+                    score += 0.4
+                    type_match = True
+                if type_match:
+                    match_reasons.append(f"filetype({file_ext})")
+            
+            # 3. İÇERİK KEYWORD EŞLEŞMESİ
+            content_matches = sum(1 for w in query_words if w in doc_lower)
+            if content_matches > 0:
+                score += 0.1 + (content_matches * 0.08)  # 0.1 - 0.5 arası
+                match_reasons.append(f"content({content_matches})")
+            
+            # 4. Minimum skor kontrolü
+            if score < 0.15:  # Çok düşük skorları atla
+                continue
+            
+            # === DUPLICATE KONTROLÜ ===
+            content_hash = hash(doc[:200].strip().lower())
+            if content_hash in seen_content_hashes:
+                continue
+            seen_content_hashes.add(content_hash)
+            
+            # Skoru 0-1 arasına normalize et
+            score = min(score, 1.0)
+            
+            scored_results.append({
+                'document': doc,
+                'metadata': meta,
+                'score': score,
+                'filename': filename,
+                'match_reasons': match_reasons,
+                'id': all_data['ids'][i] if all_data.get('ids') else None,
+            })
+        
+        # === SIRALAMA VE FİLTRELEME ===
+        scored_results.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Eğer hiç sonuç yoksa, semantic search'e fallback yap
+        if not scored_results:
+            semantic_results = vector_store.search_with_scores(
+                query=query,
+                n_results=top_k,
+                score_threshold=0.3,
+            )
+            for r in semantic_results:
+                meta = r.get('metadata', {})
+                filename = meta.get('original_filename') or meta.get('filename', 'Bilinmeyen')
+                if '_' in filename and len(filename.split('_')[0]) == 36:
+                    filename = filename.split('_', 1)[1]
+                scored_results.append({
+                    'document': r.get('document', ''),
+                    'metadata': meta,
+                    'score': r.get('score', 0),
+                    'filename': filename,
+                    'match_reasons': ['semantic'],
+                })
+        
+        # En iyi sonuçları al
+        top_results = scored_results[:top_k]
+        
+        if not top_results:
+            return "", "", {}
+        
+        # === FORMAT RESULTS ===
+        knowledge_text = "\n\n### 📚 BİLGİ TABANI İÇERİKLERİ (Referanslı):\n"
+        knowledge_text += "Aşağıdaki bilgiler yüklenen dökümanlardan alınmıştır. Her içeriğin yanında [REF] referans kodu vardır.\n"
+        knowledge_text += "Yanıtında bu bilgileri kullanırken ilgili referansı [X] veya [X.Y] formatında ekle.\n\n"
+        
+        for i, result in enumerate(top_results, 1):
+            doc_content = result.get("document", "")
+            metadata = result.get("metadata", {})
+            score = result.get("score", 0)
+            filename = result.get("filename", "Bilinmeyen")
+            match_reasons = result.get("match_reasons", [])
+            
+            page_num = metadata.get("page") or metadata.get("page_number")
+            chunk_idx = metadata.get("chunk_index")
+            
+            # Referans ID oluştur
+            ref_id, _ = generate_source_ref_id(filename, page_num, i, source_map)
+            
+            # İçeriği optimize et
+            if len(doc_content) > 2000:
+                doc_content = doc_content[:2000] + "..."
+            
+            # Kaynak bilgisi satırı
+            match_str = ", ".join(match_reasons) if match_reasons else "general"
+            knowledge_text += f"**[{ref_id}]** 📄 _{filename}"
+            if page_num:
+                knowledge_text += f" | Sayfa {page_num}"
+            if chunk_idx is not None:
+                knowledge_text += f" | Bölüm {chunk_idx}"
+            knowledge_text += f"_ | Alaka: {score:.2f} ({match_str})\n"
+            knowledge_text += f"```\n{doc_content}\n```\n\n"
+        
+        reference_list = format_reference_list(source_map)
+        return knowledge_text, reference_list, source_map
+        
+    except Exception as e:
+        print(f"RAG search error: {e}")
+        import traceback
+        traceback.print_exc()
+        return "", "", {}
 
 
 # ============ HEALTH & STATUS ============
@@ -219,10 +587,22 @@ async def chat(request: ChatRequest):
                 role_name = "Kullanıcı" if msg["role"] == "user" else "Asistan"
                 history_text += f"{role_name}: {msg['content']}\n"
         
-        # Prepare context with chat history
+        # Build notes context - search relevant notes
+        notes_text = ""
+        try:
+            relevant_notes = notes_manager.search_notes(request.message)
+            if relevant_notes:
+                notes_text = "\n\nKullanıcının Notlarından İlgili Bilgiler:\n"
+                for note in relevant_notes[:5]:  # Max 5 relevant note
+                    notes_text += f"- [{note.category}] {note.title}: {note.content[:200]}...\n"
+        except Exception as e:
+            pass  # Notes not critical, continue without them
+        
+        # Prepare context with chat history and notes
         context = request.context or {}
         context["chat_history"] = recent_history
         context["history_text"] = history_text
+        context["notes_text"] = notes_text
         
         # Execute through orchestrator
         response = orchestrator.execute(request.message, context)
@@ -295,14 +675,47 @@ async def chat_stream(request: ChatRequest):
             # Send session_id first
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
             
-            # Build chat history context for LLM
-            recent_history = sessions[session_id][-10:]
+            # ========== GELİŞMİŞ CHAT HISTORY CONTEXT ==========
+            # Son 20 mesajı al (daha fazla bağlam için)
+            recent_history = sessions[session_id][-20:]
+            
+            # History text oluştur - mesaj içeriklerini TAM olarak dahil et
             history_text = ""
             if len(recent_history) > 1:  # More than just current message
-                history_text = "\n\nÖnceki konuşma geçmişi:\n"
-                for msg in recent_history[:-1]:  # Exclude current message
-                    role_name = "Kullanıcı" if msg["role"] == "user" else "Asistan"
-                    history_text += f"{role_name}: {msg['content']}\n"
+                history_text = "\n\n### 💬 ÖNCEKİ KONUŞMA GEÇMİŞİ:\n"
+                history_text += "Aşağıdaki mesajlar bu oturumdaki önceki konuşmadır. Son yanıtın yarım kaldıysa devam et.\n\n"
+                
+                for i, msg in enumerate(recent_history[:-1]):  # Exclude current message
+                    role_name = "👤 Kullanıcı" if msg["role"] == "user" else "🤖 Asistan"
+                    content = msg.get('content', '')
+                    
+                    # Mesaj içeriğini TAM olarak dahil et (kısaltma yok!)
+                    history_text += f"**{role_name}:** {content}\n\n"
+                    
+                    # Son asistan mesajı yarım kaldıysa özel işaretle
+                    if msg["role"] == "assistant" and i == len(recent_history) - 2:
+                        # Son mesajın yarım kalıp kalmadığını kontrol et
+                        if not content.strip().endswith(('.', '!', '?', ':', '"', "'", ')', ']', '}')):
+                            history_text += "⚠️ **[ÖNCEKİ YANITIM YARIM KALDI - DEVAM EDECEĞİM]**\n\n"
+            
+            # "Devam et" tarzı komutları algıla
+            continue_commands = [
+                "devam et", "devam", "bitir", "tamamla", "son yanıtını bitir",
+                "kaldığın yerden devam", "yarım kalan", "continue", "finish",
+                "go on", "keep going", "son cevabını bitir", "yarım bıraktın"
+            ]
+            is_continue_request = any(cmd in request.message.lower() for cmd in continue_commands)
+            
+            # Build notes context - search relevant notes
+            notes_text = ""
+            try:
+                relevant_notes = notes_manager.search_notes(request.message)
+                if relevant_notes:
+                    notes_text = "\n\n### 📒 Kullanıcının Notları:\n"
+                    for note in relevant_notes[:5]:
+                        notes_text += f"- [{note.category}] {note.title}: {note.content[:300]}\n"
+            except:
+                pass
             
             # Prepare context
             context = request.context or {}
@@ -311,14 +724,118 @@ async def chat_stream(request: ChatRequest):
             # Stream tokens from LLM
             full_response = ""
             
-            # Get system prompt with history context
+            # Yüklenen dökümanların listesini al
+            documents_text = get_uploaded_documents_info()
+            
+            # === BASİT MESAJ TESPİTİ ===
+            # Selamlaşma, teşekkür, basit sohbet mesajlarında RAG araması yapma
+            simple_greetings = [
+                "merhaba", "selam", "hey", "hi", "hello", "günaydın", "iyi günler", 
+                "iyi akşamlar", "iyi geceler", "nasılsın", "naber", "ne haber",
+                "teşekkür", "sağol", "eyvallah", "thanks", "thank you", "bye",
+                "görüşürüz", "hoşça kal", "bb", "ok", "tamam", "anladım", "peki",
+                "evet", "hayır", "yes", "no", "hmm", "hm", "aha"
+            ]
+            query_lower = request.message.lower().strip()
+            query_words = query_lower.split()
+            
+            # Kısa mesaj (3 kelime veya daha az) ve basit selamlaşma kontrolü
+            is_simple_message = (
+                len(query_words) <= 3 and 
+                any(greet in query_lower for greet in simple_greetings)
+            ) or (
+                len(query_lower) <= 15 and 
+                any(query_lower.startswith(greet) or query_lower == greet for greet in simple_greetings)
+            )
+            
+            # RAG: Bilgi tabanında ilgili içerikleri ara (fusion strateji ile) - Wikipedia tarzı referanslarla
+            # Basit mesajlarda RAG atlansın
+            if is_simple_message:
+                knowledge_text, reference_list, source_map = "", "", {}
+            else:
+                knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=8, strategy="fusion")
+            
+            # Response mode'a göre sistem promptu ayarla
+            if request.response_mode == "detailed":
+                mode_instruction = """
+📝 **DETAYLI YANIT MODU AKTİF**
+Yanıtın şu özelliklere sahip olmalı:
+- Kapsamlı ve derinlemesine açıklama
+- Konuyu birden fazla açıdan ele al
+- Örnekler, karşılaştırmalar ve detaylı açıklamalar ekle
+- Adım adım açıklamalar yap (varsa)
+- Avantaj/dezavantaj, dikkat edilmesi gerekenler gibi ek bilgiler ver
+- En az 400-600 kelime uzunluğunda yanıt ver
+- Markdown formatında düzenli ve okunabilir yaz
+"""
+            else:
+                mode_instruction = """
+💬 **NORMAL YANIT MODU**
+Yanıtın şu özelliklere sahip olmalı:
+- Net ve öz açıklama
+- Doğrudan konuya odaklan
+- Gerekli bilgiyi kısa ve anlaşılır şekilde ver
+"""
+            
+            # Get system prompt with history, notes, documents and RAG knowledge
+            # "Devam et" komutu için özel talimat
+            continue_instruction = ""
+            if is_continue_request:
+                continue_instruction = """
+🔄 **DEVAM ET KOMUTU ALGILANDI**
+Kullanıcı önceki yarım kalan yanıtının devamını istiyor.
+- Yukarıdaki konuşma geçmişindeki son asistan mesajını kontrol et
+- Eğer yarım kaldıysa, KALDĞIN YERDEN AYNEN DEVAM ET
+- Yeni bir yanıt başlatma, önceki yanıtı tamamla
+- Önceki yanıtın bağlamını ve formatını koru
+"""
+            
+            # Wikipedia tarzı referans talimatı
+            reference_instruction = ""
+            if source_map:
+                ref_examples = ", ".join([f"[{info['letter']}]" for info in list(source_map.values())[:3]])
+                reference_instruction = f"""
+📚 **WİKİPEDİA TARZI REFERANS SİSTEMİ**
+Yanıtında dökümanlardan aldığın bilgilere referans ver. Format:
+- Tek kaynak: [A] veya [B.2] (B dökümanının 2. sayfası)
+- Birden fazla kaynak: [A][B] veya [A.1][C.3]
+- Mevcut referanslar: {ref_examples}
+
+Örnek kullanım:
+"PowerPoint'te yeni slayt eklemek için Ctrl+M kullanılır [A.1]. Animasyon eklemek için ise Animasyonlar sekmesi tercih edilir [A.3][B]."
+
+ÖNEMLİ: Her bilgi için uygun referansı cümle sonuna ekle. Referans yoksa ekleme.
+"""
+            
             system_prompt = f"""Sen yardımcı bir AI asistanısın. Türkçe yanıt ver.
+{mode_instruction}
+{continue_instruction}
+{reference_instruction}
 {history_text}
-Yukarıdaki konuşma geçmişini dikkate alarak kullanıcının mevcut sorusuna cevap ver."""
+{notes_text}
+{documents_text}
+{knowledge_text}
+
+**KRİTİK KURALLAR:**
+1. Eğer yukarıda "BİLGİ TABANI İÇERİKLERİ" bölümü varsa, öncelikle bu bilgileri kullanarak yanıt ver.
+2. Her bilgi için ilgili referansı [X] veya [X.Y] formatında ekle (X=döküman harfi, Y=sayfa no).
+3. Konuşma geçmişini DİKKATLİCE oku ve bağlamı koru.
+4. Eğer önceki yanıtın yarım kaldıysa (ÖNCEKİ YANITIM YARIM KALDI işareti varsa), önce onu tamamla.
+5. Kullanıcı "devam et", "bitir" gibi komutlar verdiyse, önceki yarım kalan yanıtı TAM OLARAK tamamla.
+6. Yanıtını ASLA yarım bırakma, her zaman mantıksal bir sonuçla bitir.
+7. Yanıtın sonunda "{reference_list}" bölümünü EKLEMENİ İSTEMİYORUM, sadece metin içinde referans kullan.
+
+Yukarıdaki konuşma geçmişini, kullanıcının notlarını ve bilgi tabanı içeriklerini dikkate alarak mevcut soruya cevap ver."""
             
             for token in llm_manager.generate_stream(request.message, system_prompt):
                 full_response += token
                 yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            
+            # Yanıt sonuna referans listesi ekle (eğer kaynaklar varsa)
+            if source_map and reference_list:
+                # Referans listesini stream et
+                yield f"data: {json.dumps({'type': 'token', 'content': reference_list})}\n\n"
+                full_response += reference_list
             
             # Add assistant response to history (both in-memory and file)
             assistant_msg = {
@@ -338,8 +855,14 @@ Yukarıdaki konuşma geçmişini dikkate alarak kullanıcının mevcut sorusuna 
                 session_id=session_id,
             )
             
-            # Send end event
-            yield f"data: {json.dumps({'type': 'end', 'session_id': session_id})}\n\n"
+            # Send end event with sources info
+            end_data = {'type': 'end', 'session_id': session_id}
+            if source_map:
+                end_data['sources'] = [
+                    {'ref': info['letter'], 'filename': info['filename'], 'pages': list(info['pages'])}
+                    for info in source_map.values()
+                ]
+            yield f"data: {json.dumps(end_data)}\n\n"
             
         except Exception as e:
             analytics.track_error("chat_stream", str(e))
@@ -361,32 +884,52 @@ Yukarıdaki konuşma geçmişini dikkate alarak kullanıcının mevcut sorusuna 
 @app.post("/api/web-search", tags=["Web Search"])
 async def web_search(request: WebSearchRequest):
     """
-    Web'de arama yapar ve sonuçları döndürür.
+    Premium Web Search - İçerik çıkarmalı kapsamlı arama.
     
-    DuckDuckGo API kullanarak web araması yapar.
+    Perplexity AI kalitesinde web araması yapar:
+    - Multi-source arama (DuckDuckGo + Wikipedia)
+    - Gerçek içerik çıkarma (sadece link değil)
+    - Kaynak güvenilirlik skorlaması
+    - Akıllı cache sistemi
     """
     try:
-        search_tool = WebSearchTool(max_results=request.num_results)
-        result = search_tool.execute(
+        import time
+        start_time = time.time()
+        
+        # Premium search engine kullan
+        engine = get_search_engine()
+        
+        result = engine.search(
             query=request.query,
-            search_type=request.search_type,
-            num_results=request.num_results
+            num_results=request.num_results,
+            extract_content=request.extract_content,
+            include_wikipedia=request.include_wikipedia
         )
         
+        search_time = int((time.time() - start_time) * 1000)
+        
         if result.success:
+            # UI için kaynakları formatla
+            sources = engine.get_sources_for_ui(result)
+            
             return {
                 "success": True,
-                "query": request.query,
-                "instant_answer": result.data.get("instant_answer"),
-                "results": result.data.get("results", []),
-                "total": result.data.get("total_results", 0),
+                "query": result.query,
+                "instant_answer": result.instant_answer,
+                "knowledge_panel": result.knowledge_panel,
+                "results": sources,
+                "total": result.total_results,
+                "providers": result.providers_used,
+                "related_queries": result.related_queries,
+                "search_time_ms": search_time,
+                "cached": result.cached,
                 "timestamp": datetime.now().isoformat()
             }
         else:
             return {
                 "success": False,
                 "query": request.query,
-                "error": result.data.get("error", "Arama başarısız"),
+                "error": result.error_message or "Arama başarısız",
                 "results": [],
                 "total": 0
             }
@@ -395,18 +938,41 @@ async def web_search(request: WebSearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/web-search/stats", tags=["Web Search"])
+async def get_web_search_stats():
+    """Web arama istatistikleri"""
+    engine = get_search_engine()
+    return engine.get_stats()
+
+
+@app.post("/api/web-search/clear-cache", tags=["Web Search"])
+async def clear_web_search_cache():
+    """Web arama cache'ini temizle"""
+    engine = get_search_engine()
+    engine.clear_cache()
+    return {"success": True, "message": "Cache temizlendi"}
+
+
 @app.post("/api/chat/web-stream", tags=["Chat"])
 async def chat_web_stream(request: ChatRequest):
     """
-    Web araması ile desteklenen streaming chat endpoint'i.
+    🌐 Premium Web Search Chat - Perplexity AI Kalitesinde
     
-    Önce web'de arar, sonra sonuçları kullanarak yanıt üretir.
-    Token token yanıt gönderir + kaynak URL'leri döndürür.
+    Özellikler:
+    - Multi-source arama (DuckDuckGo + Wikipedia)
+    - Gerçek içerik çıkarma ve analizi
+    - AI-powered sentez ve özet
+    - Kaynak güvenilirlik skorlaması
+    - Akıllı prompt oluşturma
+    - Streaming yanıt
     """
     import json
+    import time
     
     async def generate():
         try:
+            search_start = time.time()
+            
             # Get or create session
             session_id = request.session_id or str(uuid.uuid4())
             
@@ -432,85 +998,271 @@ async def chat_web_stream(request: ChatRequest):
             # Send session_id first
             yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
             
-            # Send searching status
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Web araması yapılıyor...'})}\n\n"
+            # ===== PHASE 1: WEB SEARCH =====
+            status_search = {"type": "status", "phase": "search", "message": "🔍 Web'de aranıyor..."}
+            yield f"data: {json.dumps(status_search)}\n\n"
             
-            # Perform web search
             web_sources = []
-            web_context = ""
+            search_response = None
+            research_context = None
             
             try:
-                search_tool = WebSearchTool(max_results=5)
-                search_result = search_tool.execute(
+                # Premium search engine kullan
+                engine = get_search_engine()
+                synthesizer = get_synthesizer()
+                
+                # Arama yap
+                search_response = engine.search(
                     query=request.message,
-                    search_type="general",
-                    num_results=5
+                    num_results=8,
+                    extract_content=True,
+                    include_wikipedia=True
                 )
                 
-                if search_result.success:
-                    # Process instant answer
-                    instant = search_result.data.get("instant_answer")
-                    if instant:
-                        web_context += f"\n### Hızlı Cevap:\n{instant.get('abstract', '')}\n"
-                        if instant.get('url'):
-                            web_sources.append({
-                                "title": instant.get('title', 'Kaynak'),
-                                "url": instant.get('url'),
-                                "snippet": instant.get('abstract', '')[:200]
-                            })
-                    
-                    # Process search results
-                    results = search_result.data.get("results", [])
-                    if results:
-                        web_context += "\n### Web Arama Sonuçları:\n"
-                        for i, r in enumerate(results, 1):
-                            web_context += f"\n[{i}] {r.get('title', 'Sonuç')}\n{r.get('snippet', '')}\n"
-                            web_sources.append({
-                                "title": r.get('title', f'Kaynak {i}'),
-                                "url": r.get('url', ''),
-                                "snippet": r.get('snippet', '')[:200]
-                            })
-                    
-                    # Send sources to frontend
-                    yield f"data: {json.dumps({'type': 'sources', 'sources': web_sources})}\n\n"
+                search_time = int((time.time() - search_start) * 1000)
                 
+                if search_response.success:
+                    # UI için kaynakları formatla
+                    web_sources = engine.get_sources_for_ui(search_response)
+                    
+                    # İlerleme bildir
+                    analyze_msg = f"📊 {len(web_sources)} kaynak analiz ediliyor..."
+                    status_analyze = {"type": "status", "phase": "analyze", "message": analyze_msg}
+                    yield f"data: {json.dumps(status_analyze)}\n\n"
+                    
+                    # Kaynakları hemen gönder (UI için)
+                    sources_data = {
+                        "type": "sources",
+                        "sources": web_sources,
+                        "instant_answer": search_response.instant_answer,
+                        "knowledge_panel": search_response.knowledge_panel,
+                        "related_queries": search_response.related_queries,
+                        "providers": search_response.providers_used,
+                        "search_time_ms": search_time,
+                        "cached": search_response.cached
+                    }
+                    yield f"data: {json.dumps(sources_data)}\n\n"
+                    
+                    # Araştırma bağlamı oluştur
+                    raw_response = {
+                        "query": search_response.query,
+                        "instant_answer": search_response.instant_answer,
+                        "knowledge_panel": search_response.knowledge_panel,
+                        "results": [
+                            {
+                                "title": r.title,
+                                "url": r.url,
+                                "snippet": r.snippet,
+                                "content": r.full_content,
+                                "domain": r.domain,
+                                "type": r.source_type.value,
+                                "reliability": r.reliability_score
+                            }
+                            for r in search_response.results
+                        ]
+                    }
+                    
+                    research_context = synthesizer.prepare_context(raw_response)
+                    
             except Exception as search_error:
-                yield f"data: {json.dumps({'type': 'warning', 'message': f'Web araması yapılamadı: {str(search_error)}'})}\n\n"
+                warning_msg = f"⚠️ Web araması sırasında hata: {str(search_error)}"
+                warning_data = {"type": "warning", "message": warning_msg}
+                yield f"data: {json.dumps(warning_data)}\n\n"
             
-            # Build chat history context
-            recent_history = sessions[session_id][-10:]
+            # ===== PHASE 2: BUILD CONTEXT =====
+            status_context = {"type": "status", "phase": "context", "message": "📝 Bağlam hazırlanıyor..."}
+            yield f"data: {json.dumps(status_context)}\n\n"
+            
+            # ========== GELİŞMİŞ CHAT HISTORY CONTEXT ==========
+            # Son 20 mesajı al (daha fazla bağlam için)
+            recent_history = sessions[session_id][-20:]
+            
+            # History text oluştur - mesaj içeriklerini TAM olarak dahil et
             history_text = ""
             if len(recent_history) > 1:
-                history_text = "\n\nÖnceki konuşma geçmişi:\n"
-                for msg in recent_history[:-1]:
-                    role_name = "Kullanıcı" if msg["role"] == "user" else "Asistan"
-                    history_text += f"{role_name}: {msg['content']}\n"
+                history_text = "\n\n### 💬 ÖNCEKİ KONUŞMA GEÇMİŞİ:\n"
+                history_text += "Aşağıdaki mesajlar bu oturumdaki önceki konuşmadır. Son yanıtın yarım kaldıysa devam et.\n\n"
+                
+                for i, msg in enumerate(recent_history[:-1]):
+                    role_name = "👤 Kullanıcı" if msg["role"] == "user" else "🤖 Asistan"
+                    content = msg.get('content', '')
+                    
+                    # Mesaj içeriğini TAM olarak dahil et (kısaltma yok!)
+                    history_text += f"**{role_name}:** {content}\n\n"
+                    
+                    # Son asistan mesajı yarım kaldıysa özel işaretle
+                    if msg["role"] == "assistant" and i == len(recent_history) - 2:
+                        if not content.strip().endswith(('.', '!', '?', ':', '"', "'", ')', ']', '}')):
+                            history_text += "⚠️ **[ÖNCEKİ YANITIM YARIM KALDI - DEVAM EDECEĞİM]**\n\n"
             
-            # Build system prompt with web context
-            system_prompt = f"""Sen yardımcı bir AI asistanısın. Türkçe yanıt ver.
+            # "Devam et" tarzı komutları algıla
+            continue_commands = [
+                "devam et", "devam", "bitir", "tamamla", "son yanıtını bitir",
+                "kaldığın yerden devam", "yarım kalan", "continue", "finish",
+                "go on", "keep going", "son cevabını bitir", "yarım bıraktın"
+            ]
+            is_continue_request = any(cmd in request.message.lower() for cmd in continue_commands)
+            
+            # Notes context
+            notes_text = ""
+            try:
+                relevant_notes = notes_manager.search_notes(request.message)
+                if relevant_notes:
+                    notes_text = "\n\n### 📒 İlgili Notlar:\n"
+                    for note in relevant_notes[:3]:
+                        notes_text += f"- **{note.title}**: {note.content[:300]}...\n"
+            except:
+                pass
+            
+            # Documents context - yüklenen dökümanların bilgisi
+            documents_text = get_uploaded_documents_info()
+            
+            # === BASİT MESAJ TESPİTİ (Web Search için de) ===
+            simple_greetings = [
+                "merhaba", "selam", "hey", "hi", "hello", "günaydın", "iyi günler", 
+                "iyi akşamlar", "iyi geceler", "nasılsın", "naber", "ne haber",
+                "teşekkür", "sağol", "eyvallah", "thanks", "thank you", "bye",
+                "görüşürüz", "hoşça kal", "bb", "ok", "tamam", "anladım", "peki",
+                "evet", "hayır", "yes", "no", "hmm", "hm", "aha"
+            ]
+            query_lower = request.message.lower().strip()
+            query_words = query_lower.split()
+            
+            is_simple_message = (
+                len(query_words) <= 3 and 
+                any(greet in query_lower for greet in simple_greetings)
+            ) or (
+                len(query_lower) <= 15 and 
+                any(query_lower.startswith(greet) or query_lower == greet for greet in simple_greetings)
+            )
+            
+            # RAG: Bilgi tabanında ilgili içerikleri ara (rerank strateji ile daha iyi sonuçlar) - Wikipedia tarzı referanslarla
+            # Basit mesajlarda RAG atlansın
+            if is_simple_message:
+                knowledge_text, reference_list, source_map = "", "", {}
+            else:
+                knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=8, strategy="rerank")
+            
+            # ===== PHASE 3: BUILD PROMPTS =====
+            # Response mode'a göre ek talimatlar
+            if request.response_mode == "detailed":
+                mode_instruction = """
+## 📝 DETAYLI YANIT MODU
+Yanıtın şu özelliklere sahip OLMALI:
+- Kapsamlı ve derinlemesine açıklama yap
+- Konuyu birden fazla açıdan ele al
+- Somut örnekler, karşılaştırmalar ve detaylı açıklamalar ekle
+- Adım adım açıklamalar yap
+- Avantaj/dezavantaj, dikkat edilmesi gerekenler gibi ek bilgiler ver
+- En az 500-800 kelime uzunluğunda yanıt ver
+- Markdown formatında düzenli ve okunabilir yaz
+- Her ana konuyu ayrı başlık altında ele al
+"""
+            else:
+                mode_instruction = ""
+            
+            # Wikipedia tarzı referans talimatı
+            reference_instruction = ""
+            if source_map:
+                ref_examples = ", ".join([f"[{info['letter']}]" for info in list(source_map.values())[:3]])
+                reference_instruction = f"""
+📚 **WİKİPEDİA TARZI REFERANS SİSTEMİ**
+Yanıtında dökümanlardan aldığın bilgilere referans ver. Format:
+- Tek kaynak: [A] veya [B.2] (B dökümanının 2. sayfası)
+- Birden fazla kaynak: [A][B] veya [A.1][C.3]
+- Mevcut referanslar: {ref_examples}
 
+Örnek: "Bu işlem için Ctrl+M kısayolu kullanılır [A.1]."
+ÖNEMLİ: Her bilgi için uygun referansı ekle. Referans yoksa ekleme.
+"""
+            
+            if research_context:
+                # Synthesizer'dan promptları al
+                system_prompt, user_prompt = synthesizer.build_prompts(research_context)
+                
+                # Mode instruction ve reference instruction ekle
+                if mode_instruction:
+                    system_prompt = mode_instruction + "\n" + system_prompt
+                if reference_instruction:
+                    system_prompt = reference_instruction + "\n" + system_prompt
+                
+                # History, notes, documents ve knowledge ekle
+                knowledge_section = knowledge_text if knowledge_text else ""
+                system_prompt = system_prompt.replace(
+                    "## 📋 GÖREV",
+                    f"{history_text}{notes_text}{documents_text}{knowledge_section}\n\n## 📋 GÖREV"
+                )
+                
+                # Metadata ekle
+                intent = research_context.intent.value
+                style = research_context.style.value
+                source_count = len(research_context.sources)
+                
+                metadata_data = {"type": "metadata", "intent": intent, "style": style, "source_count": source_count}
+                yield f"data: {json.dumps(metadata_data)}\n\n"
+                
+            else:
+                # Fallback prompt (arama başarısız olursa)
+                # "Devam et" komutu için özel talimat
+                continue_instruction = ""
+                if is_continue_request:
+                    continue_instruction = """
+🔄 **DEVAM ET KOMUTU ALGILANDI**
+Kullanıcı önceki yarım kalan yanıtının devamını istiyor.
+- Yukarıdaki konuşma geçmişindeki son asistan mesajını kontrol et
+- Eğer yarım kaldıysa, KALDIĞIN YERDEN AYNEN DEVAM ET
+- Yeni bir yanıt başlatma, önceki yanıtı tamamla
+- Önceki yanıtın bağlamını ve formatını koru
+"""
+                
+                system_prompt = f"""Sen yardımcı bir AI asistanısın. Türkçe yanıt ver.
+{continue_instruction}
+{reference_instruction}
 {history_text}
+{notes_text}
+{documents_text}
+{knowledge_text}
 
-### Web'den Toplanan Bilgiler:
-{web_context if web_context else "Web araması sonucu bulunamadı."}
+**KRİTİK KURALLAR:**
+1. Eğer yukarıda "BİLGİ TABANI İÇERİKLERİ" bölümü varsa, öncelikle bu bilgileri kullanarak yanıt ver.
+2. Her bilgi için ilgili referansı [X] veya [X.Y] formatında ekle.
+3. Konuşma geçmişini DİKKATLİCE oku ve bağlamı koru.
+4. Eğer önceki yanıtın yarım kaldıysa, önce onu tamamla.
+5. Yanıtını ASLA yarım bırakma.
 
-KURALLAR:
-1. Yukarıdaki web kaynaklarını kullanarak kullanıcının sorusuna kapsamlı bir yanıt ver.
-2. Bilgilerin kaynağını belirt (örn: "[1] kaynağına göre...")
-3. Emin olmadığın bilgileri "Bu konuda kesin bilgi bulunamadı" diye belirt.
-4. Yanıtın sonunda kullandığın kaynakları BELIRTME (kaynaklar ayrıca gösterilecek).
-5. Tarih, istatistik gibi güncel bilgilerde dikkatli ol.
-
-Kullanıcının sorusu: {request.message}"""
+⚠️ Web araması yapılamadı. Bilgi tabanındaki dökümanları ve genel bilginle yanıt ver.
+"""
+                user_prompt = request.message
             
-            # Stream tokens from LLM
+            # ===== PHASE 4: GENERATE RESPONSE =====
+            status_generate = {"type": "status", "phase": "generate", "message": "✨ Yanıt oluşturuluyor..."}
+            yield f"data: {json.dumps(status_generate)}\n\n"
+            
             full_response = ""
+            generation_start = time.time()
             
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Yanıt hazırlanıyor...'})}\n\n"
-            
-            for token in llm_manager.generate_stream(request.message, system_prompt):
+            for token in llm_manager.generate_stream(user_prompt, system_prompt):
                 full_response += token
-                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                token_data = {"type": "token", "content": token}
+                yield f"data: {json.dumps(token_data)}\n\n"
+            
+            # Yanıt sonuna döküman referans listesi ekle (eğer kaynaklar varsa)
+            if source_map and reference_list:
+                yield f"data: {json.dumps({'type': 'token', 'content': reference_list})}\n\n"
+                full_response += reference_list
+            
+            generation_time = int((time.time() - generation_start) * 1000)
+            total_time = int((time.time() - search_start) * 1000)
+            
+            # ===== PHASE 5: POST-PROCESS =====
+            # Follow-up sorular
+            follow_ups = []
+            if research_context:
+                formatted = synthesizer.format_response(full_response, research_context)
+                follow_ups = formatted.follow_up_questions
+                confidence = formatted.confidence_score
+            else:
+                confidence = 0.5
             
             # Add assistant response to history
             assistant_msg = {
@@ -531,13 +1283,33 @@ Kullanıcının sorusu: {request.message}"""
             analytics.track_chat(
                 query=request.message[:100],
                 response_length=len(full_response),
-                duration_ms=0,
-                agent="web_search_stream",
+                duration_ms=total_time,
+                agent="premium_web_search",
                 session_id=session_id,
             )
             
-            # Send end event with final sources
-            yield f"data: {json.dumps({'type': 'end', 'session_id': session_id, 'sources': web_sources})}\n\n"
+            # ===== FINAL: SEND COMPLETION =====
+            completion_data = {
+                "type": "end",
+                "session_id": session_id,
+                "sources": web_sources,
+                "follow_up_questions": follow_ups[:4],
+                "confidence_score": confidence,
+                "timing": {
+                    "total_ms": total_time,
+                    "generation_ms": generation_time,
+                    "search_ms": search_time if search_response else 0
+                },
+                "word_count": len(full_response.split()),
+                "sources_used": len(web_sources)
+            }
+            # Döküman kaynakları da ekle
+            if source_map:
+                completion_data["document_sources"] = [
+                    {'ref': info['letter'], 'filename': info['filename'], 'pages': list(info['pages'])}
+                    for info in source_map.values()
+                ]
+            yield f"data: {json.dumps(completion_data)}\n\n"
             
         except Exception as e:
             analytics.track_error("chat_web_stream", str(e))
@@ -674,9 +1446,16 @@ async def upload_document(file: UploadFile = File(...)):
     """
     Döküman yükle ve indexle.
     
-    Desteklenen formatlar: PDF, DOCX, TXT, MD, CSV, JSON, HTML
+    Desteklenen formatlar: PDF, DOCX, PPTX, XLSX, TXT, MD, CSV, JSON, HTML
+    
+    DUPLICATE KONTROLÜ:
+    - Aynı isimli dosya daha önce yüklendiyse güncellenir
+    - Eski chunks silinir, yeni chunks eklenir
     """
     try:
+        import warnings
+        warnings.filterwarnings("ignore")
+        
         # Validate file extension
         filename = file.filename or "unknown"
         extension = Path(filename).suffix.lower()
@@ -684,30 +1463,91 @@ async def upload_document(file: UploadFile = File(...)):
         if extension not in document_loader.SUPPORTED_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Desteklenmeyen dosya formatı: {extension}",
+                detail=f"Desteklenmeyen dosya formatı: {extension}. Desteklenen formatlar: {', '.join(document_loader.SUPPORTED_EXTENSIONS.keys())}",
             )
         
-        # Save file
+        # DUPLICATE KONTROLÜ - Aynı dosya daha önce yüklendi mi?
         upload_dir = settings.DATA_DIR / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
         
+        existing_file = None
+        for f in upload_dir.iterdir():
+            if f.is_file():
+                parts = f.name.split("_", 1)
+                if len(parts) > 1 and parts[1] == filename:
+                    existing_file = f
+                    break
+        
+        if existing_file:
+            # Eski dosyayı ve chunk'larını sil
+            document_id = existing_file.name.split("_")[0]
+            
+            # Vector store'dan eski chunk'ları sil
+            try:
+                all_data = vector_store.collection.get(include=['metadatas'])
+                ids_to_delete = []
+                for i, meta in enumerate(all_data['metadatas']):
+                    if meta:
+                        orig_filename = meta.get('original_filename', '')
+                        # UUID prefix'i kaldır
+                        if '_' in orig_filename and len(orig_filename.split('_')[0]) == 36:
+                            orig_filename = orig_filename.split('_', 1)[1]
+                        if orig_filename == filename:
+                            ids_to_delete.append(all_data['ids'][i])
+                
+                if ids_to_delete:
+                    vector_store.collection.delete(ids=ids_to_delete)
+            except Exception as e:
+                print(f"Eski chunk silme hatası: {e}")
+            
+            # Eski dosyayı sil
+            existing_file.unlink()
+        
+        # Save new file
         document_id = str(uuid.uuid4())
         file_path = upload_dir / f"{document_id}_{filename}"
         
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         
-        # Load and process document
-        documents = document_loader.load_file(str(file_path))
+        # Load and process document with error tolerance
+        try:
+            documents = document_loader.load_file(str(file_path))
+        except Exception as load_error:
+            # Hata durumunda minimal döküman oluştur
+            from rag.document_loader import Document
+            documents = [Document(
+                content=f"[Dosya içeriği okunamadı: {filename}]\n\nHata: {str(load_error)[:200]}",
+                metadata={
+                    "source": str(file_path),
+                    "filename": filename,
+                    "file_type": extension,
+                    "error": str(load_error)[:100]
+                }
+            )]
         
         if not documents:
-            raise HTTPException(
-                status_code=400,
-                detail="Döküman içeriği okunamadı",
-            )
+            # Boş döküman yerine bilgilendirici içerik oluştur
+            from rag.document_loader import Document
+            documents = [Document(
+                content=f"[Boş veya okunamayan dosya: {filename}]",
+                metadata={
+                    "source": str(file_path),
+                    "filename": filename,
+                    "file_type": extension
+                }
+            )]
         
         # Chunk documents
         chunks = document_chunker.chunk_documents(documents)
+        
+        if not chunks:
+            # Chunking başarısız olduysa orijinal dökümanları kullan
+            from rag.chunker import Chunk
+            chunks = [Chunk(
+                content=doc.content,
+                metadata=doc.metadata
+            ) for doc in documents]
         
         # Add to vector store
         chunk_texts = [c.content for c in chunks]
@@ -733,7 +1573,8 @@ async def upload_document(file: UploadFile = File(...)):
             document_id=document_id,
             filename=filename,
             chunks_created=len(chunks),
-            message=f"{filename} başarıyla yüklendi ve indexlendi",
+            message=f"{filename} başarıyla yüklendi ve indexlendi" + 
+                   (" (güncellendi)" if existing_file else ""),
         )
         
     except HTTPException:

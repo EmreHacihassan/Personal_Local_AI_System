@@ -3,10 +3,12 @@ Enterprise AI Assistant - Document Chunker
 Endüstri Standartlarında Kurumsal AI Çözümü
 
 Akıllı döküman parçalama - RecursiveCharacterTextSplitter ve semantic chunking.
+Sayfa takibi ve bağlamsal bölümleme desteği ile.
 """
 
 from typing import List, Dict, Any, Optional
 import re
+import hashlib
 
 import sys
 sys.path.append('..')
@@ -28,6 +30,15 @@ class Chunk:
         self.chunk_index = chunk_index
         self.word_count = len(content.split())
         self.char_count = len(content)
+        
+        # Unique chunk ID
+        self.chunk_id = self._generate_chunk_id()
+    
+    def _generate_chunk_id(self) -> str:
+        """Chunk için benzersiz ID oluştur."""
+        source = self.metadata.get("source", "unknown")
+        content_hash = hashlib.md5(self.content[:200].encode()).hexdigest()[:8]
+        return f"{source}_{self.chunk_index}_{content_hash}"
     
     def __repr__(self) -> str:
         return f"Chunk(index={self.chunk_index}, chars={self.char_count})"
@@ -42,7 +53,17 @@ class DocumentChunker:
     - Fixed: Sabit boyutlu parçalama
     - Semantic: Anlam tabanlı bölme
     - Markdown: Header tabanlı bölme
+    - Page-aware: Sayfa sınırlarını koruyarak bölme
     """
+    
+    # Sayfa işaretçileri
+    PAGE_MARKERS = [
+        r'\[PAGE:\s*(\d+)\]',
+        r'---\s*Page\s*(\d+)\s*---',
+        r'\n\s*-{3,}\s*(\d+)\s*-{3,}\n',
+        r'Sayfa\s*(\d+)',
+        r'Page\s*(\d+)',
+    ]
     
     def __init__(
         self,
@@ -78,7 +99,7 @@ class DocumentChunker:
         Args:
             text: Parçalanacak metin
             metadata: Temel metadata (her chunk'a kopyalanır)
-            strategy: Parçalama stratejisi (recursive, fixed, sentence)
+            strategy: Parçalama stratejisi (recursive, fixed, sentence, page_aware)
             
         Returns:
             Chunk listesi
@@ -92,6 +113,8 @@ class DocumentChunker:
             return self._fixed_chunk(text, metadata)
         elif strategy == "sentence":
             return self._sentence_chunk(text, metadata)
+        elif strategy == "page_aware":
+            return self._page_aware_chunk(text, metadata)
         else:
             return self._recursive_chunk(text, metadata)
     
@@ -112,15 +135,161 @@ class DocumentChunker:
         """
         all_chunks = []
         
-        for doc in documents:
-            chunks = self.chunk_text(
-                text=doc.content,
-                metadata=doc.metadata,
-                strategy=strategy,
-            )
+        for doc_idx, doc in enumerate(documents):
+            # Sayfa numarası metadata'da varsa kullan
+            doc_metadata = doc.metadata.copy() if doc.metadata else {}
+            doc_metadata["document_index"] = doc_idx
+            
+            # PDF'ler için sayfa bazlı strateji
+            file_type = doc_metadata.get("file_type", "")
+            if file_type == ".pdf" and self._has_page_markers(doc.content):
+                chunks = self._page_aware_chunk(doc.content, doc_metadata)
+            else:
+                chunks = self.chunk_text(
+                    text=doc.content,
+                    metadata=doc_metadata,
+                    strategy=strategy,
+                )
+            
             all_chunks.extend(chunks)
         
         return all_chunks
+    
+    def _has_page_markers(self, text: str) -> bool:
+        """Metinde sayfa işaretçileri var mı kontrol et."""
+        for pattern in self.PAGE_MARKERS:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+        return False
+    
+    def _extract_page_number(self, text: str) -> Optional[int]:
+        """Metinden sayfa numarasını çıkar."""
+        for pattern in self.PAGE_MARKERS:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    return int(match.group(1))
+                except:
+                    pass
+        return None
+    
+    def _page_aware_chunk(
+        self,
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> List[Chunk]:
+        """
+        Sayfa sınırlarını koruyarak parçala.
+        Her chunk'a sayfa numarası metadata'sı ekle.
+        """
+        chunks = []
+        current_page = 1
+        chunk_index = 0
+        
+        # Sayfa işaretçilerine göre böl
+        page_pattern = r'(\[PAGE:\s*\d+\]|---\s*Page\s*\d+\s*---|Sayfa\s*\d+|Page\s*\d+)'
+        segments = re.split(page_pattern, text, flags=re.IGNORECASE)
+        
+        current_content = []
+        current_length = 0
+        
+        for segment in segments:
+            if not segment.strip():
+                continue
+            
+            # Sayfa işaretçisi mi kontrol et
+            page_num = self._extract_page_number(segment)
+            if page_num:
+                current_page = page_num
+                continue
+            
+            # Segment çok uzunsa recursive olarak böl
+            if len(segment) > self.chunk_size:
+                # Önce mevcut içeriği kaydet
+                if current_content:
+                    chunk_text = "\n".join(current_content)
+                    chunk_metadata = (metadata or {}).copy()
+                    chunk_metadata["chunk_index"] = chunk_index
+                    chunk_metadata["page"] = current_page
+                    chunk_metadata["page_number"] = current_page
+                    chunk_metadata["strategy"] = "page_aware"
+                    
+                    chunks.append(Chunk(
+                        content=chunk_text.strip(),
+                        metadata=chunk_metadata,
+                        chunk_index=chunk_index,
+                    ))
+                    chunk_index += 1
+                    current_content = []
+                    current_length = 0
+                
+                # Uzun segmenti recursive olarak böl
+                sub_chunks = self._recursive_chunk(segment, metadata)
+                for sub_chunk in sub_chunks:
+                    sub_chunk.metadata["page"] = current_page
+                    sub_chunk.metadata["page_number"] = current_page
+                    sub_chunk.chunk_index = chunk_index
+                    sub_chunk.metadata["chunk_index"] = chunk_index
+                    chunks.append(sub_chunk)
+                    chunk_index += 1
+            
+            elif current_length + len(segment) > self.chunk_size:
+                # Mevcut içeriği kaydet
+                if current_content:
+                    chunk_text = "\n".join(current_content)
+                    chunk_metadata = (metadata or {}).copy()
+                    chunk_metadata["chunk_index"] = chunk_index
+                    chunk_metadata["page"] = current_page
+                    chunk_metadata["page_number"] = current_page
+                    chunk_metadata["strategy"] = "page_aware"
+                    
+                    chunks.append(Chunk(
+                        content=chunk_text.strip(),
+                        metadata=chunk_metadata,
+                        chunk_index=chunk_index,
+                    ))
+                    chunk_index += 1
+                
+                # Overlap için son paragrafı tut
+                if self.chunk_overlap > 0 and current_content:
+                    overlap_text = current_content[-1]
+                    if len(overlap_text) <= self.chunk_overlap:
+                        current_content = [overlap_text]
+                        current_length = len(overlap_text)
+                    else:
+                        current_content = []
+                        current_length = 0
+                else:
+                    current_content = []
+                    current_length = 0
+                
+                current_content.append(segment)
+                current_length += len(segment)
+            else:
+                current_content.append(segment)
+                current_length += len(segment)
+        
+        # Kalan içeriği ekle
+        if current_content:
+            chunk_text = "\n".join(current_content)
+            if chunk_text.strip():
+                chunk_metadata = (metadata or {}).copy()
+                chunk_metadata["chunk_index"] = chunk_index
+                chunk_metadata["page"] = current_page
+                chunk_metadata["page_number"] = current_page
+                chunk_metadata["strategy"] = "page_aware"
+                
+                chunks.append(Chunk(
+                    content=chunk_text.strip(),
+                    metadata=chunk_metadata,
+                    chunk_index=chunk_index,
+                ))
+        
+        # Total chunks güncelle
+        for chunk in chunks:
+            chunk.metadata["total_chunks"] = len(chunks)
+        
+        return chunks
     
     def _recursive_chunk(
         self,

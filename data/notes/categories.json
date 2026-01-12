@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Genel",
+    "icon": "📝",
+    "color": "gray"
+  },
+  {
+    "name": "İş",
+    "icon": "💼",
+    "color": "blue"
+  },
+  {
+    "name": "Kişisel",
+    "icon": "👤",
+    "color": "green"
+  },
+  {
+    "name": "Fikirler",
+    "icon": "💡",
+    "color": "yellow"
+  },
+  {
+    "name": "Yapılacaklar",
+    "icon": "✅",
+    "color": "orange"
+  },
+  {
+    "name": "Önemli",
+    "icon": "⭐",
+    "color": "red"
+  }
+]

@@ -49,6 +49,8 @@ class DocumentLoader:
         ".pdf": "pdf",
         ".docx": "docx",
         ".doc": "doc",
+        ".pptx": "pptx",
+        ".ppt": "ppt",
         ".xlsx": "xlsx",
         ".xls": "xls",
         ".csv": "csv",
@@ -90,6 +92,8 @@ class DocumentLoader:
             return self._load_pdf(path)
         elif file_type == "docx":
             return self._load_docx(path)
+        elif file_type in ("pptx", "ppt"):
+            return self._load_pptx(path)
         elif file_type in ("xlsx", "xls"):
             return self._load_excel(path)
         elif file_type == "csv":
@@ -158,43 +162,81 @@ class DocumentLoader:
         }
     
     def _load_pdf(self, path: Path) -> List[Document]:
-        """PDF dosyası yükle."""
+        """PDF dosyası yükle - Gelişmiş hata toleranslı versiyon."""
+        documents = []
+        metadata = self._get_base_metadata(path)
+        all_content_parts = []
+        
+        # Önce pypdf dene
         try:
             from pypdf import PdfReader
+            import warnings
             
-            reader = PdfReader(str(path))
-            documents = []
-            
-            for page_num, page in enumerate(reader.pages, 1):
-                text = page.extract_text()
-                if text.strip():
-                    metadata = self._get_base_metadata(path)
-                    metadata["page_number"] = page_num
-                    metadata["total_pages"] = len(reader.pages)
+            # Suppress pypdf warnings for corrupted PDFs
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                
+                reader = PdfReader(str(path), strict=False)
+                total_pages = len(reader.pages)
+                
+                for page_num, page in enumerate(reader.pages, 1):
+                    try:
+                        text = page.extract_text() or ""
+                        if text.strip():
+                            # Sayfa işaretçisi ekle (chunker için)
+                            page_content = f"[PAGE: {page_num}]\n{text.strip()}"
+                            all_content_parts.append(page_content)
+                    except Exception:
+                        # Sayfa okunamadı, atla
+                        continue
+                
+                if all_content_parts:
+                    # Tüm sayfaları tek döküman olarak birleştir (chunker parçalayacak)
+                    combined_content = "\n\n".join(all_content_parts)
+                    metadata["total_pages"] = total_pages
+                    metadata["pages_extracted"] = len(all_content_parts)
+                    return [Document(content=combined_content, metadata=metadata)]
                     
-                    documents.append(Document(content=text, metadata=metadata))
-            
-            return documents
-            
         except ImportError:
-            # Fallback to pdfplumber
-            try:
-                import pdfplumber
+            pass
+        except Exception:
+            pass
+        
+        # Eğer pypdf başarısız olduysa pdfplumber dene
+        try:
+            import pdfplumber
+            
+            with pdfplumber.open(str(path)) as pdf:
+                total_pages = len(pdf.pages)
                 
-                documents = []
-                with pdfplumber.open(str(path)) as pdf:
-                    for page_num, page in enumerate(pdf.pages, 1):
-                        text = page.extract_text()
-                        if text and text.strip():
-                            metadata = self._get_base_metadata(path)
-                            metadata["page_number"] = page_num
-                            metadata["total_pages"] = len(pdf.pages)
-                            
-                            documents.append(Document(content=text, metadata=metadata))
+                for page_num, page in enumerate(pdf.pages, 1):
+                    try:
+                        text = page.extract_text() or ""
+                        if text.strip():
+                            # Sayfa işaretçisi ekle
+                            page_content = f"[PAGE: {page_num}]\n{text.strip()}"
+                            all_content_parts.append(page_content)
+                    except Exception:
+                        continue
                 
-                return documents
-            except ImportError:
-                raise ImportError("PDF yüklemek için pypdf veya pdfplumber gerekli")
+                if all_content_parts:
+                    combined_content = "\n\n".join(all_content_parts)
+                    metadata["total_pages"] = total_pages
+                    metadata["pages_extracted"] = len(all_content_parts)
+                    return [Document(content=combined_content, metadata=metadata)]
+                    
+        except ImportError:
+            pass
+        except Exception:
+            pass
+        
+        # Her iki kütüphane de başarısız olduysa, dosya adını bile içeren minimal döküman döndür
+        if not all_content_parts:
+            # Son çare: En azından dosya bilgisini döndür
+            fallback_content = f"[PDF İçeriği Okunamadı]\n\nDosya: {path.name}\nBoyut: {metadata.get('file_size', 0)} byte\n\nNot: Bu PDF dosyası bozuk veya şifrelenmiş olabilir."
+            documents.append(Document(content=fallback_content, metadata=metadata))
+        
+        return documents
     
     def _load_docx(self, path: Path) -> List[Document]:
         """Word dosyası yükle."""
@@ -226,6 +268,49 @@ class DocumentLoader:
             
         except ImportError:
             raise ImportError("DOCX yüklemek için python-docx gerekli")
+    
+    def _load_pptx(self, path: Path) -> List[Document]:
+        """PowerPoint dosyası yükle."""
+        try:
+            from pptx import Presentation
+            
+            prs = Presentation(str(path))
+            documents = []
+            all_text_parts = []
+            
+            for slide_num, slide in enumerate(prs.slides, 1):
+                slide_text = [f"\n## Slayt {slide_num}"]
+                
+                for shape in slide.shapes:
+                    # Metin çerçeveleri
+                    if shape.has_text_frame:
+                        for paragraph in shape.text_frame.paragraphs:
+                            text = paragraph.text.strip()
+                            if text:
+                                slide_text.append(text)
+                    
+                    # Tablolar
+                    if shape.has_table:
+                        table = shape.table
+                        table_text = ["\n**Tablo:**"]
+                        for row in table.rows:
+                            row_cells = []
+                            for cell in row.cells:
+                                row_cells.append(cell.text.strip())
+                            table_text.append(" | ".join(row_cells))
+                        slide_text.extend(table_text)
+                
+                if len(slide_text) > 1:  # Sadece başlık değilse
+                    all_text_parts.extend(slide_text)
+            
+            content = "\n".join(all_text_parts)
+            metadata = self._get_base_metadata(path)
+            metadata["total_slides"] = len(prs.slides)
+            
+            return [Document(content=content, metadata=metadata)]
+            
+        except ImportError:
+            raise ImportError("PowerPoint yüklemek için python-pptx gerekli")
     
     def _load_excel(self, path: Path) -> List[Document]:
         """Excel dosyası yükle."""

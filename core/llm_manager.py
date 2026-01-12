@@ -84,7 +84,7 @@ class LLMManager:
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = 65536,  # 2^16 - unlimited local model
     ) -> str:
         """
         Senkron LLM yanıtı üret.
@@ -128,7 +128,7 @@ class LLMManager:
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = 65536,  # 2^16 - unlimited local model
     ) -> str:
         """Asenkron LLM yanıtı üret."""
         loop = asyncio.get_event_loop()
@@ -142,7 +142,7 @@ class LLMManager:
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = 65536,  # 2^16 - unlimited local model
     ) -> AsyncGenerator[str, None]:
         """
         Streaming LLM yanıtı üret.
@@ -184,7 +184,7 @@ class LLMManager:
         self,
         messages: list[dict],
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = 65536,  # 2^16 - unlimited local model
     ) -> str:
         """
         Multi-turn chat desteği.
@@ -230,7 +230,7 @@ class LLMManager:
         image_path: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = 65536,  # 2^16 - unlimited local model
     ) -> str:
         """
         Görsel ile birlikte LLM yanıtı üret (VLM desteği).
@@ -280,7 +280,7 @@ class LLMManager:
         image_path: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 2048,
+        max_tokens: int = 65536,  # 2^16 - unlimited local model
     ):
         """
         Görsel ile streaming LLM yanıtı üret (VLM desteği).

@@ -176,6 +176,8 @@ class DocumentProcessor:
             return self._extract_pdf(file_path)
         elif doc_type == DocumentType.WORD:
             return self._extract_word(file_path)
+        elif doc_type == DocumentType.POWERPOINT:
+            return self._extract_powerpoint(file_path)
         elif doc_type == DocumentType.EXCEL:
             return self._extract_excel(file_path)
         elif doc_type in [DocumentType.TEXT, DocumentType.MARKDOWN, DocumentType.CODE]:
@@ -218,8 +220,48 @@ class DocumentProcessor:
         except Exception as e:
             return f"[Word okuma hatası: {e}]"
     
+    def _extract_powerpoint(self, file_path: Path) -> str:
+        """PowerPoint dökümanından metin çıkar."""
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches
+            
+            prs = Presentation(file_path)
+            text_parts = []
+            
+            for slide_num, slide in enumerate(prs.slides, 1):
+                slide_text = [f"\n## 📊 Slayt {slide_num}"]
+                
+                for shape in slide.shapes:
+                    # Başlık
+                    if shape.has_text_frame:
+                        for paragraph in shape.text_frame.paragraphs:
+                            text = paragraph.text.strip()
+                            if text:
+                                slide_text.append(text)
+                    
+                    # Tablolar
+                    if shape.has_table:
+                        table = shape.table
+                        table_text = ["\n**Tablo:**"]
+                        for row in table.rows:
+                            row_cells = []
+                            for cell in row.cells:
+                                row_cells.append(cell.text.strip())
+                            table_text.append(" | ".join(row_cells))
+                        slide_text.extend(table_text)
+                
+                if len(slide_text) > 1:  # Sadece başlık değilse
+                    text_parts.extend(slide_text)
+            
+            return "\n".join(text_parts)
+        except ImportError:
+            return "[PowerPoint okuma için python-pptx gerekli]"
+        except Exception as e:
+            return f"[PowerPoint okuma hatası: {e}]"
+    
     def _extract_excel(self, file_path: Path) -> str:
-        """Excel'den metin çıkar."""
+        """Excel'den metin çıkar - Gelişmiş versiyon."""
         try:
             import openpyxl
             
@@ -228,12 +270,40 @@ class DocumentProcessor:
             
             for sheet_name in wb.sheetnames:
                 sheet = wb[sheet_name]
-                text_parts.append(f"## Sheet: {sheet_name}")
+                text_parts.append(f"\n## 📑 Sayfa: {sheet_name}")
                 
-                for row in sheet.iter_rows(values_only=True):
-                    row_text = " | ".join(str(cell or "") for cell in row)
-                    if row_text.strip(" |"):
+                # İlk satırı başlık olarak al
+                rows = list(sheet.iter_rows(values_only=True))
+                if not rows:
+                    continue
+                
+                # Başlık satırı varsa
+                headers = rows[0] if rows else []
+                has_header = headers and any(isinstance(h, str) for h in headers if h)
+                
+                if has_header:
+                    header_text = " | ".join(str(h or "-") for h in headers)
+                    text_parts.append(f"\n**Başlıklar:** {header_text}")
+                    text_parts.append("-" * 50)
+                    data_rows = rows[1:]
+                else:
+                    data_rows = rows
+                
+                # Veri satırları
+                row_count = 0
+                for row in data_rows:
+                    row_text = " | ".join(str(cell or "-") for cell in row)
+                    if row_text.strip(" |-"):
                         text_parts.append(row_text)
+                        row_count += 1
+                        # Çok fazla satır varsa özetle
+                        if row_count >= 100:
+                            remaining = len(data_rows) - row_count
+                            if remaining > 0:
+                                text_parts.append(f"\n... ve {remaining} satır daha")
+                            break
+                
+                text_parts.append(f"\n📊 Toplam: {len(data_rows)} satır veri")
             
             return "\n".join(text_parts)
         except ImportError:

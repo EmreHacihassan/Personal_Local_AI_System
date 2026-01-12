@@ -65,10 +65,27 @@ def check_ollama():
     """Ollama'nın çalışıp çalışmadığını kontrol et."""
     try:
         import requests
-        response = requests.get("http://localhost:11434/api/version", timeout=5)
+        response = requests.get("http://localhost:11434/api/version", timeout=2)
         return response.status_code == 200
     except:
         return False
+
+
+def start_ollama():
+    """Ollama'yı başlat."""
+    import platform
+    if platform.system() == "Windows":
+        # ollama.exe serve kullan (ollama app.exe değil!)
+        ollama_path = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe")
+        if os.path.exists(ollama_path):
+            subprocess.Popen(
+                [ollama_path, "serve"], 
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            return True
+    return False
 
 
 def check_models():
@@ -157,26 +174,32 @@ def main():
     print("   Endüstri Standartlarında Kurumsal AI Çözümü")
     print("=" * 60)
     
-    # Step 1: Check Ollama
+    # Step 1: Check Ollama - yoksa başlat
     print("\n📡 Ollama kontrol ediliyor...")
     if not check_ollama():
-        print("❌ Ollama çalışmıyor!")
-        print("   Lütfen önce Ollama'yı başlatın: https://ollama.ai")
-        print("   Windows'ta: Ollama uygulamasını çalıştırın")
-        return
+        print("   Ollama başlatılıyor...")
+        start_ollama()
+        # Ollama'nın başlamasını bekle (max 10 saniye)
+        for i in range(10):
+            time.sleep(1)
+            if check_ollama():
+                break
+        
+        if not check_ollama():
+            print("❌ Ollama başlatılamadı! Manuel başlatın.")
+            print("   Windows'ta: Ollama uygulamasını çalıştırın")
+            input("   Ollama'yı başlattıktan sonra Enter'a basın...")
+            if not check_ollama():
+                return
     print("✅ Ollama aktif")
     
-    # Step 2: Check models
+    # Step 2: Check models - SKIP INPUT, just warn
     print("\n🔍 Modeller kontrol ediliyor...")
     missing_models = check_models()
     
     if missing_models:
         print(f"⚠️ Eksik modeller: {', '.join(missing_models)}")
-        response = input("İndirmek ister misiniz? (e/h): ")
-        if response.lower() == 'e':
-            pull_models(missing_models)
-        else:
-            print("⚠️ Modeller olmadan sistem düzgün çalışmayabilir")
+        print("   Modeller arka planda indirilecek veya manuel indirin.")
     else:
         print("✅ Tüm modeller mevcut")
     
@@ -202,12 +225,12 @@ def main():
         # Start API
         print(f"   📡 API başlatılıyor (port {api_port})...")
         api_process = run_api(api_port)
-        time.sleep(3)
+        time.sleep(2)
         
         # Start Frontend
         print(f"   🌐 Frontend başlatılıyor (port {frontend_port})...")
         frontend_process = run_frontend(frontend_port, api_port)
-        time.sleep(3)
+        time.sleep(2)
         
         print("\n" + "=" * 60)
         print("✅ Enterprise AI Assistant başarıyla başlatıldı!")
@@ -220,7 +243,7 @@ def main():
         print("=" * 60)
         
         # Open browser
-        time.sleep(2)
+        time.sleep(1)
         webbrowser.open(f"http://localhost:{frontend_port}")
         
         # Wait for processes

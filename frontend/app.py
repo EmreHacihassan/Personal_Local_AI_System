@@ -2014,7 +2014,7 @@ if st.session_state.current_page == "chat":
         st.session_state.stop_generation = False
         st.session_state.is_generating = True
         
-        # Kullanıcı mesajını ekle (düzenleme değilse)
+        # ✅ ÖNCE kullanıcı mesajını HEMEN ekle - prompt kaybolmasın!
         if not skip_add_message:
             st.session_state.messages.append({
                 "role": "user",
@@ -2023,6 +2023,10 @@ if st.session_state.current_page == "chat":
                 "web_sources": [],
             })
             save_message_to_session("user", user_input)
+        
+        # ✅ Kullanıcı mesajını HEMEN render et (AI yanıtı gelmeden önce görünsün)
+        with st.chat_message("user"):
+            st.write(user_input)
         
         # AI yanıtını al
         with st.chat_message("assistant"):
@@ -2033,6 +2037,7 @@ if st.session_state.current_page == "chat":
             stop_button_placeholder = st.empty()
             
             full_response = ""
+            error_message = None  # ✅ Hata mesajını tutmak için
             web_sources = []
             was_stopped = False
             response_started = False
@@ -2042,19 +2047,24 @@ if st.session_state.current_page == "chat":
                 if st.button("⏹️ Yanıtı Durdur", key="stop_gen_btn", type="secondary", use_container_width=True):
                     st.session_state.stop_generation = True
             
-            # Loading animasyonu göster
+            # ✅ CANLI SÜRE SAYACI ile Loading animasyonu
             with status_container:
                 loading_placeholder = st.empty()
+                elapsed_display = f"{time.time() - start_time:.1f}s"
                 loading_placeholder.markdown(
-                    '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">'
-                    '<div class="loading-spinner"></div>'
-                    '<span style="color: #666; font-size: 0.9rem;">Yanıt hazırlanıyor...</span>'
-                    '</div>'
-                    '<style>'
-                    '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }'
-                    '.loading-spinner { width: 18px; height: 18px; border: 2px solid #e0e0e0; '
-                    'border-top: 2px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; }'
-                    '</style>',
+                    f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; '
+                    f'padding: 8px 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); '
+                    f'border-radius: 8px; border-left: 3px solid #667eea;">'
+                    f'<div class="loading-spinner"></div>'
+                    f'<span style="color: #495057; font-size: 0.9rem; font-weight: 500;">Yanıt hazırlanıyor...</span>'
+                    f'<span style="color: #868e96; font-size: 0.85rem; margin-left: auto; font-family: monospace;">'
+                    f'⏱️ {elapsed_display}</span>'
+                    f'</div>'
+                    f'<style>'
+                    f'@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}'
+                    f'.loading-spinner {{ width: 18px; height: 18px; border: 2px solid #e0e0e0; '
+                    f'border-top: 2px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; }}'
+                    f'</style>',
                     unsafe_allow_html=True
                 )
             
@@ -2065,6 +2075,10 @@ if st.session_state.current_page == "chat":
             confidence_score = 0.8
             
             for chunk in stream_chat_message(user_input, st.session_state.web_search_enabled, st.session_state.response_mode):
+                # ✅ Her chunk'ta süreyi güncelle
+                current_elapsed = time.time() - start_time
+                elapsed_str = f"{current_elapsed:.1f}s" if current_elapsed < 60 else f"{int(current_elapsed//60)}m {int(current_elapsed%60)}s"
+                
                 # Durdurma kontrolü
                 if st.session_state.stop_generation:
                     was_stopped = True
@@ -2087,10 +2101,15 @@ if st.session_state.current_page == "chat":
                     }
                     icon = phase_icons.get(phase, "⏳")
                     
+                    # ✅ Süre sayacı ile güncelle
                     loading_placeholder.markdown(
-                        f'<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">'
+                        f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; '
+                        f'padding: 8px 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); '
+                        f'border-radius: 8px; border-left: 3px solid #667eea;">'
                         f'<div class="loading-spinner"></div>'
-                        f'<span style="color: #666; font-size: 0.9rem;">{icon} {status_msg}</span>'
+                        f'<span style="color: #495057; font-size: 0.9rem; font-weight: 500;">{icon} {status_msg}</span>'
+                        f'<span style="color: #868e96; font-size: 0.85rem; margin-left: auto; font-family: monospace;">'
+                        f'⏱️ {elapsed_str}</span>'
                         f'</div>'
                         f'<style>'
                         f'@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}'
@@ -2126,18 +2145,23 @@ if st.session_state.current_page == "chat":
                 elif chunk_type == "token":
                     if not response_started:
                         response_started = True
-                        loading_placeholder.markdown(
-                            '<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">'
-                            '<div class="loading-spinner"></div>'
-                            '<span style="color: #666; font-size: 0.9rem;">✍️ Yazılıyor...</span>'
-                            '</div>'
-                            '<style>'
-                            '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }'
-                            '.loading-spinner { width: 18px; height: 18px; border: 2px solid #e0e0e0; '
-                            'border-top: 2px solid #22c55e; border-radius: 50%; animation: spin 1s linear infinite; }'
-                            '</style>',
-                            unsafe_allow_html=True
-                        )
+                    # ✅ Yazılıyor durumu - yeşil spinner + süre
+                    loading_placeholder.markdown(
+                        f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; '
+                        f'padding: 8px 12px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); '
+                        f'border-radius: 8px; border-left: 3px solid #22c55e;">'
+                        f'<div class="loading-spinner-green"></div>'
+                        f'<span style="color: #166534; font-size: 0.9rem; font-weight: 500;">✍️ Yazılıyor...</span>'
+                        f'<span style="color: #15803d; font-size: 0.85rem; margin-left: auto; font-family: monospace;">'
+                        f'⏱️ {elapsed_str}</span>'
+                        f'</div>'
+                        f'<style>'
+                        f'@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}'
+                        f'.loading-spinner-green {{ width: 18px; height: 18px; border: 2px solid #bbf7d0; '
+                        f'border-top: 2px solid #22c55e; border-radius: 50%; animation: spin 1s linear infinite; }}'
+                        f'</style>',
+                        unsafe_allow_html=True
+                    )
                     full_response += chunk.get("content", "")
                     response_placeholder.markdown(full_response + "▌")
                 
@@ -2145,7 +2169,8 @@ if st.session_state.current_page == "chat":
                     st.warning(chunk.get("message", ""))
                 
                 elif chunk_type == "error":
-                    st.error(f"Hata: {chunk.get('message')}")
+                    # ✅ HATA MESAJINI KAYDET - kalıcı olarak chat'te gösterilecek
+                    error_message = chunk.get('message', 'Bilinmeyen hata')
                     break
                 
                 elif chunk_type == "end":
@@ -2171,8 +2196,43 @@ if st.session_state.current_page == "chat":
             else:
                 time_str = f"{seconds} sn"
             
-            # Final render
-            if full_response:
+            # ✅ HATA DURUMU - Kalıcı hata mesajı göster
+            if error_message:
+                # Kırmızı hata durumu göster
+                loading_placeholder.markdown(
+                    f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; '
+                    f'padding: 10px 14px; background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); '
+                    f'border-radius: 8px; border-left: 3px solid #ef4444;">'
+                    f'<span style="color: #dc2626; font-size: 1.2rem;">❌</span>'
+                    f'<span style="color: #991b1b; font-size: 0.9rem; font-weight: 500;">Bağlantı Hatası</span>'
+                    f'<span style="color: #b91c1c; font-size: 0.85rem; margin-left: auto;">⏱️ {time_str}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                # Hata detayını göster
+                response_placeholder.markdown(
+                    f'<div style="padding: 16px; background: #fef2f2; border-radius: 8px; '
+                    f'border: 1px solid #fecaca; margin: 10px 0;">'
+                    f'<div style="color: #dc2626; font-weight: 600; margin-bottom: 8px;">⚠️ Sunucuya bağlanılamadı</div>'
+                    f'<div style="color: #7f1d1d; font-size: 0.9rem;">{error_message}</div>'
+                    f'<div style="color: #991b1b; font-size: 0.85rem; margin-top: 10px;">'
+                    f'💡 <b>Çözüm:</b> Backend sunucusunun çalıştığından emin olun (port 8001)</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                # ✅ Hata mesajını chat'e KALICI olarak ekle
+                error_content = f"❌ **Bağlantı Hatası**\n\n{error_message}\n\n*Sunucu yanıt vermedi. Backend'in çalıştığından emin olun.*"
+                save_message_to_session("assistant", error_content, [])
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": error_content,
+                    "sources": [],
+                    "web_sources": [],
+                    "is_error": True
+                })
+            
+            # Normal yanıt render
+            elif full_response:
                 response_placeholder.markdown(full_response)
                 
                 # Kaynakları tekrar göster (eğer varsa ve henüz gösterilmediyse)
@@ -2193,12 +2253,15 @@ if st.session_state.current_page == "chat":
                         confidence_score
                     )
                 
-                # Loading'i yeşil tik ile değiştir
+                # Loading'i yeşil tik ile değiştir - PROFESYONEl GÖRÜNÜM
                 if was_stopped:
                     loading_placeholder.markdown(
-                        f'<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">'
-                        f'<span style="color: #f59e0b; font-size: 1.1rem;">⚠️</span>'
-                        f'<span style="color: #92400e; font-size: 0.85rem;">Durduruldu • {time_str}</span>'
+                        f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px; '
+                        f'padding: 8px 12px; background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); '
+                        f'border-radius: 8px; border-left: 3px solid #f59e0b;">'
+                        f'<span style="color: #d97706; font-size: 1.1rem;">⚠️</span>'
+                        f'<span style="color: #92400e; font-size: 0.9rem; font-weight: 500;">Durduruldu</span>'
+                        f'<span style="color: #b45309; font-size: 0.85rem; margin-left: auto; font-family: monospace;">⏱️ {time_str}</span>'
                         f'</div>',
                         unsafe_allow_html=True
                     )
@@ -2209,10 +2272,14 @@ if st.session_state.current_page == "chat":
                     else:
                         time_display = f"{total_time_ms / 1000:.1f}sn"
                     
+                    # ✅ YEŞİL TİK - Profesyonel tamamlandı görünümü
                     loading_placeholder.markdown(
-                        f'<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">'
-                        f'<span style="color: #22c55e; font-size: 1.1rem;">✓</span>'
-                        f'<span style="color: #666; font-size: 0.85rem;">Tamamlandı • {time_display}</span>'
+                        f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px; '
+                        f'padding: 8px 12px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); '
+                        f'border-radius: 8px; border-left: 3px solid #22c55e;">'
+                        f'<span style="color: #22c55e; font-size: 1.2rem;">✓</span>'
+                        f'<span style="color: #166534; font-size: 0.9rem; font-weight: 500;">Tamamlandı</span>'
+                        f'<span style="color: #15803d; font-size: 0.85rem; margin-left: auto; font-family: monospace;">⏱️ {time_display}</span>'
                         f'</div>',
                         unsafe_allow_html=True
                     )

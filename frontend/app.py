@@ -1272,8 +1272,173 @@ def check_health():
     return check_health_fast()
 
 
+# ============ WEBSOCKET CLIENT ============
+
+class WebSocketClient:
+    """
+    Enterprise WebSocket Client.
+    
+    HTTP Streaming yerine gerçek WebSocket kullanır:
+    - Bidirectional communication
+    - Düşük latency
+    - Stop komutu anında gönderilir
+    - Keepalive otomatik
+    """
+    
+    def __init__(self):
+        self.ws = None
+        self.connected = False
+        self.client_id = None
+    
+    def connect(self):
+        """WebSocket bağlantısı kur."""
+        import websocket
+        
+        if self.connected and self.ws:
+            return True
+        
+        try:
+            self.client_id = st.session_state.session_id or str(uuid.uuid4())
+            ws_url = API_BASE_URL.replace("http://", "ws://").replace("https://", "wss://")
+            ws_url = f"{ws_url}/ws/v2/{self.client_id}"
+            
+            self.ws = websocket.create_connection(
+                ws_url,
+                timeout=5,
+                enable_multithread=True
+            )
+            self.connected = True
+            
+            # Bağlantı onayını bekle
+            response = self.ws.recv()
+            data = json.loads(response)
+            if data.get("type") == "connected":
+                return True
+            
+        except Exception as e:
+            self.connected = False
+            self.ws = None
+            return False
+        
+        return False
+    
+    def disconnect(self):
+        """WebSocket bağlantısını kapat."""
+        if self.ws:
+            try:
+                self.ws.close()
+            except:
+                pass
+            self.ws = None
+            self.connected = False
+    
+    def send_stop(self):
+        """Stop komutu gönder."""
+        if self.ws and self.connected:
+            try:
+                self.ws.send(json.dumps({"type": "stop"}))
+            except:
+                pass
+    
+    def stream_chat(self, message: str, session_id: str, web_search: bool = False, response_mode: str = "normal"):
+        """WebSocket üzerinden streaming chat."""
+        if not self.connect():
+            yield {"type": "error", "message": "WebSocket bağlantısı kurulamadı"}
+            return
+        
+        try:
+            # Chat mesajı gönder
+            self.ws.send(json.dumps({
+                "type": "chat",
+                "message": message,
+                "session_id": session_id,
+                "web_search": web_search,
+                "response_mode": response_mode
+            }))
+            
+            # Yanıtları al
+            while True:
+                try:
+                    response = self.ws.recv()
+                    if not response:
+                        continue
+                    
+                    data = json.loads(response)
+                    msg_type = data.get("type")
+                    
+                    # Mesaj tipine göre dönüştür (eski format uyumluluğu)
+                    if msg_type == "token":
+                        yield {"type": "token", "content": data.get("content", "")}
+                    elif msg_type == "start":
+                        yield {"type": "status", "message": "Bağlantı kuruldu", "phase": "connect"}
+                    elif msg_type == "status":
+                        yield {"type": "status", "message": data.get("message", ""), "phase": data.get("phase", "")}
+                    elif msg_type == "sources":
+                        yield {"type": "sources", "sources": data.get("sources", [])}
+                    elif msg_type == "end":
+                        stats = data.get("stats", {})
+                        yield {
+                            "type": "end",
+                            "timing": {"total_ms": stats.get("duration_ms", 0)},
+                            "stats": stats
+                        }
+                        break
+                    elif msg_type == "stopped":
+                        yield {"type": "stopped", "elapsed_ms": data.get("elapsed_ms", 0)}
+                        break
+                    elif msg_type == "error":
+                        yield {"type": "error", "message": data.get("message", "Bilinmeyen hata")}
+                        break
+                    elif msg_type == "ping":
+                        # Ping'e pong ile cevap ver (otomatik keepalive)
+                        self.ws.send(json.dumps({"type": "pong"}))
+                    
+                except websocket.WebSocketTimeoutException:
+                    continue
+                except Exception as e:
+                    yield {"type": "error", "message": str(e)}
+                    break
+                    
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+
+
+# Global WebSocket client
+_ws_client = None
+
+def get_ws_client():
+    """WebSocket client singleton."""
+    global _ws_client
+    if _ws_client is None:
+        _ws_client = WebSocketClient()
+    return _ws_client
+
+
 def stream_chat_message(message: str, use_web_search: bool = False, response_mode: str = "normal"):
-    """Streaming chat mesajı gönder."""
+    """
+    Streaming chat mesajı gönder.
+    
+    WebSocket kullanılabiliyorsa WebSocket, yoksa HTTP Streaming.
+    """
+    # Önce WebSocket dene
+    try:
+        import websocket
+        ws_available = True
+    except ImportError:
+        ws_available = False
+    
+    # WebSocket tercih et (daha düşük latency)
+    if ws_available and not use_web_search:  # Web search HTTP'de kalsın (daha kararlı)
+        ws_client = get_ws_client()
+        yield from ws_client.stream_chat(
+            message, 
+            st.session_state.session_id, 
+            use_web_search, 
+            response_mode
+        )
+        return
+    
+    # Fallback: HTTP Streaming
     endpoint = "/api/chat/web-stream" if use_web_search else "/api/chat/stream"
     
     try:
@@ -1283,7 +1448,7 @@ def stream_chat_message(message: str, use_web_search: bool = False, response_mod
                 "message": message,
                 "session_id": st.session_state.session_id,
                 "web_search": use_web_search,
-                "response_mode": response_mode,  # "normal" veya "detailed"
+                "response_mode": response_mode,
             },
             stream=True,
             timeout=180,
@@ -2340,21 +2505,32 @@ if st.session_state.current_page == "chat":
                         unsafe_allow_html=True
                     )
                 else:
-                    total_time_ms = response_timing.get("total_ms", int(elapsed_time * 1000)) if response_timing else int(elapsed_time * 1000)
-                    if total_time_ms > 60000:
-                        time_display = f"{total_time_ms // 60000}dk {(total_time_ms % 60000) // 1000}sn"
+                    # ✅ TOPLAM SÜRE - elapsed_time kullan (her zaman doğru)
+                    total_seconds = elapsed_time
+                    if total_seconds >= 60:
+                        mins = int(total_seconds // 60)
+                        secs = int(total_seconds % 60)
+                        time_display = f"{mins}dk {secs}sn"
                     else:
-                        time_display = f"{total_time_ms / 1000:.1f}sn"
+                        time_display = f"{total_seconds:.1f}sn"
                     
-                    # ✅ YEŞİL TİK - Profesyonel tamamlandı görünümü
+                    # Word count
+                    word_count = len(full_response.split()) if full_response else 0
+                    
+                    # ✅ YEŞİL TİK - Profesyonel tamamlandı görünümü + detaylı istatistik
                     loading_placeholder.markdown(
-                        f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px; '
-                        f'padding: 8px 12px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); '
-                        f'border-radius: 8px; border-left: 3px solid #22c55e;">'
-                        f'<span style="color: #22c55e; font-size: 1.2rem;">✓</span>'
-                        f'<span style="color: #166534; font-size: 0.9rem; font-weight: 500;">Tamamlandı</span>'
-                        f'<span style="color: #15803d; font-size: 0.85rem; margin-left: auto; font-family: monospace;">⏱️ {time_display}</span>'
-                        f'</div>',
+                        f'''
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+                            padding: 10px 14px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+                            border-radius: 8px; border-left: 3px solid #22c55e;">
+                            <span style="color: #22c55e; font-size: 1.3rem;">✓</span>
+                            <span style="color: #166534; font-size: 0.9rem; font-weight: 600;">Tamamlandı</span>
+                            <span style="color: #15803d; font-size: 0.8rem; opacity: 0.8;">({word_count} kelime)</span>
+                            <span style="color: #166534; font-size: 0.9rem; margin-left: auto; font-family: 'SF Mono', Monaco, monospace; font-weight: 600;">
+                                ⏱️ {time_display}
+                            </span>
+                        </div>
+                        ''',
                         unsafe_allow_html=True
                     )
                 

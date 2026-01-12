@@ -2114,6 +2114,9 @@ async def reindex_documents():
 
 # ============ WEBSOCKET ENDPOINTS ============
 
+# Import WebSocket v2
+from api.websocket_v2 import ws_manager, websocket_endpoint_v2
+
 @app.websocket("/ws/chat/{client_id}")
 async def websocket_chat(websocket: WebSocket, client_id: str):
     """
@@ -2121,17 +2124,41 @@ async def websocket_chat(websocket: WebSocket, client_id: str):
     
     Bağlantı sonrası JSON formatında mesaj gönderin:
     {"type": "chat", "message": "Merhaba", "session_id": "optional-session-id"}
+    {"type": "stop"} - Streaming'i durdur
+    {"type": "ping"} - Keepalive ping
     """
-    await websocket_endpoint(websocket, client_id)
+    await websocket_endpoint_v2(websocket, client_id)
+
+
+@app.websocket("/ws/v2/{client_id}")
+async def websocket_chat_v2(websocket: WebSocket, client_id: str):
+    """
+    WebSocket v2 - Enterprise-grade streaming.
+    
+    Özellikler:
+    - ANLIK streaming (buffering yok)
+    - Keepalive ping/pong (25 saniye)
+    - Rate limiting (10 istek/5 saniye)
+    - Stop komutu desteği
+    - Detaylı istatistikler
+    """
+    await websocket_endpoint_v2(websocket, client_id)
 
 
 @app.get("/api/ws/clients", tags=["WebSocket"])
 async def get_connected_clients():
     """Bağlı WebSocket client'larını listele."""
     return {
-        "connected_clients": list(manager.active_connections.keys()),
-        "total": len(manager.active_connections),
+        "connected_clients": ws_manager.get_clients_info(),
+        "total": ws_manager.active_count,
+        "stats": ws_manager.get_stats(),
     }
+
+
+@app.get("/api/ws/stats", tags=["WebSocket"])
+async def get_websocket_stats():
+    """WebSocket istatistiklerini al."""
+    return ws_manager.get_stats()
 
 
 # ============ HEALTH & MONITORING ENDPOINTS ============

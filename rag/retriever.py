@@ -3,10 +3,20 @@ Enterprise AI Assistant - Retriever
 Endüstri Standartlarında Kurumsal AI Çözümü
 
 Akıllı bilgi getirme - semantic search, hybrid search, reranking.
+
+ENTERPRISE FEATURES:
+- Multiple retrieval strategies (semantic, hybrid, multi-query)
+- INTEGRATED RERANKING (BM25, CrossEncoder, Ensemble)
+- Query result caching
+- Performance metrics
+- Context-aware truncation
 """
 
+import time
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from functools import lru_cache
+import hashlib
 
 import sys
 sys.path.append('..')
@@ -14,6 +24,17 @@ sys.path.append('..')
 from core.config import settings
 from core.vector_store import vector_store
 from core.llm_manager import llm_manager
+
+# Import reranker
+try:
+    from rag.reranker import (
+        Reranker, BM25Reranker, CrossEncoderReranker, 
+        RRFReranker, EnsembleReranker, RankedDocument
+    )
+    RERANKER_AVAILABLE = True
+except ImportError:
+    RERANKER_AVAILABLE = False
+    print("⚠️ Reranker module not available, using basic retrieval")
 
 
 @dataclass
@@ -23,6 +44,7 @@ class RetrievalResult:
     metadata: Dict[str, Any]
     score: float
     source: str
+    reranked: bool = False  # Reranking uygulandı mı
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -30,27 +52,101 @@ class RetrievalResult:
             "metadata": self.metadata,
             "score": self.score,
             "source": self.source,
+            "reranked": self.reranked,
         }
+
+
+class QueryResultCache:
+    """
+    Sorgu sonucu cache'i.
+    
+    Aynı sorgular için retrieval sonuçlarını cache'ler.
+    """
+    
+    def __init__(self, max_size: int = 500, ttl_seconds: int = 300):
+        self.max_size = max_size
+        self.ttl_seconds = ttl_seconds
+        self._cache: Dict[str, tuple] = {}  # key -> (results, timestamp)
+    
+    def _generate_key(self, query: str, top_k: int, strategy: str) -> str:
+        """Cache key oluştur."""
+        data = f"{query.lower().strip()}|{top_k}|{strategy}"
+        return hashlib.sha256(data.encode()).hexdigest()[:24]
+    
+    def get(self, query: str, top_k: int, strategy: str) -> Optional[List]:
+        """Cache'den sonuç al."""
+        key = self._generate_key(query, top_k, strategy)
+        if key in self._cache:
+            results, timestamp = self._cache[key]
+            if time.time() - timestamp < self.ttl_seconds:
+                return results
+            else:
+                del self._cache[key]
+        return None
+    
+    def set(self, query: str, top_k: int, strategy: str, results: List) -> None:
+        """Sonucu cache'le."""
+        if len(self._cache) >= self.max_size:
+            # En eski girişi sil
+            oldest_key = min(self._cache, key=lambda k: self._cache[k][1])
+            del self._cache[oldest_key]
+        
+        key = self._generate_key(query, top_k, strategy)
+        self._cache[key] = (results, time.time())
+    
+    def clear(self) -> None:
+        """Cache'i temizle."""
+        self._cache.clear()
 
 
 class Retriever:
     """
     Bilgi getirme sınıfı - Endüstri standartlarına uygun.
     
-    Stratejiler:
+    ENTERPRISE FEATURES:
     - Semantic: Vector similarity search
     - Keyword: BM25 tabanlı arama
     - Hybrid: Semantic + Keyword birleşimi
     - Multi-Query: Query expansion ile arama
+    - INTEGRATED RERANKING: BM25 + Ensemble reranking
+    - Query result caching
+    - Performance metrics
     """
     
     def __init__(
         self,
         top_k: Optional[int] = None,
         score_threshold: float = 0.3,
+        enable_reranking: bool = True,
+        enable_cache: bool = True,
     ):
         self.top_k = top_k or settings.TOP_K_RESULTS
         self.score_threshold = score_threshold
+        self.enable_reranking = enable_reranking and RERANKER_AVAILABLE
+        
+        # Initialize rerankers
+        if self.enable_reranking:
+            self._bm25_reranker = BM25Reranker()
+            self._ensemble_reranker = EnsembleReranker(
+                rerankers=[
+                    (BM25Reranker(), 0.4),
+                    (CrossEncoderReranker(), 0.6),
+                ],
+                fusion_method="weighted_sum"
+            )
+        
+        # Query cache
+        self.enable_cache = enable_cache
+        self._cache = QueryResultCache() if enable_cache else None
+        
+        # Performance metrics
+        self._metrics = {
+            "total_queries": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "reranking_applied": 0,
+            "total_latency_ms": 0,
+        }
     
     def retrieve(
         self,
@@ -58,6 +154,7 @@ class Retriever:
         top_k: Optional[int] = None,
         filter_metadata: Optional[Dict[str, Any]] = None,
         strategy: str = "semantic",
+        rerank: bool = None,  # None = use default setting
     ) -> List[RetrievalResult]:
         """
         Sorguya göre ilgili dökümanları getir.
@@ -66,21 +163,103 @@ class Retriever:
             query: Arama sorgusu
             top_k: Döndürülecek sonuç sayısı
             filter_metadata: Metadata filtresi
-            strategy: Arama stratejisi (semantic, hybrid, multi_query)
+            strategy: Arama stratejisi (semantic, hybrid, multi_query, rerank)
+            rerank: Reranking uygulansın mı (None = default ayarı kullan)
             
         Returns:
             RetrievalResult listesi
         """
+        start_time = time.time()
         k = top_k or self.top_k
+        should_rerank = rerank if rerank is not None else (self.enable_reranking and strategy != "hybrid")
         
+        self._metrics["total_queries"] += 1
+        
+        # Cache kontrolü
+        cache_key_strategy = f"{strategy}_rerank" if should_rerank else strategy
+        if self.enable_cache and self._cache:
+            cached = self._cache.get(query, k, cache_key_strategy)
+            if cached:
+                self._metrics["cache_hits"] += 1
+                return cached
+        
+        self._metrics["cache_misses"] += 1
+        
+        # Retrieval strategy
         if strategy == "semantic":
-            return self._semantic_search(query, k, filter_metadata)
+            results = self._semantic_search(query, k * 2 if should_rerank else k, filter_metadata)
         elif strategy == "hybrid":
-            return self._hybrid_search(query, k, filter_metadata)
+            results = self._hybrid_search(query, k, filter_metadata)
         elif strategy == "multi_query":
-            return self._multi_query_search(query, k, filter_metadata)
+            results = self._multi_query_search(query, k * 2 if should_rerank else k, filter_metadata)
+        elif strategy == "rerank":
+            # Semantic + Reranking
+            results = self._semantic_search(query, k * 3, filter_metadata)
+            should_rerank = True
         else:
-            return self._semantic_search(query, k, filter_metadata)
+            results = self._semantic_search(query, k, filter_metadata)
+        
+        # RERANKING
+        if should_rerank and results and self.enable_reranking:
+            results = self._apply_reranking(query, results, k)
+            self._metrics["reranking_applied"] += 1
+        else:
+            results = results[:k]
+        
+        # Cache sonucu
+        if self.enable_cache and self._cache:
+            self._cache.set(query, k, cache_key_strategy, results)
+        
+        # Metrics güncelle
+        self._metrics["total_latency_ms"] += (time.time() - start_time) * 1000
+        
+        return results
+    
+    def _apply_reranking(
+        self,
+        query: str,
+        results: List[RetrievalResult],
+        top_k: int
+    ) -> List[RetrievalResult]:
+        """
+        Sonuçlara reranking uygula.
+        
+        BM25 + CrossEncoder ensemble reranking.
+        """
+        if not results or not self.enable_reranking:
+            return results[:top_k]
+        
+        # Convert to dict format for reranker
+        docs_for_rerank = [
+            {
+                "content": r.content,
+                "score": r.score,
+                "metadata": r.metadata,
+                "source": r.source,
+            }
+            for r in results
+        ]
+        
+        try:
+            # Apply ensemble reranking
+            reranked = self._ensemble_reranker.rerank(query, docs_for_rerank, top_k)
+            
+            # Convert back to RetrievalResult
+            reranked_results = [
+                RetrievalResult(
+                    content=r.content,
+                    metadata=r.metadata,
+                    score=r.reranked_score,
+                    source=r.source or r.metadata.get("source", "unknown"),
+                    reranked=True,
+                )
+                for r in reranked
+            ]
+            
+            return reranked_results
+        except Exception as e:
+            print(f"⚠️ Reranking failed, returning original results: {e}")
+            return results[:top_k]
     
     def _semantic_search(
         self,
@@ -265,6 +444,37 @@ Skor: {score:.2f}
         """Sadece kaynak listesi döndür."""
         results = self.retrieve(query, top_k)
         return list(set(r.source for r in results))
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Performance metrics döndür."""
+        total = self._metrics["cache_hits"] + self._metrics["cache_misses"]
+        cache_hit_rate = (
+            self._metrics["cache_hits"] / total * 100 if total > 0 else 0
+        )
+        avg_latency = (
+            self._metrics["total_latency_ms"] / self._metrics["total_queries"]
+            if self._metrics["total_queries"] > 0 else 0
+        )
+        
+        return {
+            "total_queries": self._metrics["total_queries"],
+            "cache_hits": self._metrics["cache_hits"],
+            "cache_hit_rate": f"{cache_hit_rate:.1f}%",
+            "reranking_applied": self._metrics["reranking_applied"],
+            "avg_latency_ms": f"{avg_latency:.1f}",
+            "reranking_enabled": self.enable_reranking,
+            "cache_enabled": self.enable_cache,
+        }
+    
+    def clear_cache(self) -> None:
+        """Query cache'i temizle."""
+        if self._cache:
+            self._cache.clear()
+    
+    def reset_metrics(self) -> None:
+        """Metrics'i sıfırla."""
+        for key in self._metrics:
+            self._metrics[key] = 0
 
 
 # Singleton instance

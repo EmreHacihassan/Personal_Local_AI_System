@@ -3,13 +3,21 @@ Enterprise AI Assistant - Long-Term Memory Module
 Uzun süreli hafıza yönetimi
 
 LangChain uyumlu conversation memory ve knowledge persistence.
+
+ENTERPRISE FEATURES:
+- LLM-based intelligent summarization
+- Importance-based memory retention
+- Semantic memory search
+- User preference learning
+- Knowledge graph (triple store)
+- Memory decay with access patterns
 """
 
 import json
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from dataclasses import dataclass, field
 from collections import defaultdict
 import hashlib
@@ -100,13 +108,31 @@ class ConversationBufferMemory:
 
 
 class ConversationSummaryMemory:
-    """Özet tabanlı hafıza - uzun konuşmaları özetler."""
+    """
+    Özet tabanlı hafıza - uzun konuşmaları akıllıca özetler.
     
-    def __init__(self, summarize_threshold: int = 10):
+    ENTERPRISE FEATURES:
+    - LLM-based intelligent summarization
+    - Incremental summary updates
+    - Key information extraction
+    - Context preservation
+    """
+    
+    def __init__(
+        self,
+        summarize_threshold: int = 10,
+        llm_summarize_fn: Optional[Callable[[str], str]] = None,
+    ):
         self.summarize_threshold = summarize_threshold
         self._messages: List[Dict[str, str]] = []
         self._summaries: List[str] = []
         self._current_summary: str = ""
+        self._llm_fn = llm_summarize_fn  # LLM özet fonksiyonu
+        self._key_facts: List[str] = []  # Çıkarılan önemli bilgiler
+    
+    def set_llm_function(self, llm_fn: Callable[[str], str]) -> None:
+        """LLM özet fonksiyonunu ayarla."""
+        self._llm_fn = llm_fn
     
     def add_message(self, role: str, content: str):
         """Mesaj ekle ve gerekirse özetle."""
@@ -121,28 +147,103 @@ class ConversationSummaryMemory:
             self._create_summary()
     
     def _create_summary(self):
-        """Mevcut mesajları özetle."""
-        # Bu basit bir implementasyon - gerçekte LLM kullanılır
-        summary_parts = []
-        for msg in self._messages:
-            if msg["role"] == "user":
-                summary_parts.append(f"Kullanıcı sordu: {msg['content'][:100]}...")
-            else:
-                summary_parts.append(f"Asistan cevapladı: {msg['content'][:100]}...")
+        """
+        Mevcut mesajları akıllıca özetle.
         
-        new_summary = " | ".join(summary_parts[-5:])
+        LLM varsa kullan, yoksa basit özet oluştur.
+        """
+        if not self._messages:
+            return
+        
+        # Mesajları formatlı string'e çevir
+        conversation_text = ""
+        for msg in self._messages:
+            role_name = "Kullanıcı" if msg["role"] == "user" else "Asistan"
+            conversation_text += f"{role_name}: {msg['content']}\n\n"
+        
+        if self._llm_fn:
+            # LLM-based intelligent summarization
+            try:
+                summary_prompt = f"""Aşağıdaki konuşmayı özetle. Önemli noktaları, kararları ve kullanıcının isteklerini vurgula.
+
+KONUŞMA:
+{conversation_text}
+
+ÖNEMLİ: 
+1. Özet en fazla 200 kelime olmalı
+2. Anahtar bilgileri bullet point olarak listele
+3. Kullanıcının tercihlerini ve öğrenilmesi gereken bilgileri belirt
+
+ÖZET:"""
+                
+                new_summary = self._llm_fn(summary_prompt)
+                
+                # Önemli bilgileri çıkar
+                facts_prompt = f"""Bu konuşmadan öğrenilmesi gereken önemli bilgileri çıkar.
+Her satıra bir bilgi yaz. Sadece gerçek/somut bilgileri çıkar.
+
+{conversation_text}
+
+ÖNEMLİ BİLGİLER (her satıra bir):"""
+                
+                try:
+                    facts = self._llm_fn(facts_prompt)
+                    for line in facts.strip().split('\n'):
+                        line = line.strip().lstrip('•-1234567890. ')
+                        if line and len(line) > 10:
+                            self._key_facts.append(line)
+                except:
+                    pass
+                
+            except Exception as e:
+                print(f"⚠️ LLM summarization failed, using fallback: {e}")
+                new_summary = self._fallback_summary()
+        else:
+            new_summary = self._fallback_summary()
+        
         self._summaries.append(new_summary)
-        self._current_summary = f"Önceki konuşmalar: {' '.join(self._summaries[-3:])}"
+        
+        # Birleşik özet oluştur (son 3 özet)
+        self._current_summary = "\n\n---\n\n".join(self._summaries[-3:])
         
         # Keep only recent messages
         self._messages = self._messages[-3:]
+    
+    def _fallback_summary(self) -> str:
+        """LLM olmadan basit özet oluştur."""
+        summary_parts = []
+        for msg in self._messages:
+            content = msg['content']
+            if msg["role"] == "user":
+                # Kullanıcı sorularını koru
+                if len(content) > 150:
+                    content = content[:150] + "..."
+                summary_parts.append(f"• Kullanıcı: {content}")
+            else:
+                # Asistan yanıtlarından ilk cümleyi al
+                first_sentence = content.split('.')[0] if '.' in content else content[:100]
+                summary_parts.append(f"• Asistan: {first_sentence}...")
+        
+        return "\n".join(summary_parts[-10:])  # Son 10 madde
     
     def get_context(self) -> Dict[str, Any]:
         """Özet ve son mesajları al."""
         return {
             "summary": self._current_summary,
             "recent_messages": self._messages,
+            "key_facts": self._key_facts[-10:],  # Son 10 önemli bilgi
+            "total_summaries": len(self._summaries),
         }
+    
+    def get_key_facts(self) -> List[str]:
+        """Çıkarılan önemli bilgileri al."""
+        return self._key_facts.copy()
+    
+    def force_summarize(self) -> str:
+        """Zorla özet oluştur."""
+        if self._messages:
+            self._create_summary()
+        return self._current_summary
 
 
 class LongTermMemory:
@@ -475,13 +576,34 @@ class LongTermMemory:
 
 
 class MemoryManager:
-    """Tüm hafıza sistemlerini yöneten ana sınıf."""
+    """
+    Tüm hafıza sistemlerini yöneten ana sınıf.
     
-    def __init__(self):
+    ENTERPRISE FEATURES:
+    - Short-term buffer memory
+    - LLM-based summary memory
+    - Persistent long-term memory
+    - Context aggregation
+    - Automatic learning from conversations
+    """
+    
+    def __init__(self, llm_fn: Optional[Callable[[str], str]] = None):
         """Memory manager başlat."""
         self.short_term: Dict[str, ConversationBufferMemory] = {}
         self.summary: Dict[str, ConversationSummaryMemory] = {}
         self.long_term = LongTermMemory()
+        self._llm_fn = llm_fn
+    
+    def set_llm_function(self, llm_fn: Callable[[str], str]) -> None:
+        """
+        LLM fonksiyonunu ayarla.
+        
+        Bu fonksiyon summary memory tarafından kullanılır.
+        """
+        self._llm_fn = llm_fn
+        # Mevcut summary memory'lere de uygula
+        for summary_mem in self.summary.values():
+            summary_mem.set_llm_function(llm_fn)
     
     def get_session_memory(
         self,
@@ -490,7 +612,10 @@ class MemoryManager:
         """Session için hafıza al veya oluştur."""
         if session_id not in self.short_term:
             self.short_term[session_id] = ConversationBufferMemory()
-            self.summary[session_id] = ConversationSummaryMemory()
+            summary_mem = ConversationSummaryMemory()
+            if self._llm_fn:
+                summary_mem.set_llm_function(self._llm_fn)
+            self.summary[session_id] = summary_mem
         
         return self.short_term[session_id], self.summary[session_id]
     
@@ -499,8 +624,17 @@ class MemoryManager:
         session_id: str,
         user_message: str,
         assistant_response: str,
+        auto_learn: bool = True,
     ):
-        """Etkileşim ekle."""
+        """
+        Etkileşim ekle.
+        
+        Args:
+            session_id: Session ID
+            user_message: Kullanıcı mesajı
+            assistant_response: Asistan yanıtı
+            auto_learn: Otomatik öğrenme yapılsın mı
+        """
         short_term, summary = self.get_session_memory(session_id)
         
         short_term.add_message("user", user_message)
@@ -508,6 +642,46 @@ class MemoryManager:
         
         summary.add_message("user", user_message)
         summary.add_message("assistant", assistant_response)
+        
+        # Otomatik öğrenme
+        if auto_learn:
+            self._auto_learn(user_message, assistant_response)
+    
+    def _auto_learn(self, user_message: str, assistant_response: str):
+        """
+        Konuşmadan otomatik öğren.
+        
+        Önemli bilgileri long-term memory'ye kaydet.
+        """
+        # Önemlilik tespiti (basit heuristik)
+        importance_keywords = [
+            "hatırla", "kaydet", "not et", "unutma", "önemli",
+            "her zaman", "asla", "tercih", "seviyorum", "istemiyorum",
+            "remember", "save", "note", "important", "always", "never"
+        ]
+        
+        combined = f"{user_message} {assistant_response}".lower()
+        importance = 0.3  # Base importance
+        
+        for keyword in importance_keywords:
+            if keyword in combined:
+                importance += 0.1
+        
+        importance = min(importance, 0.9)
+        
+        # Yeterli önemse kaydet
+        if importance > 0.5:
+            # Kısa özet oluştur
+            content = f"Kullanıcı: {user_message[:200]}"
+            if len(assistant_response) > 100:
+                content += f"\nÖzet: {assistant_response[:200]}..."
+            
+            self.long_term.store(
+                content=content,
+                memory_type="interaction",
+                importance=importance,
+                source="auto_learn",
+            )
     
     def get_context_for_query(
         self,
@@ -525,11 +699,18 @@ class MemoryManager:
         )
         
         # Get relevant facts
-        relevant_facts = self.long_term.query_facts(subject=query.split()[0])[:5]
+        query_words = query.split()
+        relevant_facts = []
+        if query_words:
+            relevant_facts = self.long_term.query_facts(subject=query_words[0])[:5]
+        
+        # Summary'den key facts
+        summary_context = summary.get_context()
         
         return {
             "recent_messages": short_term.get_messages(limit=10),
-            "conversation_summary": summary.get_context(),
+            "conversation_summary": summary_context.get("summary", ""),
+            "key_facts": summary_context.get("key_facts", []),
             "relevant_memories": [m.to_dict() for m in relevant_memories],
             "relevant_facts": relevant_facts,
         }
@@ -547,6 +728,14 @@ class MemoryManager:
             importance=importance,
             source=source,
         )
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Memory manager istatistikleri."""
+        return {
+            "active_sessions": len(self.short_term),
+            "long_term_stats": self.long_term.get_stats(),
+            "llm_enabled": self._llm_fn is not None,
+        }
 
 
 # Singleton instance

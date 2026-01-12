@@ -1121,6 +1121,8 @@ def create_new_session():
 # ============ HTTP SESSION WITH CONNECTION POOLING ============
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import threading
+import concurrent.futures
 
 @st.cache_resource
 def get_http_session():
@@ -1130,10 +1132,10 @@ def get_http_session():
     """
     session = requests.Session()
     
-    # Retry stratejisi
+    # Retry stratejisi - daha agresif, daha az deneme
     retry_strategy = Retry(
-        total=3,
-        backoff_factor=0.5,
+        total=1,  # Sadece 1 retry
+        backoff_factor=0.1,
         status_forcelist=[500, 502, 503, 504],
         allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE"]
     )
@@ -1151,34 +1153,122 @@ def get_http_session():
     return session
 
 
+# ============ GLOBAL HEALTH STATE (NON-BLOCKING) ============
+# Bu, health check'in UI'ı bloklamaması için kullanılır
+
+class HealthStateManager:
+    """
+    Non-blocking health state manager.
+    Health check'i arka planda yapar, UI'ı bloklamaz.
+    """
+    def __init__(self):
+        self._health_cache = None
+        self._last_check = 0
+        self._check_interval = 60  # 60 saniye cache
+        self._is_checking = False
+        self._lock = threading.Lock()
+    
+    def get_health(self, force_refresh: bool = False) -> dict:
+        """
+        Cached health durumunu döndür.
+        Arka planda güncelleme yapar, hiçbir zaman bloklamaz.
+        """
+        current_time = time.time()
+        
+        # Cache geçerli mi?
+        if not force_refresh and self._health_cache is not None:
+            if current_time - self._last_check < self._check_interval:
+                return self._health_cache
+        
+        # İlk çağrı veya cache expired - arka planda güncelle
+        if not self._is_checking:
+            self._trigger_background_check()
+        
+        # Mevcut cache'i döndür (varsa) veya varsayılan değer
+        return self._health_cache or self._get_default_health()
+    
+    def _trigger_background_check(self):
+        """Arka planda health check başlat."""
+        with self._lock:
+            if self._is_checking:
+                return
+            self._is_checking = True
+        
+        # ThreadPoolExecutor ile arka planda çalıştır
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        executor.submit(self._do_health_check)
+        executor.shutdown(wait=False)
+    
+    def _do_health_check(self):
+        """Gerçek health check - arka planda çalışır."""
+        try:
+            session = requests.Session()
+            response = session.get(
+                f"{API_BASE_URL}/health",
+                timeout=2  # Çok kısa timeout - 2 saniye
+            )
+            if response.status_code == 200:
+                self._health_cache = response.json()
+                self._last_check = time.time()
+        except Exception:
+            # Hata olsa bile eski cache'i koru veya varsayılan kullan
+            if self._health_cache is None:
+                self._health_cache = self._get_default_health()
+        finally:
+            self._is_checking = False
+    
+    def _get_default_health(self) -> dict:
+        """Varsayılan health durumu - backend bağlantısı yokken."""
+        return {
+            "status": "unknown",
+            "components": {
+                "llm": "unknown",
+                "vector_store": "unknown",
+                "api": "unknown"
+            },
+            "cached": True
+        }
+
+# Global health manager instance
+_health_manager = HealthStateManager()
+
+
 def api_request(method: str, endpoint: str, **kwargs):
     """API isteği yap (connection pooling ile)."""
     try:
         url = f"{API_BASE_URL}{endpoint}"
         session = get_http_session()
         
-        # Default timeout
+        # Default timeout - daha kısa
         if 'timeout' not in kwargs:
-            kwargs['timeout'] = 120
+            kwargs['timeout'] = 30  # 120'den 30'a düşürüldü
         
         response = session.request(method, url, **kwargs)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.ConnectionError:
-        st.error("❌ API'ye bağlanılamadı. Backend'in çalıştığından emin olun.")
-        return None
+        return None  # Sessizce None döndür, error gösterme
     except requests.exceptions.Timeout:
-        st.error("⏱️ İstek zaman aşımına uğradı.")
-        return None
-    except Exception as e:
-        st.error(f"❌ Hata: {str(e)}")
-        return None
+        return None  # Sessizce None döndür
+    except Exception:
+        return None  # Sessizce None döndür
 
 
-@st.cache_data(ttl=30)  # 30 saniye cache'le
+def check_health_fast() -> dict:
+    """
+    HIZLI ve NON-BLOCKING health check.
+    Asla UI'ı bloklamaz, her zaman anında döner.
+    """
+    return _health_manager.get_health()
+
+
+@st.cache_data(ttl=120)  # 120 saniye cache - daha uzun
 def check_health():
-    """Sistem sağlık kontrolü."""
-    return api_request("GET", "/health")
+    """
+    Sistem sağlık kontrolü - cached ve hızlı timeout ile.
+    Artık non-blocking manager kullanıyor.
+    """
+    return check_health_fast()
 
 
 def stream_chat_message(message: str, use_web_search: bool = False, response_mode: str = "normal"):
@@ -1657,27 +1747,43 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Health Status
+    # Health Status - NON-BLOCKING, anında render
     st.markdown("### 🔧 Sistem")
-    health = check_health()
+    
+    # Fast health check - hiçbir zaman beklemez
+    health = check_health_fast()
     
     if health:
         status = health.get("status", "unknown")
+        is_cached = health.get("cached", False)
+        
         if status == "healthy":
             st.success("✅ Aktif")
+        elif status == "unknown":
+            st.info("🔄 Kontrol ediliyor..." if not is_cached else "⚪ Bağlanıyor...")
         else:
             st.warning(f"⚠️ {status}")
         
         components = health.get("components", {})
         cols = st.columns(2)
         with cols[0]:
-            llm_ok = components.get("llm") == "healthy"
-            st.markdown(f"{'🟢' if llm_ok else '🔴'} LLM")
+            llm_status = components.get("llm", "unknown")
+            if llm_status == "healthy":
+                st.markdown("🟢 LLM")
+            elif llm_status == "unknown":
+                st.markdown("⚪ LLM")
+            else:
+                st.markdown("🔴 LLM")
         with cols[1]:
-            vs_ok = components.get("vector_store") == "healthy"
-            st.markdown(f"{'🟢' if vs_ok else '🔴'} VectorDB")
+            vs_status = components.get("vector_store", "unknown")
+            if vs_status == "healthy":
+                st.markdown("🟢 VectorDB")
+            elif vs_status == "unknown":
+                st.markdown("⚪ VectorDB")
+            else:
+                st.markdown("🔴 VectorDB")
     else:
-        st.error("🔴 Bağlantı yok")
+        st.info("⚪ Bağlanıyor...")
     
     st.markdown("---")
     st.caption(f"Session: {st.session_state.session_id[:8]}...")
@@ -2872,40 +2978,49 @@ elif st.session_state.current_page == "dashboard":
     
     st.markdown("---")
     
-    # Sistem durumu
+    # Sistem durumu - NON-BLOCKING
     st.markdown("### 🔧 Sistem Durumu")
     
-    health = check_health()
-    if health:
-        components = health.get("components", {})
-        
-        sys_col1, sys_col2, sys_col3, sys_col4 = st.columns(4)
-        
-        with sys_col1:
-            st.markdown("**🤖 LLM**")
-            if components.get("llm") == "healthy":
-                st.success("✅ Aktif")
-            else:
-                st.error("❌ Sorunlu")
-        
-        with sys_col2:
-            st.markdown("**📚 Vector Store**")
-            if components.get("vector_store") == "healthy":
-                doc_count = components.get('document_count', 0)
-                st.success(f"✅ Aktif ({doc_count})")
-            else:
-                st.error("❌ Sorunlu")
-        
-        with sys_col3:
-            st.markdown("**🌐 API**")
-            if components.get("api") == "healthy":
-                st.success("✅ Aktif")
-            else:
-                st.error("❌ Sorunlu")
-        
-        with sys_col4:
-            st.markdown("**💾 Depolama**")
+    health = check_health_fast()  # Non-blocking!
+    is_cached = health.get("cached", False) if health else True
+    components = health.get("components", {}) if health else {}
+    
+    sys_col1, sys_col2, sys_col3, sys_col4 = st.columns(4)
+    
+    with sys_col1:
+        st.markdown("**🤖 LLM**")
+        llm_status = components.get("llm", "unknown")
+        if llm_status == "healthy":
             st.success("✅ Aktif")
+        elif llm_status == "unknown":
+            st.info("⚪ Kontrol ediliyor...")
+        else:
+            st.error("❌ Sorunlu")
+    
+    with sys_col2:
+        st.markdown("**📚 Vector Store**")
+        vs_status = components.get("vector_store", "unknown")
+        if vs_status == "healthy":
+            doc_count = components.get('document_count', 0)
+            st.success(f"✅ Aktif ({doc_count})")
+        elif vs_status == "unknown":
+            st.info("⚪ Kontrol ediliyor...")
+        else:
+            st.error("❌ Sorunlu")
+    
+    with sys_col3:
+        st.markdown("**🌐 API**")
+        api_status = components.get("api", "unknown")
+        if api_status == "healthy":
+            st.success("✅ Aktif")
+        elif api_status == "unknown":
+            st.info("⚪ Kontrol ediliyor...")
+        else:
+            st.error("❌ Sorunlu")
+    
+    with sys_col4:
+        st.markdown("**💾 Depolama**")
+        st.success("✅ Aktif")
     
     st.markdown("---")
     

@@ -26,7 +26,8 @@ from core.notes_manager import notes_manager
 
 # ============ CONFIGURATION ============
 
-API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+# ✅ Port 8001 - Backend'in çalıştığı port
+API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8001")
 
 # ============ THEME DEFINITIONS ============
 
@@ -2047,24 +2048,50 @@ if st.session_state.current_page == "chat":
                 if st.button("⏹️ Yanıtı Durdur", key="stop_gen_btn", type="secondary", use_container_width=True):
                     st.session_state.stop_generation = True
             
-            # ✅ CANLI SÜRE SAYACI ile Loading animasyonu
+            # ✅ CANLI SÜRE SAYACI - JavaScript ile gerçek zamanlı güncelleme
             with status_container:
                 loading_placeholder = st.empty()
-                elapsed_display = f"{time.time() - start_time:.1f}s"
+                # JavaScript ile canlı sayaç - her saniye güncellenir
+                timer_id = f"timer_{int(time.time() * 1000)}"
                 loading_placeholder.markdown(
-                    f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; '
-                    f'padding: 8px 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); '
-                    f'border-radius: 8px; border-left: 3px solid #667eea;">'
-                    f'<div class="loading-spinner"></div>'
-                    f'<span style="color: #495057; font-size: 0.9rem; font-weight: 500;">Yanıt hazırlanıyor...</span>'
-                    f'<span style="color: #868e96; font-size: 0.85rem; margin-left: auto; font-family: monospace;">'
-                    f'⏱️ {elapsed_display}</span>'
-                    f'</div>'
-                    f'<style>'
-                    f'@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}'
-                    f'.loading-spinner {{ width: 18px; height: 18px; border: 2px solid #e0e0e0; '
-                    f'border-top: 2px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; }}'
-                    f'</style>',
+                    f'''
+                    <div id="{timer_id}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+                        padding: 8px 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                        border-radius: 8px; border-left: 3px solid #667eea;">
+                        <div class="loading-spinner"></div>
+                        <span style="color: #495057; font-size: 0.9rem; font-weight: 500;">Yanıt hazırlanıyor...</span>
+                        <span id="{timer_id}_time" style="color: #868e96; font-size: 0.85rem; margin-left: auto; font-family: monospace;">
+                            ⏱️ 0.0s
+                        </span>
+                    </div>
+                    <style>
+                        @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+                        .loading-spinner {{ width: 18px; height: 18px; border: 2px solid #e0e0e0;
+                            border-top: 2px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; }}
+                    </style>
+                    <script>
+                        (function() {{
+                            var startTime = Date.now();
+                            var timerEl = document.getElementById("{timer_id}_time");
+                            if (timerEl) {{
+                                var interval = setInterval(function() {{
+                                    var elapsed = (Date.now() - startTime) / 1000;
+                                    if (elapsed < 60) {{
+                                        timerEl.textContent = "⏱️ " + elapsed.toFixed(1) + "s";
+                                    }} else {{
+                                        var mins = Math.floor(elapsed / 60);
+                                        var secs = Math.floor(elapsed % 60);
+                                        timerEl.textContent = "⏱️ " + mins + "m " + secs + "s";
+                                    }}
+                                    // Stop after 5 minutes max
+                                    if (elapsed > 300) clearInterval(interval);
+                                }}, 100);
+                                // Store interval for cleanup
+                                window.currentTimerInterval = interval;
+                            }}
+                        }})();
+                    </script>
+                    ''',
                     unsafe_allow_html=True
                 )
             
@@ -2075,7 +2102,7 @@ if st.session_state.current_page == "chat":
             confidence_score = 0.8
             
             for chunk in stream_chat_message(user_input, st.session_state.web_search_enabled, st.session_state.response_mode):
-                # ✅ Her chunk'ta süreyi güncelle
+                # ✅ Her chunk'ta süreyi güncelle (final için)
                 current_elapsed = time.time() - start_time
                 elapsed_str = f"{current_elapsed:.1f}s" if current_elapsed < 60 else f"{int(current_elapsed//60)}m {int(current_elapsed%60)}s"
                 
@@ -2101,21 +2128,45 @@ if st.session_state.current_page == "chat":
                     }
                     icon = phase_icons.get(phase, "⏳")
                     
-                    # ✅ Süre sayacı ile güncelle
+                    # ✅ Status güncellemesi - JavaScript sayaç devam eder
+                    status_timer_id = f"status_{int(time.time() * 1000)}"
                     loading_placeholder.markdown(
-                        f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; '
-                        f'padding: 8px 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); '
-                        f'border-radius: 8px; border-left: 3px solid #667eea;">'
-                        f'<div class="loading-spinner"></div>'
-                        f'<span style="color: #495057; font-size: 0.9rem; font-weight: 500;">{icon} {status_msg}</span>'
-                        f'<span style="color: #868e96; font-size: 0.85rem; margin-left: auto; font-family: monospace;">'
-                        f'⏱️ {elapsed_str}</span>'
-                        f'</div>'
-                        f'<style>'
-                        f'@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}'
-                        f'.loading-spinner {{ width: 18px; height: 18px; border: 2px solid #e0e0e0; '
-                        f'border-top: 2px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; }}'
-                        f'</style>',
+                        f'''
+                        <div id="{status_timer_id}" style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+                            padding: 8px 12px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                            border-radius: 8px; border-left: 3px solid #667eea;">
+                            <div class="loading-spinner"></div>
+                            <span style="color: #495057; font-size: 0.9rem; font-weight: 500;">{icon} {status_msg}</span>
+                            <span id="{status_timer_id}_time" style="color: #868e96; font-size: 0.85rem; margin-left: auto; font-family: monospace;">
+                                ⏱️ {elapsed_str}
+                            </span>
+                        </div>
+                        <style>
+                            @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+                            .loading-spinner {{ width: 18px; height: 18px; border: 2px solid #e0e0e0;
+                                border-top: 2px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; }}
+                        </style>
+                        <script>
+                            (function() {{
+                                var baseTime = {current_elapsed};
+                                var startTime = Date.now();
+                                var timerEl = document.getElementById("{status_timer_id}_time");
+                                if (timerEl && !window.statusTimerRunning) {{
+                                    window.statusTimerRunning = true;
+                                    setInterval(function() {{
+                                        var elapsed = baseTime + (Date.now() - startTime) / 1000;
+                                        if (elapsed < 60) {{
+                                            timerEl.textContent = "⏱️ " + elapsed.toFixed(1) + "s";
+                                        }} else {{
+                                            var mins = Math.floor(elapsed / 60);
+                                            var secs = Math.floor(elapsed % 60);
+                                            timerEl.textContent = "⏱️ " + mins + "m " + secs + "s";
+                                        }}
+                                    }}, 100);
+                                }}
+                            }})();
+                        </script>
+                        ''',
                         unsafe_allow_html=True
                     )
                 
@@ -2145,21 +2196,44 @@ if st.session_state.current_page == "chat":
                 elif chunk_type == "token":
                     if not response_started:
                         response_started = True
-                    # ✅ Yazılıyor durumu - yeşil spinner + süre
+                    # ✅ Yazılıyor durumu - yeşil spinner + JavaScript canlı süre
+                    token_timer_id = f"token_{int(time.time() * 1000)}"
                     loading_placeholder.markdown(
-                        f'<div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; '
-                        f'padding: 8px 12px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); '
-                        f'border-radius: 8px; border-left: 3px solid #22c55e;">'
-                        f'<div class="loading-spinner-green"></div>'
-                        f'<span style="color: #166534; font-size: 0.9rem; font-weight: 500;">✍️ Yazılıyor...</span>'
-                        f'<span style="color: #15803d; font-size: 0.85rem; margin-left: auto; font-family: monospace;">'
-                        f'⏱️ {elapsed_str}</span>'
-                        f'</div>'
-                        f'<style>'
-                        f'@keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}'
-                        f'.loading-spinner-green {{ width: 18px; height: 18px; border: 2px solid #bbf7d0; '
-                        f'border-top: 2px solid #22c55e; border-radius: 50%; animation: spin 1s linear infinite; }}'
-                        f'</style>',
+                        f'''
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+                            padding: 8px 12px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+                            border-radius: 8px; border-left: 3px solid #22c55e;">
+                            <div class="loading-spinner-green"></div>
+                            <span style="color: #166534; font-size: 0.9rem; font-weight: 500;">✍️ Yazılıyor...</span>
+                            <span id="{token_timer_id}_time" style="color: #15803d; font-size: 0.85rem; margin-left: auto; font-family: monospace;">
+                                ⏱️ {elapsed_str}
+                            </span>
+                        </div>
+                        <style>
+                            @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+                            .loading-spinner-green {{ width: 18px; height: 18px; border: 2px solid #bbf7d0;
+                                border-top: 2px solid #22c55e; border-radius: 50%; animation: spin 1s linear infinite; }}
+                        </style>
+                        <script>
+                            (function() {{
+                                var baseTime = {current_elapsed};
+                                var startTime = Date.now();
+                                var timerEl = document.getElementById("{token_timer_id}_time");
+                                if (timerEl) {{
+                                    setInterval(function() {{
+                                        var elapsed = baseTime + (Date.now() - startTime) / 1000;
+                                        if (elapsed < 60) {{
+                                            timerEl.textContent = "⏱️ " + elapsed.toFixed(1) + "s";
+                                        }} else {{
+                                            var mins = Math.floor(elapsed / 60);
+                                            var secs = Math.floor(elapsed % 60);
+                                            timerEl.textContent = "⏱️ " + mins + "m " + secs + "s";
+                                        }}
+                                    }}, 100);
+                                }}
+                            }})();
+                        </script>
+                        ''',
                         unsafe_allow_html=True
                     )
                     full_response += chunk.get("content", "")

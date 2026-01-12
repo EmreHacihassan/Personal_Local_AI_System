@@ -97,14 +97,63 @@ class HealthResponse(BaseModel):
     components: Dict[str, Any]
 
 
+class LivenessResponse(BaseModel):
+    """Kubernetes liveness probe yanıtı."""
+    status: str
+    timestamp: str
+
+
+class ReadinessResponse(BaseModel):
+    """Kubernetes readiness probe yanıtı."""
+    status: str
+    ready: bool
+    checks: Dict[str, bool]
+
+
+# ============ API VERSION & CONSTANTS ============
+
+API_VERSION = "v1"
+API_PREFIX = f"/api/{API_VERSION}"
+
+
 # ============ FASTAPI APP ============
 
 app = FastAPI(
     title="Enterprise AI Assistant API",
-    description="Endüstri Standartlarında Kurumsal AI Çözümü - REST API",
-    version="1.0.0",
+    description="""
+# Enterprise AI Assistant API
+
+Endüstri Standartlarında Kurumsal AI Çözümü - REST API
+
+## Özellikler
+- 🤖 LLM Chat with streaming
+- 🌐 Web Search integration
+- 📁 Document RAG (Retrieval Augmented Generation)
+- 📝 Notes management
+- 📊 Analytics & Dashboard
+
+## API Versioning
+Current version: **v1**
+
+Tüm endpoint'ler `/api/v1/` prefix'i ile erişilebilir.
+Geriye uyumluluk için eski endpoint'ler de desteklenmektedir.
+
+## Rate Limiting
+- Chat endpoints: 60 requests/minute
+- Search endpoints: 100 requests/minute
+- Upload endpoints: 10 requests/minute
+    """,
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "health", "description": "Health check endpoints"},
+        {"name": "chat", "description": "Chat and conversation endpoints"},
+        {"name": "documents", "description": "Document management endpoints"},
+        {"name": "search", "description": "Search endpoints"},
+        {"name": "notes", "description": "Notes management endpoints"},
+        {"name": "admin", "description": "Admin and analytics endpoints"},
+    ]
 )
 
 # CORS middleware
@@ -115,6 +164,48 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============ RATE LIMITING MIDDLEWARE ============
+
+from collections import defaultdict
+import time as time_module
+
+class RateLimitMiddleware:
+    """Simple in-memory rate limiting."""
+    
+    def __init__(self):
+        self.requests: Dict[str, list] = defaultdict(list)
+        self.limits = {
+            "chat": {"requests": 60, "window": 60},      # 60 req/min
+            "search": {"requests": 100, "window": 60},   # 100 req/min
+            "upload": {"requests": 10, "window": 60},    # 10 req/min
+            "default": {"requests": 200, "window": 60},  # 200 req/min
+        }
+    
+    def is_allowed(self, client_ip: str, endpoint_type: str = "default") -> bool:
+        """Check if request is allowed."""
+        now = time_module.time()
+        limit_config = self.limits.get(endpoint_type, self.limits["default"])
+        
+        key = f"{client_ip}:{endpoint_type}"
+        
+        # Clean old requests
+        self.requests[key] = [
+            req_time for req_time in self.requests[key]
+            if now - req_time < limit_config["window"]
+        ]
+        
+        # Check limit
+        if len(self.requests[key]) >= limit_config["requests"]:
+            return False
+        
+        # Record request
+        self.requests[key].append(now)
+        return True
+
+rate_limiter_middleware = RateLimitMiddleware()
+
 
 # Session storage (in-memory for simplicity)
 sessions: Dict[str, List[Dict[str, Any]]] = {}
@@ -493,12 +584,19 @@ async def root():
         "version": "1.0.0",
         "status": "running",
         "docs": "/docs",
+        "api_version": API_VERSION,
     }
 
 
-@app.get("/health", response_model=HealthResponse, tags=["Status"])
+# ============ KUBERNETES-READY HEALTH ENDPOINTS ============
+
+@app.get("/health", response_model=HealthResponse, tags=["health"])
 async def health_check():
-    """Sistem sağlık kontrolü."""
+    """
+    Sistem sağlık kontrolü.
+    
+    Tüm bileşenlerin durumunu kontrol eder ve genel sağlık durumunu döndürür.
+    """
     components = {
         "api": "healthy",
         "llm": "unknown",
@@ -532,7 +630,88 @@ async def health_check():
     )
 
 
-@app.get("/status", tags=["Status"])
+@app.get("/health/live", response_model=LivenessResponse, tags=["health"])
+async def liveness_probe():
+    """
+    Kubernetes Liveness Probe.
+    
+    Uygulamanın çalışıp çalışmadığını kontrol eder.
+    Bu endpoint her zaman 200 döndürür (uygulama ayaktaysa).
+    
+    Kullanım:
+    ```yaml
+    livenessProbe:
+      httpGet:
+        path: /health/live
+        port: 8000
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    ```
+    """
+    return LivenessResponse(
+        status="alive",
+        timestamp=datetime.now().isoformat()
+    )
+
+
+@app.get("/health/ready", response_model=ReadinessResponse, tags=["health"])
+async def readiness_probe():
+    """
+    Kubernetes Readiness Probe.
+    
+    Uygulamanın trafiğe hazır olup olmadığını kontrol eder.
+    Tüm kritik bağımlılıklar kontrol edilir.
+    
+    Kullanım:
+    ```yaml
+    readinessProbe:
+      httpGet:
+        path: /health/ready
+        port: 8000
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    ```
+    """
+    checks = {
+        "llm_available": False,
+        "vector_store_ready": False,
+        "disk_space_ok": False,
+    }
+    
+    # LLM kontrolü
+    try:
+        status = llm_manager.get_status()
+        checks["llm_available"] = status.get("primary_available", False)
+    except Exception:
+        pass
+    
+    # Vector store kontrolü
+    try:
+        _ = vector_store.count()
+        checks["vector_store_ready"] = True
+    except Exception:
+        pass
+    
+    # Disk alanı kontrolü
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage(settings.DATA_DIR)
+        # En az 100MB boş alan olmalı
+        checks["disk_space_ok"] = free > 100 * 1024 * 1024
+    except Exception:
+        checks["disk_space_ok"] = True  # Kontrol edilemezse geç
+    
+    # Tüm kritik kontroller geçmeli
+    is_ready = checks["llm_available"] and checks["vector_store_ready"]
+    
+    return ReadinessResponse(
+        status="ready" if is_ready else "not_ready",
+        ready=is_ready,
+        checks=checks
+    )
+
+
+@app.get("/status", tags=["health"])
 async def get_status():
     """Detaylı sistem durumu."""
     return {

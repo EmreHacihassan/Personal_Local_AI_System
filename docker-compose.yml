@@ -1,0 +1,145 @@
+version: '3.8'
+
+# ============================================================
+# Enterprise AI Assistant - Docker Compose Configuration
+# ============================================================
+# 
+# Kullanım:
+#   Development: docker-compose up -d
+#   Production:  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Servisler:
+#   - api: FastAPI backend (port 8000)
+#   - frontend: Streamlit UI (port 8501)
+#   - ollama: LLM service (port 11434)
+#   - chroma: Vector database (port 8001)
+#
+# ============================================================
+
+services:
+  # ============ BACKEND API ============
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: enterprise-ai-api
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CHROMA_PERSIST_DIR=/app/data/chroma_db
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      ollama:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - enterprise-ai-network
+    restart: unless-stopped
+
+  # ============ FRONTEND ============
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: enterprise-ai-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://api:8000
+    depends_on:
+      - api
+    networks:
+      - enterprise-ai-network
+    restart: unless-stopped
+
+  # ============ OLLAMA LLM SERVICE ============
+  ollama:
+    image: ollama/ollama:latest
+    container_name: enterprise-ai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - enterprise-ai-network
+    restart: unless-stopped
+    # GPU desteği (NVIDIA)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ============ CHROMADB VECTOR STORE ============
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: enterprise-ai-chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - enterprise-ai-network
+    restart: unless-stopped
+
+  # ============ REDIS (Optional - Session Store) ============
+  redis:
+    image: redis:7-alpine
+    container_name: enterprise-ai-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - enterprise-ai-network
+    restart: unless-stopped
+    profiles:
+      - with-redis
+
+# ============ NETWORKS ============
+networks:
+  enterprise-ai-network:
+    driver: bridge
+
+# ============ VOLUMES ============
+volumes:
+  ollama-data:
+    driver: local
+  chroma-data:
+    driver: local
+  redis-data:
+    driver: local

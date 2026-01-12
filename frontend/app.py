@@ -1118,11 +1118,50 @@ def create_new_session():
     st.session_state.web_search_enabled = False
 
 
+# ============ HTTP SESSION WITH CONNECTION POOLING ============
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+@st.cache_resource
+def get_http_session():
+    """
+    Connection pooling ile HTTP session oluştur.
+    Bu session tüm API isteklerinde kullanılır ve performansı artırır.
+    """
+    session = requests.Session()
+    
+    # Retry stratejisi
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "POST", "PUT", "DELETE"]
+    )
+    
+    # Connection pooling adapter
+    adapter = HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=20,
+        max_retries=retry_strategy
+    )
+    
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
+
+
 def api_request(method: str, endpoint: str, **kwargs):
-    """API isteği yap."""
+    """API isteği yap (connection pooling ile)."""
     try:
         url = f"{API_BASE_URL}{endpoint}"
-        response = requests.request(method, url, timeout=120, **kwargs)
+        session = get_http_session()
+        
+        # Default timeout
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 120
+        
+        response = session.request(method, url, **kwargs)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.ConnectionError:

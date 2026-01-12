@@ -30,6 +30,7 @@ from core.health import get_health_report
 from core.export import export_manager, import_manager
 from core.session_manager import session_manager
 from core.notes_manager import notes_manager
+from core.system_knowledge import SELF_KNOWLEDGE_PROMPT, SYSTEM_VERSION, SYSTEM_NAME
 from agents.orchestrator import orchestrator
 from rag.document_loader import document_loader
 from rag.chunker import document_chunker
@@ -986,7 +987,10 @@ Yanıtında dökümanlardan aldığın bilgilere referans ver. Format:
 ÖNEMLİ: Her bilgi için uygun referansı cümle sonuna ekle. Referans yoksa ekleme.
 """
             
-            system_prompt = f"""Sen yardımcı bir AI asistanısın. Türkçe yanıt ver.
+            system_prompt = f"""Sen "{SYSTEM_NAME}" adlı kurumsal bir AI asistanısın (v{SYSTEM_VERSION}). Türkçe yanıt ver.
+
+{SELF_KNOWLEDGE_PROMPT}
+
 {mode_instruction}
 {continue_instruction}
 {reference_instruction}
@@ -1003,6 +1007,7 @@ Yanıtında dökümanlardan aldığın bilgilere referans ver. Format:
 5. Kullanıcı "devam et", "bitir" gibi komutlar verdiyse, önceki yarım kalan yanıtı TAM OLARAK tamamla.
 6. Yanıtını ASLA yarım bırakma, her zaman mantıksal bir sonuçla bitir.
 7. Yanıtın sonunda "{reference_list}" bölümünü EKLEMENİ İSTEMİYORUM, sadece metin içinde referans kullan.
+8. Kullanıcı kendi mimarini, yeteneklerini veya nasıl çalıştığını sorarsa yukarıdaki "Senin Hakkında" bölümündeki bilgileri kullan.
 
 Yukarıdaki konuşma geçmişini, kullanıcının notlarını ve bilgi tabanı içeriklerini dikkate alarak mevcut soruya cevap ver."""
             
@@ -1394,7 +1399,10 @@ Kullanıcı önceki yarım kalan yanıtının devamını istiyor.
 - Önceki yanıtın bağlamını ve formatını koru
 """
                 
-                system_prompt = f"""Sen yardımcı bir AI asistanısın. Türkçe yanıt ver.
+                system_prompt = f"""Sen "{SYSTEM_NAME}" adlı kurumsal bir AI asistanısın (v{SYSTEM_VERSION}). Türkçe yanıt ver.
+
+{SELF_KNOWLEDGE_PROMPT}
+
 {continue_instruction}
 {reference_instruction}
 {history_text}
@@ -1408,6 +1416,7 @@ Kullanıcı önceki yarım kalan yanıtının devamını istiyor.
 3. Konuşma geçmişini DİKKATLİCE oku ve bağlamı koru.
 4. Eğer önceki yanıtın yarım kaldıysa, önce onu tamamla.
 5. Yanıtını ASLA yarım bırakma.
+6. Kullanıcı kendi mimarini, yeteneklerini veya nasıl çalıştığını sorarsa yukarıdaki "Senin Hakkında" bölümündeki bilgileri kullan.
 
 ⚠️ Web araması yapılamadı. Bilgi tabanındaki dökümanları ve genel bilginle yanıt ver.
 """

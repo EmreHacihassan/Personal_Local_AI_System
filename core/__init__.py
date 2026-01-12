@@ -367,6 +367,30 @@ def __getattr__(name):
         except ImportError:
             return None
     
+    # System Self-Knowledge
+    if name in ("SYSTEM_KNOWLEDGE", "SELF_KNOWLEDGE_PROMPT", "get_capability_info", 
+                "get_all_capabilities", "get_feature_summary", "system_knowledge",
+                "SYSTEM_VERSION", "SYSTEM_NAME"):
+        try:
+            from .system_knowledge import (
+                SYSTEM_KNOWLEDGE, SELF_KNOWLEDGE_PROMPT, get_capability_info,
+                get_all_capabilities, get_feature_summary, system_knowledge,
+                SYSTEM_VERSION, SYSTEM_NAME
+            )
+            mapping = {
+                "SYSTEM_KNOWLEDGE": SYSTEM_KNOWLEDGE,
+                "SELF_KNOWLEDGE_PROMPT": SELF_KNOWLEDGE_PROMPT,
+                "get_capability_info": get_capability_info,
+                "get_all_capabilities": get_all_capabilities,
+                "get_feature_summary": get_feature_summary,
+                "system_knowledge": system_knowledge,
+                "SYSTEM_VERSION": SYSTEM_VERSION,
+                "SYSTEM_NAME": SYSTEM_NAME,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
     raise AttributeError(f"module 'core' has no attribute '{name}'")
 
 
@@ -540,4 +564,13 @@ __all__ = [
     "create_orchestrator",
     "SystemConfig",
     "ProcessingResult",
+    # System Self-Knowledge
+    "SYSTEM_KNOWLEDGE",
+    "SELF_KNOWLEDGE_PROMPT",
+    "get_capability_info",
+    "get_all_capabilities",
+    "get_feature_summary",
+    "system_knowledge",
+    "SYSTEM_VERSION",
+    "SYSTEM_NAME",
 ]

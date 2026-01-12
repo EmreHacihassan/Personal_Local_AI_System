@@ -1064,3 +1064,54 @@ class PromptManager:
 # Singleton instance
 prompts = PromptManager()
 prompt_manager = prompts  # Alias for compatibility
+
+
+# ============ SELF-KNOWLEDGE INTEGRATION ============
+
+def get_system_prompt_with_self_knowledge() -> str:
+    """
+    Sistem hakkındaki bilgileri içeren genişletilmiş sistem prompt'u döndür.
+    Bu prompt, AI'ın kendi mimarisi ve yetenekleri hakkında sorulara cevap vermesini sağlar.
+    """
+    try:
+        from core.system_knowledge import SELF_KNOWLEDGE_PROMPT, SYSTEM_VERSION, SYSTEM_NAME
+        
+        base_prompt = ENTERPRISE_SYSTEM_PROMPT.template
+        
+        self_knowledge_section = f"""
+
+═══════════════════════════════════════════════════════════════════════════════
+                    🧠 KENDİN HAKKINDA BİLGİ (SELF-KNOWLEDGE)
+═══════════════════════════════════════════════════════════════════════════════
+
+{SELF_KNOWLEDGE_PROMPT}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 KENDİNİ TANITIRKEN:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Kullanıcı sana "sen kimsin?", "nasıl çalışıyorsun?", "MCP nedir?", "hangi özelliklerin var?" 
+gibi sorular sorduğunda yukarıdaki bilgileri kullanarak detaylı ve teknik açıklamalar yapabilirsin.
+
+Örnek sorular ve yaklaşım:
+• "MCP sende nasıl çalışıyor?" → MCP bölümündeki detayları açıkla
+• "Hangi yeteneklerin var?" → Tüm 12 teknolojiyi özetle
+• "RAG sistemi nasıl işliyor?" → RAG pipeline detaylarını ver
+• "Kendini tanıt" → Genel özet + ana özellikler
+
+"""
+        
+        return base_prompt + self_knowledge_section
+    except ImportError:
+        # Fallback: system_knowledge modülü yoksa sadece base prompt
+        return ENTERPRISE_SYSTEM_PROMPT.template
+
+
+# Self-knowledge enabled prompt template
+SELF_AWARE_SYSTEM_PROMPT = PromptTemplate(
+    name="self_aware_system",
+    category=PromptCategory.SYSTEM,
+    description="Self-knowledge enabled enterprise system prompt",
+    template=get_system_prompt_with_self_knowledge(),
+    variables=[],
+)

@@ -463,7 +463,7 @@ Action: finish(answer="Şirket izin politikasına göre...")
         self,
         name: str = "ReActAgent",
         tool_executor: Optional[ToolExecutor] = None,
-        max_iterations: int = 10,
+        max_iterations: int = 5,
         temperature: float = 0.7,
         verbose: bool = True,
     ):

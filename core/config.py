@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     
     # Ollama settings
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_PRIMARY_MODEL: str = "qwen2.5:7b"
-    OLLAMA_BACKUP_MODEL: str = "qwen2.5:3b"
+    OLLAMA_PRIMARY_MODEL: str = "gemma3:4b"
+    OLLAMA_BACKUP_MODEL: str = "gemma3:4b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     OLLAMA_TIMEOUT: int = 120
     

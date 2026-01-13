@@ -278,7 +278,10 @@ class EmbeddingManager:
         if texts_to_embed:
             self._metrics["batch_calls"] += 1
             
-            if parallel and len(texts_to_embed) > 1:
+            # Parallel sadece birden fazla metin için anlamlı
+            use_parallel = parallel and len(texts_to_embed) > 1
+            
+            if use_parallel:
                 # PARALLEL PROCESSING - ThreadPoolExecutor ile
                 try:
                     futures = {}
@@ -301,9 +304,10 @@ class EmbeddingManager:
                             embeddings[idx] = [0.0] * self.dimension
                 except Exception as e:
                     print(f"⚠️ Parallel processing failed, falling back to sequential: {e}")
-                    parallel = False
+                    use_parallel = False
             
-            if not parallel:
+            # Sequential processing - tek metin için veya parallel başarısız olunca
+            if not use_parallel:
                 # SEQUENTIAL PROCESSING
                 for i, (idx, text) in enumerate(zip(text_indices, texts_to_embed)):
                     try:

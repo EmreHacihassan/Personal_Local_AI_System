@@ -540,9 +540,9 @@ Değerlendirmeyi şu formatta yap:
 
     def __init__(
         self,
-        max_depth: int = 3,
-        branching_factor: int = 3,
-        beam_width: int = 2,
+        max_depth: int = 2,
+        branching_factor: int = 2,
+        beam_width: int = 1,
         temperature: float = 0.7,
     ):
         """
@@ -801,17 +801,16 @@ class PlanningAgent:
         self._executors[task_type] = executor
     
     def _select_strategy(self, goal: str, complexity: TaskComplexity) -> PlanningStrategy:
-        """Hedefe uygun strateji seç."""
+        """Hedefe uygun strateji seç. OPTIMIZED: ToT disabled for performance."""
         if complexity == TaskComplexity.TRIVIAL:
             return PlanningStrategy.LINEAR
         elif complexity == TaskComplexity.SIMPLE:
             return PlanningStrategy.LINEAR
         elif complexity == TaskComplexity.MODERATE:
-            return PlanningStrategy.PLAN_AND_EXECUTE
+            return PlanningStrategy.LINEAR  # Changed from PLAN_AND_EXECUTE for speed
         elif complexity == TaskComplexity.COMPLEX:
-            if self.enable_tot:
-                return PlanningStrategy.TREE_OF_THOUGHTS
-            return PlanningStrategy.HIERARCHICAL
+            # OPTIMIZATION: ToT is too slow for local models, use LINEAR instead
+            return PlanningStrategy.LINEAR
         else:  # VERY_COMPLEX
             return PlanningStrategy.HIERARCHICAL
     

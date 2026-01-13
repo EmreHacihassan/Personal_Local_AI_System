@@ -954,6 +954,9 @@ def init_session_state():
     if "response_mode" not in st.session_state:
         st.session_state.response_mode = "normal"  # "normal" veya "detailed"
     
+    if "complexity_level" not in st.session_state:
+        st.session_state.complexity_level = "auto"  # "auto", "simple", "moderate", "advanced", "comprehensive"
+    
     if "viewing_session_id" not in st.session_state:
         st.session_state.viewing_session_id = None
     
@@ -1340,8 +1343,10 @@ class WebSocketClient:
             except:
                 pass
     
-    def stream_chat(self, message: str, session_id: str, web_search: bool = False, response_mode: str = "normal"):
+    def stream_chat(self, message: str, session_id: str, web_search: bool = False, response_mode: str = "normal", complexity_level: str = "auto"):
         """WebSocket üzerinden streaming chat."""
+        import websocket
+        
         if not self.connect():
             yield {"type": "error", "message": "WebSocket bağlantısı kurulamadı"}
             return
@@ -1353,7 +1358,8 @@ class WebSocketClient:
                 "message": message,
                 "session_id": session_id,
                 "web_search": web_search,
-                "response_mode": response_mode
+                "response_mode": response_mode,
+                "complexity_level": complexity_level
             }))
             
             # Yanıtları al
@@ -1392,7 +1398,13 @@ class WebSocketClient:
                     elif msg_type == "ping":
                         # Ping'e pong ile cevap ver (otomatik keepalive)
                         self.ws.send(json.dumps({"type": "pong"}))
-                    
+                    elif msg_type == "pong":
+                        # Sunucudan gelen pong - sadece yoksay (keepalive onayı)
+                        continue
+                    else:
+                        # Bilinmeyen mesaj tipi - sessizce yoksay
+                        continue
+                
                 except websocket.WebSocketTimeoutException:
                     continue
                 except Exception as e:
@@ -1414,11 +1426,14 @@ def get_ws_client():
     return _ws_client
 
 
-def stream_chat_message(message: str, use_web_search: bool = False, response_mode: str = "normal"):
+def stream_chat_message(message: str, use_web_search: bool = False, response_mode: str = "normal", complexity_level: str = "auto"):
     """
     Streaming chat mesajı gönder.
     
     WebSocket kullanılabiliyorsa WebSocket, yoksa HTTP Streaming.
+    
+    Args:
+        complexity_level: "auto", "simple", "moderate", "advanced", "comprehensive"
     """
     # Önce WebSocket dene
     try:
@@ -1434,7 +1449,8 @@ def stream_chat_message(message: str, use_web_search: bool = False, response_mod
             message, 
             st.session_state.session_id, 
             use_web_search, 
-            response_mode
+            response_mode,
+            complexity_level
         )
         return
     
@@ -1449,6 +1465,7 @@ def stream_chat_message(message: str, use_web_search: bool = False, response_mod
                 "session_id": st.session_state.session_id,
                 "web_search": use_web_search,
                 "response_mode": response_mode,
+                "complexity_level": complexity_level,
             },
             stream=True,
             timeout=180,
@@ -2149,16 +2166,40 @@ if st.session_state.current_page == "chat":
             st.session_state.response_mode = "detailed" if detailed_mode else "normal"
         
         with col3:
+            # Complexity Level Seçici
+            complexity_options = {
+                "auto": "🤖 Otomatik",
+                "simple": "🟢 Basit",
+                "moderate": "🟡 Orta",
+                "advanced": "🟠 İleri",
+                "comprehensive": "🔴 Kapsamlı"
+            }
+            
+            selected_complexity = st.selectbox(
+                "Yanıt Seviyesi",
+                options=list(complexity_options.keys()),
+                format_func=lambda x: complexity_options[x],
+                index=list(complexity_options.keys()).index(st.session_state.complexity_level),
+                help="Otomatik: Makine karar verir | Basit: Hızlı yanıt | Orta: Dengeli | İleri: Detaylı analiz | Kapsamlı: Tam araştırma",
+                key="complexity_select",
+                label_visibility="collapsed"
+            )
+            st.session_state.complexity_level = selected_complexity
+    
+    # Mode bilgisi
+    with st.container():
+        col_info1, col_info2 = st.columns(2)
+        with col_info1:
             mode_texts = []
             if st.session_state.web_search_enabled:
-                mode_texts.append("🌐 Web Araması")
-            else:
-                mode_texts.append("💬 Normal Mod")
-            
+                mode_texts.append("🌐 Web")
             if st.session_state.response_mode == "detailed":
-                mode_texts.append("📝 Detaylı Yanıt")
-            
-            st.markdown(f"**{'  •  '.join(mode_texts)}**")
+                mode_texts.append("📝 Detaylı")
+            if mode_texts:
+                st.caption(" • ".join(mode_texts))
+        with col_info2:
+            level_info = complexity_options.get(st.session_state.complexity_level, "🤖 Otomatik")
+            st.caption(f"Seviye: {level_info}")
     
     # ===== CHAT INPUT =====
     user_input = st.chat_input("Mesajınızı yazın...", key="main_chat_input", disabled=st.session_state.is_generating)
@@ -2266,7 +2307,7 @@ if st.session_state.current_page == "chat":
             response_timing = {}
             confidence_score = 0.8
             
-            for chunk in stream_chat_message(user_input, st.session_state.web_search_enabled, st.session_state.response_mode):
+            for chunk in stream_chat_message(user_input, st.session_state.web_search_enabled, st.session_state.response_mode, st.session_state.complexity_level):
                 # ✅ Her chunk'ta süreyi güncelle (final için)
                 current_elapsed = time.time() - start_time
                 elapsed_str = f"{current_elapsed:.1f}s" if current_elapsed < 60 else f"{int(current_elapsed//60)}m {int(current_elapsed%60)}s"

@@ -344,17 +344,17 @@ class WebSocketHandlerV2:
                 "ts": int(time.time() * 1000)
             })
         
+        elif msg_type == "pong":
+            # Client'tan gelen pong - keepalive onayı, sessizce yoksay
+            self.conn.last_activity = time.time()
+        
         elif msg_type == "stop":
             await self._handle_stop()
         
         elif msg_type == "chat":
             await self._handle_chat(data)
         
-        else:
-            await self._send({
-                "type": "error",
-                "message": f"Unknown message type: {msg_type}"
-            })
+        # Bilinmeyen mesaj tipleri sessizce yoksayılır (hata gönderme!)
     
     async def _handle_stop(self) -> None:
         """Stop komutunu işle."""
@@ -392,6 +392,7 @@ class WebSocketHandlerV2:
         # Web search modu
         web_search = data.get("web_search", False)
         response_mode = data.get("response_mode", "normal")
+        complexity_level = data.get("complexity_level", "auto")  # auto, simple, moderate, advanced, comprehensive
         
         # Önceki stream'i iptal et
         if self._stream_task and not self._stream_task.done():
@@ -407,7 +408,7 @@ class WebSocketHandlerV2:
         self.conn.total_requests += 1
         
         self._stream_task = asyncio.create_task(
-            self._stream_response(message, session_id, web_search, response_mode)
+            self._stream_response(message, session_id, web_search, response_mode, complexity_level)
         )
     
     async def _stream_response(
@@ -415,12 +416,16 @@ class WebSocketHandlerV2:
         message: str, 
         session_id: str,
         web_search: bool = False,
-        response_mode: str = "normal"
+        response_mode: str = "normal",
+        complexity_level: str = "auto"
     ) -> None:
         """
         Streaming yanıt üret ve gönder.
         
         Her token anında client'a iletilir - buffering YOK.
+        
+        Args:
+            complexity_level: "auto", "simple", "moderate", "advanced", "comprehensive"
         """
         stats = StreamStats(start_time=time.time())
         
@@ -432,39 +437,56 @@ class WebSocketHandlerV2:
         })
         
         try:
+            # ⚡ SIMPLE MOD: Ultra hızlı - RAG araması yapma, direkt LLM
+            skip_rag = complexity_level == "simple"
+            
             async with asyncio.timeout(STREAM_TIMEOUT):
-                # Knowledge base'den context al
-                await self._send({
-                    "type": "status",
-                    "message": "Bilgi tabanı aranıyor...",
-                    "phase": "search"
-                })
-                
-                # RAG search
                 knowledge_context = ""
                 sources = []
-                try:
-                    results = vector_store.search(message, top_k=5)
-                    if results:
-                        knowledge_context = "\n\n".join([
-                            f"[Kaynak: {r.get('metadata', {}).get('filename', 'unknown')}]\n{r.get('text', '')}"
-                            for r in results[:3]
-                        ])
-                        sources = [r.get('metadata', {}).get('filename', '') for r in results if r.get('metadata')]
-                except Exception as e:
-                    logger.warning(f"RAG search error: {e}")
                 
-                # Kaynakları gönder
-                if sources:
+                # Simple modda RAG'ı atla - maksimum hız
+                if not skip_rag:
+                    # Knowledge base'den context al
                     await self._send({
-                        "type": "sources",
-                        "sources": sources[:5]
+                        "type": "status",
+                        "message": "Bilgi tabanı aranıyor...",
+                        "phase": "search"
                     })
+                    
+                    # RAG search
+                    try:
+                        results = vector_store.search_with_scores(query=message, n_results=5, score_threshold=0.3)
+                        if results:
+                            knowledge_context = "\n\n".join([
+                                f"[Kaynak: {r.get('metadata', {}).get('filename', 'unknown')}]\n{r.get('document', '')}"
+                                for r in results[:3]
+                            ])
+                            # Frontend'in beklediği dict formatında sources oluştur
+                            for r in results:
+                                meta = r.get('metadata', {})
+                                doc_text = r.get('document', '')[:200]  # snippet
+                                sources.append({
+                                    "title": meta.get('filename', 'Kaynak'),
+                                    "url": meta.get('source', '#'),
+                                    "domain": "📄 Yerel Dosya",
+                                    "snippet": doc_text,
+                                    "type": "unknown",
+                                    "reliability": r.get('score', 0.5),
+                                })
+                    except Exception as e:
+                        logger.warning(f"RAG search error: {e}")
+                    
+                    # Kaynakları gönder
+                    if sources:
+                        await self._send({
+                            "type": "sources",
+                            "sources": sources[:5]
+                        })
                 
                 # LLM'e gönder
                 await self._send({
                     "type": "status",
-                    "message": "Yanıt oluşturuluyor...",
+                    "message": "Yanıt oluşturuluyor..." if not skip_rag else "⚡ Hızlı yanıt...",
                     "phase": "generate"
                 })
                 
@@ -475,12 +497,21 @@ class WebSocketHandlerV2:
                 if knowledge_context:
                     system_prompt += f"\n\n📚 İlgili Bilgiler:\n{knowledge_context}"
                 
+                # Complexity level'a göre prompt ayarla
+                complexity_instructions = {
+                    "simple": "\n\n⚡ YANITLAMA STİLİ: ÇOK KISA yanıt ver. Sadece 1-2 cümle. Gereksiz detay VERME.",
+                    "moderate": "\n\n📝 YANITLAMA STİLİ: Orta uzunlukta, dengeli yanıt ver. Ana noktaları açıkla.",
+                    "advanced": "\n\n📊 YANITLAMA STİLİ: Detaylı analiz yap. Örnekler ve açıklamalar ekle.",
+                    "comprehensive": "\n\n📚 YANITLAMA STİLİ: Kapsamlı ve derinlemesine yanıt ver. Tüm yönleri ele al, kaynaklar ve örneklerle destekle.",
+                }
+                if complexity_level in complexity_instructions:
+                    system_prompt += complexity_instructions[complexity_level]
+                
                 # Streaming response
                 full_response = ""
-                async for chunk in llm_manager.stream_chat(
-                    message=message,
+                async for chunk in llm_manager.generate_stream_async(
+                    prompt=message,
                     system_prompt=system_prompt,
-                    context={"session_id": session_id, "mode": response_mode}
                 ):
                     # Stop kontrolü
                     if self.conn.stop_flag:

@@ -743,7 +743,7 @@ async def chat(request: ChatRequest):
         session = session_manager.get_session(session_id)
         if session is None:
             session = session_manager.create_session()
-            session_id = session.session_id
+            session_id = session.id
         
         # Sync with in-memory cache
         if session_id not in sessions:
@@ -837,7 +837,7 @@ async def chat_stream(request: ChatRequest):
             session = session_manager.get_session(session_id)
             if session is None:
                 session = session_manager.create_session()
-                session_id = session.session_id
+                session_id = session.id
             
             # Also sync with in-memory cache
             if session_id not in sessions:
@@ -1164,7 +1164,7 @@ async def chat_web_stream(request: ChatRequest):
             session = session_manager.get_session(session_id)
             if session is None:
                 session = session_manager.create_session()
-                session_id = session.session_id
+                session_id = session.id
             
             # Also sync with in-memory cache
             if session_id not in sessions:

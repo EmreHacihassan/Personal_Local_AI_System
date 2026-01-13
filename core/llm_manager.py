@@ -88,8 +88,10 @@ class ContextWindowManager:
         "mixtral": 32768,
         "phi3": 128000,
         "phi": 2048,
+        "gemma3": 8192,
         "gemma2": 8192,
         "gemma": 8192,
+        "qwen3": 32768,
         "qwen2.5": 32768,
         "qwen2": 32768,
         "qwen": 8192,
@@ -346,7 +348,22 @@ class LLMManager:
                     "num_predict": max_tokens,
                 },
             )
-            result = response["message"]["content"]
+            
+            # Qwen3 modeli hem thinking hem content döndürür
+            # content asıl cevap, thinking düşünce süreci
+            msg = response.get("message", {})
+            if hasattr(msg, 'content') and msg.content:
+                result = msg.content
+            elif isinstance(msg, dict) and msg.get("content"):
+                result = msg["content"]
+            else:
+                # Fallback - thinking varsa onu kullan
+                if hasattr(msg, 'thinking') and msg.thinking:
+                    result = msg.thinking
+                elif isinstance(msg, dict) and msg.get("thinking"):
+                    result = msg["thinking"]
+                else:
+                    result = str(msg) if msg else ""
             
             # Metrics güncelle
             latency = (time.time() - start_time) * 1000
@@ -492,9 +509,21 @@ class LLMManager:
                     stream=True,
                 )
                 
+                in_thinking = True  # Qwen3 önce thinking mode'da başlar
                 for chunk in stream:
-                    if "message" in chunk and "content" in chunk["message"]:
-                        chunk_queue.put(chunk["message"]["content"])
+                    if "message" in chunk:
+                        msg = chunk["message"]
+                        # Qwen3 thinking mode desteği - önce thinking, sonra content gelir
+                        # thinking bitince content'e geçer
+                        if hasattr(msg, 'thinking') and msg.thinking:
+                            # Thinking mode - bu kısmı atlıyoruz (veya opsiyonel gösterebiliriz)
+                            continue
+                        elif hasattr(msg, 'content') and msg.content:
+                            chunk_queue.put(msg.content)
+                        elif isinstance(msg, dict):
+                            # Dict formatı için fallback
+                            if msg.get("content"):
+                                chunk_queue.put(msg["content"])
                 
                 chunk_queue.put(None)  # Signal completion
             except Exception as e:

@@ -225,8 +225,9 @@ class QueryAnalyzer:
     ]
     
     SIMPLE_PATTERNS = [
-        "nedir", "ne", "kim", "kaç", "hangi",
-        "what", "who", "how many", "which",
+        "nedir", "ne", "kim", "kaç", "kac", "hangi", "nasıl", "nasil",
+        "what", "who", "how many", "which", "how",
+        "eder", "yapar", "olur", "var mı", "mi", "mı",
     ]
     
     COMPLEX_PATTERNS = [
@@ -309,11 +310,18 @@ class QueryAnalyzer:
         return analysis
     
     def _detect_complexity(self, query_lower: str) -> QueryComplexity:
-        """Karmaşıklığı tespit et."""
-        # Trivial check
+        """Karmaşıklığı tespit et. OPTIMIZED for faster responses."""
+        word_count = len(query_lower.split())
+        
+        # Trivial check - greetings and very short
         if any(p in query_lower for p in self.TRIVIAL_PATTERNS):
-            if len(query_lower.split()) <= 5:
+            if word_count <= 5:
                 return QueryComplexity.TRIVIAL
+        
+        # SHORT queries (< 8 words) without complex patterns -> SIMPLE
+        if word_count < 8:
+            if not any(p in query_lower for p in self.COMPLEX_PATTERNS):
+                return QueryComplexity.SIMPLE
         
         # Planning check (highest complexity)
         if any(p in query_lower for p in self.PLANNING_PATTERNS):
@@ -326,12 +334,11 @@ class QueryAnalyzer:
         
         # Simple check
         if any(p in query_lower for p in self.SIMPLE_PATTERNS):
-            word_count = len(query_lower.split())
             if word_count <= 10:
                 return QueryComplexity.SIMPLE
         
-        # Default to moderate
-        return QueryComplexity.MODERATE
+        # Default to SIMPLE for better performance (was MODERATE)
+        return QueryComplexity.SIMPLE
     
     def _estimate_steps(self, query_lower: str, complexity: QueryComplexity) -> int:
         """Tahmini adım sayısı."""
@@ -360,18 +367,24 @@ class QueryAnalyzer:
         needs_search: bool,
         needs_planning: bool,
     ) -> ExecutionMode:
-        """Çalıştırma modu öner."""
+        """Çalıştırma modu öner. OPTIMIZED for local models."""
         if complexity == QueryComplexity.TRIVIAL:
             return ExecutionMode.SIMPLE
         
         if needs_planning or complexity == QueryComplexity.VERY_COMPLEX:
             return ExecutionMode.PLAN
         
-        if needs_tools or needs_search or complexity == QueryComplexity.COMPLEX:
+        # OPTIMIZATION: Only use ReAct when really needed (tools/search)
+        if needs_tools or needs_search:
             return ExecutionMode.REACT
         
+        # For COMPLEX without tools, still use SIMPLE (faster)
+        if complexity == QueryComplexity.COMPLEX:
+            return ExecutionMode.SIMPLE
+        
+        # MODERATE -> SIMPLE (was REACT, too slow for local models)
         if complexity == QueryComplexity.MODERATE:
-            return ExecutionMode.REACT
+            return ExecutionMode.SIMPLE
         
         return ExecutionMode.SIMPLE
     
@@ -438,8 +451,8 @@ class EnhancedAgent:
         enable_memory: bool = True,
         auto_mode: bool = True,
         verbose: bool = True,
-        quality_threshold: float = 0.7,
-        max_refinement_iterations: int = 3,
+        quality_threshold: float = 0.5,
+        max_refinement_iterations: int = 1,
     ):
         """
         Enhanced Agent başlat.
@@ -582,8 +595,11 @@ class EnhancedAgent:
             else:
                 response = await self._execute_simple(query, full_context, response)
             
-            # Constitutional check
-            if self.constitutional and response.response:
+            # OPTIMIZATION: Skip heavy checks for simple/trivial queries
+            skip_heavy_checks = analysis.complexity in [QueryComplexity.TRIVIAL, QueryComplexity.SIMPLE]
+            
+            # Constitutional check (skip for simple queries)
+            if self.constitutional and response.response and not skip_heavy_checks:
                 const_result = self.constitutional.check(response.response)
                 
                 if not const_result.get("is_safe", True):
@@ -594,8 +610,8 @@ class EnhancedAgent:
                     )
                     response.metadata["constitutional_revised"] = True
             
-            # Quality critique
-            if self.critic and response.response:
+            # Quality critique (skip for simple queries)
+            if self.critic and response.response and not skip_heavy_checks:
                 critique = self.critic.critique(
                     response.response,
                     original_question=query,
@@ -973,6 +989,6 @@ def quick_execute_sync(
 enhanced_agent = create_enhanced_agent(
     name="EnterpriseEnhancedAgent",
     verbose=True,
-    quality_threshold=0.7,
-    max_refinement_iterations=3,
+    quality_threshold=0.5,
+    max_refinement_iterations=1,
 )

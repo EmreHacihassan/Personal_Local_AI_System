@@ -4070,6 +4070,84 @@ async def import_sessions(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============ WINDOWS AUTOSTART ENDPOINTS ============
+
+class AutostartRequest(BaseModel):
+    """Autostart toggle isteği."""
+    enabled: bool = Field(..., description="Autostart etkin mi?")
+
+
+@app.get("/api/settings/autostart", tags=["Settings"])
+async def get_autostart_status():
+    """Windows başlangıç durumunu kontrol et."""
+    try:
+        startup_path = os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\EnterpriseAI.lnk")
+        enabled = os.path.exists(startup_path)
+        return {
+            "success": True,
+            "enabled": enabled,
+            "startup_path": startup_path
+        }
+    except Exception as e:
+        logger.error(f"Autostart status check error: {e}")
+        return {
+            "success": False,
+            "enabled": False,
+            "error": str(e)
+        }
+
+
+@app.post("/api/settings/autostart", tags=["Settings"])
+async def toggle_autostart(request: AutostartRequest):
+    """Windows başlangıcına ekle/çıkar."""
+    try:
+        import subprocess
+        
+        startup_path = os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\EnterpriseAI.lnk")
+        project_path = Path(__file__).parent.parent
+        vbs_path = project_path / "startup.vbs"
+        
+        if request.enabled:
+            # Startup kısayolu oluştur
+            ps_command = f'''
+            $WshShell = New-Object -ComObject WScript.Shell
+            $Shortcut = $WshShell.CreateShortcut("{startup_path}")
+            $Shortcut.TargetPath = "{vbs_path}"
+            $Shortcut.WorkingDirectory = "{project_path}"
+            $Shortcut.Description = "Enterprise AI Assistant"
+            $Shortcut.WindowStyle = 7
+            $Shortcut.Save()
+            '''
+            result = subprocess.run(
+                ["powershell", "-Command", ps_command], 
+                capture_output=True, 
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            )
+            
+            if result.returncode != 0:
+                raise Exception(f"PowerShell error: {result.stderr}")
+            
+            return {
+                "success": True,
+                "enabled": True,
+                "message": "Otomatik başlatma etkinleştirildi"
+            }
+        else:
+            # Startup kısayolunu sil
+            if os.path.exists(startup_path):
+                os.remove(startup_path)
+            
+            return {
+                "success": True,
+                "enabled": False,
+                "message": "Otomatik başlatma devre dışı bırakıldı"
+            }
+    except Exception as e:
+        logger.error(f"Autostart toggle error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ INCLUDE ROUTERS ============
 
 app.include_router(learning_router)

@@ -26,11 +26,14 @@ import {
   Clock,
   ArrowDown,
   Monitor,
-  Sparkles
+  Sparkles,
+  Power,
+  Loader2,
+  Rocket
 } from 'lucide-react';
 import { useStore, Theme } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 
 const themes: { id: Theme; name: string; nameEn: string; nameDe: string; icon: React.ElementType; gradient: string }[] = [
   { id: 'light', name: 'Klasik', nameEn: 'Classic', nameDe: 'Klassisch', icon: Sun, gradient: 'from-violet-500 to-purple-600' },
@@ -85,6 +88,52 @@ export function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [exportStatus, setExportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  // Autostart state
+  const [autostartEnabled, setAutostartEnabled] = useState(false);
+  const [autostartLoading, setAutostartLoading] = useState(true);
+
+  // API base URL
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+
+  // Fetch autostart status on mount
+  const fetchAutostartStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/autostart`);
+      const data = await response.json();
+      if (data.success) {
+        setAutostartEnabled(data.enabled);
+      }
+    } catch (error) {
+      console.error('Failed to fetch autostart status:', error);
+    } finally {
+      setAutostartLoading(false);
+    }
+  }, [API_BASE]);
+
+  useEffect(() => {
+    fetchAutostartStatus();
+  }, [fetchAutostartStatus]);
+
+  // Toggle autostart
+  const handleToggleAutostart = async () => {
+    setAutostartLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/settings/autostart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autostartEnabled })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setAutostartEnabled(data.enabled);
+      }
+    } catch (error) {
+      console.error('Failed to toggle autostart:', error);
+    } finally {
+      setAutostartLoading(false);
+    }
+  };
 
   // Export all data
   const handleExport = () => {
@@ -211,6 +260,60 @@ export function SettingsPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-3xl mx-auto space-y-8">
+
+          {/* Startup / Başlangıç */}
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <Rocket className="w-5 h-5 text-primary-500" />
+              {language === 'tr' ? 'Başlangıç' : language === 'de' ? 'Start' : 'Startup'}
+            </h2>
+
+            <div className="bg-card border border-border rounded-2xl divide-y divide-border">
+              {/* Windows Autostart */}
+              <div className="flex items-center justify-between p-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/10">
+                    <Power className="w-5 h-5 text-blue-500" />
+                  </div>
+                  <div>
+                    <p className="font-medium">
+                      {language === 'tr' ? 'Bilgisayar açıldığında otomatik başlat' : 
+                       language === 'de' ? 'Beim Computerstart automatisch starten' : 
+                       'Start automatically when computer boots'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {language === 'tr' ? 'Windows başladığında uygulama arka planda başlar ve tarayıcı açılır' : 
+                       language === 'de' ? 'Anwendung startet im Hintergrund und Browser öffnet sich beim Windows-Start' : 
+                       'Application starts in background and browser opens when Windows starts'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleToggleAutostart}
+                  disabled={autostartLoading}
+                  className={cn(
+                    "relative w-14 h-8 rounded-full transition-colors",
+                    autostartLoading ? "opacity-50 cursor-not-allowed" : "",
+                    autostartEnabled ? "bg-primary-500" : "bg-muted"
+                  )}
+                >
+                  {autostartLoading ? (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <motion.div
+                      animate={{ x: autostartEnabled ? 24 : 4 }}
+                      className="absolute top-1 w-6 h-6 bg-white rounded-full shadow-md"
+                    />
+                  )}
+                </button>
+              </div>
+            </div>
+          </motion.section>
 
           {/* Appearance */}
           <motion.section

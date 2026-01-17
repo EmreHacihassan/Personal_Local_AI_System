@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  FileText, 
-  Upload, 
-  Trash2, 
-  Search, 
+import {
+  FileText,
+  Upload,
+  Trash2,
+  Search,
   File,
   FileImage,
   FileCode,
@@ -15,20 +15,28 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  FolderOpen
+  FolderOpen,
+  HardDrive,
+  Layers,
+  BarChart3
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
-import { uploadDocument, getDocuments, deleteDocument } from '@/lib/api';
+import { uploadDocument, getDocuments, deleteDocument, downloadDocument, previewDocument, DocumentPreview } from '@/lib/api';
 import { cn, formatFileSize, formatDate } from '@/lib/utils';
 import { useEffect } from 'react';
 
 interface DocumentResponse {
-  id: string;
-  name: string;
+  // Backend returns both formats - handle both
+  document_id?: string;
+  id?: string;
+  filename?: string;
+  name?: string;
   size: number;
-  type: string;
-  uploaded_at: string;
+  type?: string;
+  uploaded_at?: string;
+  uploadedAt?: string;
   chunks?: number;
+  chunks_created?: number;
 }
 
 const fileIcons: Record<string, React.ElementType> = {
@@ -52,20 +60,27 @@ export function DocumentsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [dragOver, setDragOver] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{ id: string; preview: DocumentPreview } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Load documents on mount
   useEffect(() => {
     const loadDocuments = async () => {
-      const response = await getDocuments();
-      if (response.success && response.data) {
-        setDocuments(response.data.documents.map((d: DocumentResponse) => ({
-          id: d.id,
-          name: d.name,
-          size: d.size,
-          type: d.type,
-          uploadedAt: new Date(d.uploaded_at),
-          chunks: d.chunks,
-        })));
+      try {
+        const response = await getDocuments();
+        console.log('Documents API response:', response);
+        if (response.success && response.data) {
+          setDocuments(response.data.documents.map((d: DocumentResponse) => ({
+            id: d.document_id || d.id || '',
+            name: d.filename || d.name || 'Unknown',
+            size: d.size || 0,
+            type: d.type || (d.filename || d.name || '').split('.').pop() || 'file',
+            uploadedAt: new Date(d.uploaded_at || d.uploadedAt || new Date()),
+            chunks: d.chunks || d.chunks_created || 0,
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to load documents:', error);
       }
     };
     loadDocuments();
@@ -92,15 +107,32 @@ export function DocumentsPage() {
         clearInterval(progressInterval);
         setUploadProgress((prev) => ({ ...prev, [tempId]: 100 }));
 
+        console.log('Upload response:', response);
         if (response.success && response.data) {
+          const data = response.data as DocumentResponse;
           addDocument({
-            id: response.data.id,
-            name: response.data.name,
-            size: response.data.size,
-            type: response.data.type,
-            uploadedAt: new Date(response.data.uploaded_at),
-            chunks: response.data.chunks,
+            id: data.document_id || data.id || tempId,
+            name: data.filename || data.name || file.name,
+            size: data.size || file.size,
+            type: data.type || file.name.split('.').pop() || 'file',
+            uploadedAt: new Date(data.uploaded_at || data.uploadedAt || new Date()),
+            chunks: data.chunks || data.chunks_created || 0,
           });
+          
+          // Reload documents list to get accurate data
+          setTimeout(async () => {
+            const docsResponse = await getDocuments();
+            if (docsResponse.success && docsResponse.data) {
+              setDocuments(docsResponse.data.documents.map((d: DocumentResponse) => ({
+                id: d.document_id || d.id || '',
+                name: d.filename || d.name || 'Unknown',
+                size: d.size || 0,
+                type: d.type || (d.filename || d.name || '').split('.').pop() || 'file',
+                uploadedAt: new Date(d.uploaded_at || d.uploadedAt || new Date()),
+                chunks: d.chunks || d.chunks_created || 0,
+              })));
+            }
+          }, 500);
         }
 
         // Clean up progress after delay
@@ -116,6 +148,7 @@ export function DocumentsPage() {
         setUploadProgress((prev) => ({ ...prev, [tempId]: -1 })); // -1 indicates error
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addDocument]);
 
   const handleDelete = async (docId: string) => {
@@ -123,6 +156,23 @@ export function DocumentsPage() {
     if (response.success) {
       removeDocument(docId);
     }
+  };
+
+  const handleDownload = (docId: string) => {
+    downloadDocument(docId);
+  };
+
+  const handlePreview = async (docId: string) => {
+    setPreviewLoading(true);
+    try {
+      const response = await previewDocument(docId);
+      if (response.success && response.data) {
+        setPreviewDoc({ id: docId, preview: response.data });
+      }
+    } catch (error) {
+      console.error('Preview error:', error);
+    }
+    setPreviewLoading(false);
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -150,6 +200,18 @@ export function DocumentsPage() {
     doc.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Calculate statistics
+  const stats = useMemo(() => {
+    const totalSize = documents.reduce((acc, doc) => acc + doc.size, 0);
+    const totalChunks = documents.reduce((acc, doc) => acc + (doc.chunks || 0), 0);
+    const fileTypes = documents.reduce((acc, doc) => {
+      const ext = doc.name.split('.').pop()?.toLowerCase() || 'other';
+      acc[ext] = (acc[ext] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    return { totalSize, totalChunks, fileTypes, totalDocs: documents.length };
+  }, [documents]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -163,7 +225,7 @@ export function DocumentsPage() {
               {language === 'tr' ? 'Dökümanlar' : 'Documents'}
             </h1>
             <p className="text-xs text-muted-foreground">
-              {language === 'tr' 
+              {language === 'tr'
                 ? `${documents.length} döküman yüklendi`
                 : `${documents.length} documents uploaded`
               }
@@ -186,6 +248,50 @@ export function DocumentsPage() {
         </div>
       </header>
 
+      {/* Statistics Cards */}
+      {stats.totalDocs > 0 && (
+        <div className="px-6 py-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20 border-b border-border">
+          <div className="max-w-5xl mx-auto grid grid-cols-4 gap-4">
+            <div className="flex items-center gap-3 p-3 bg-white/50 dark:bg-black/20 rounded-xl">
+              <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                <FileText className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">{stats.totalDocs}</p>
+                <p className="text-xs text-muted-foreground">{language === 'tr' ? 'Toplam Döküman' : 'Total Documents'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-white/50 dark:bg-black/20 rounded-xl">
+              <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{stats.totalChunks}</p>
+                <p className="text-xs text-muted-foreground">{language === 'tr' ? 'Toplam Chunk' : 'Total Chunks'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-white/50 dark:bg-black/20 rounded-xl">
+              <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center">
+                <HardDrive className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{formatFileSize(stats.totalSize)}</p>
+                <p className="text-xs text-muted-foreground">{language === 'tr' ? 'Toplam Boyut' : 'Total Size'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 bg-white/50 dark:bg-black/20 rounded-xl">
+              <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                <BarChart3 className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">{Object.keys(stats.fileTypes).length}</p>
+                <p className="text-xs text-muted-foreground">{language === 'tr' ? 'Dosya Türü' : 'File Types'}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-5xl mx-auto space-y-6">
@@ -196,8 +302,8 @@ export function DocumentsPage() {
             onDragLeave={handleDragLeave}
             className={cn(
               "relative border-2 border-dashed rounded-2xl p-8 text-center transition-all",
-              dragOver 
-                ? "border-primary-500 bg-primary-500/5" 
+              dragOver
+                ? "border-primary-500 bg-primary-500/5"
                 : "border-border hover:border-primary-500/50"
             )}
           >
@@ -221,13 +327,13 @@ export function DocumentsPage() {
               </div>
               <div>
                 <p className="text-lg font-medium">
-                  {language === 'tr' 
+                  {language === 'tr'
                     ? 'Dosyaları sürükleyip bırakın'
                     : 'Drag and drop files here'
                   }
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {language === 'tr' 
+                  {language === 'tr'
                     ? 'veya dosya seçmek için tıklayın'
                     : 'or click to select files'
                   }
@@ -286,7 +392,7 @@ export function DocumentsPage() {
                 {language === 'tr' ? 'Henüz döküman yok' : 'No documents yet'}
               </p>
               <p className="text-sm text-muted-foreground mt-1">
-                {language === 'tr' 
+                {language === 'tr'
                   ? 'Dosya yükleyerek başlayın'
                   : 'Start by uploading files'
                 }
@@ -296,7 +402,7 @@ export function DocumentsPage() {
             <div className="grid gap-3">
               {filteredDocuments.map((doc, index) => {
                 const FileIcon = getFileIcon(doc.name);
-                
+
                 return (
                   <motion.div
                     key={doc.id}
@@ -328,16 +434,24 @@ export function DocumentsPage() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-2 rounded-lg hover:bg-accent transition-colors" title="Görüntüle">
+                      <button 
+                        onClick={() => handlePreview(doc.id)}
+                        className="p-2 rounded-lg hover:bg-accent transition-colors" 
+                        title={language === 'tr' ? 'Görüntüle' : 'Preview'}
+                      >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button className="p-2 rounded-lg hover:bg-accent transition-colors" title="İndir">
+                      <button 
+                        onClick={() => handleDownload(doc.id)}
+                        className="p-2 rounded-lg hover:bg-accent transition-colors" 
+                        title={language === 'tr' ? 'İndir' : 'Download'}
+                      >
                         <Download className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(doc.id)}
                         className="p-2 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors"
-                        title="Sil"
+                        title={language === 'tr' ? 'Sil' : 'Delete'}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -349,6 +463,95 @@ export function DocumentsPage() {
           )}
         </div>
       </div>
+
+      {/* Preview Modal */}
+      <AnimatePresence>
+        {(previewDoc || previewLoading) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => setPreviewDoc(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <Eye className="w-5 h-5 text-primary-500" />
+                  <h2 className="text-lg font-semibold">
+                    {language === 'tr' ? 'Döküman Önizleme' : 'Document Preview'}
+                  </h2>
+                  {previewDoc?.preview.filename && (
+                    <span className="text-sm text-muted-foreground">- {previewDoc.preview.filename}</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setPreviewDoc(null)}
+                  className="p-2 rounded-lg hover:bg-accent transition-colors"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="flex-1 overflow-auto p-6">
+                {previewLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
+                  </div>
+                ) : previewDoc?.preview.success ? (
+                  <div className="space-y-4">
+                    {previewDoc.preview.type === 'pdf' && previewDoc.preview.page_count && (
+                      <div className="text-sm text-muted-foreground">
+                        {language === 'tr' ? 'Sayfa sayısı:' : 'Page count:'} {previewDoc.preview.page_count}
+                        {previewDoc.preview.truncated && (
+                          <span className="ml-2 text-amber-500">
+                            ({language === 'tr' ? 'İlk 10 sayfa gösteriliyor' : 'Showing first 10 pages'})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <pre className="whitespace-pre-wrap text-sm font-mono bg-muted/50 p-4 rounded-xl overflow-x-auto">
+                      {previewDoc.preview.content}
+                    </pre>
+                    {previewDoc.preview.truncated && (
+                      <p className="text-sm text-amber-500 text-center">
+                        {language === 'tr' ? 'İçerik kısaltılmıştır. Tam içerik için indirin.' : 'Content truncated. Download for full content.'}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full gap-4">
+                    <XCircle className="w-12 h-12 text-red-500" />
+                    <p className="text-lg font-medium text-red-500">
+                      {previewDoc?.preview.error || (language === 'tr' ? 'Önizleme yüklenemedi' : 'Preview failed to load')}
+                    </p>
+                    {previewDoc && (
+                      <button
+                        onClick={() => {
+                          handleDownload(previewDoc.id);
+                          setPreviewDoc(null);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        {language === 'tr' ? 'Bunun yerine indir' : 'Download instead'}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -393,10 +393,34 @@ class RAGOrchestrator:
             if self.metrics:
                 self.metrics.record_error()
             
+            # Hata tipini belirle
+            error_type = type(e).__name__
+            error_message = str(e)
+            
+            # Kullanıcı dostu hata mesajları
+            if "connection" in error_message.lower() or "timeout" in error_message.lower():
+                user_message = "Bağlantı hatası oluştu. Lütfen ağ bağlantınızı kontrol edin."
+                suggestion = "İnternet bağlantınızı kontrol edin ve tekrar deneyin."
+            elif "memory" in error_message.lower() or "resource" in error_message.lower():
+                user_message = "Sistem kaynakları yetersiz. Lütfen daha kısa bir sorgu deneyin."
+                suggestion = "Sorgunuzu kısaltın veya birkaç dakika bekleyin."
+            elif "rate" in error_message.lower() or "limit" in error_message.lower():
+                user_message = "Çok fazla istek gönderildi. Lütfen biraz bekleyin."
+                suggestion = "Birkaç saniye bekleyip tekrar deneyin."
+            elif "model" in error_message.lower() or "llm" in error_message.lower():
+                user_message = "AI modeli yanıt veremedi. Lütfen tekrar deneyin."
+                suggestion = "Model yeniden başlatılıyor olabilir, lütfen bekleyin."
+            else:
+                user_message = "Beklenmeyen bir hata oluştu. Sistem yöneticisine bildirin."
+                suggestion = "Sorununuz devam ederse destek ekibine başvurun."
+            
             return {
-                "error": str(e),
+                "error": error_message,
+                "error_type": error_type,
                 "query": query,
-                "answer": "Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.",
+                "answer": user_message,
+                "suggestion": suggestion,
+                "technical_details": f"{error_type}: {error_message}",
             }
     
     async def query_async(

@@ -1932,6 +1932,88 @@ async def list_documents():
     return {"documents": documents, "total": len(documents)}
 
 
+@app.get("/api/documents/{document_id}/download", tags=["Documents"])
+async def download_document(document_id: str):
+    """Dökümanı indir."""
+    from fastapi.responses import FileResponse
+    upload_dir = settings.DATA_DIR / "uploads"
+    
+    # Find file
+    for file_path in upload_dir.iterdir():
+        if file_path.name.startswith(document_id):
+            return FileResponse(
+                path=str(file_path),
+                filename=file_path.name.split("_", 1)[-1] if "_" in file_path.name else file_path.name,
+                media_type="application/octet-stream"
+            )
+    
+    raise HTTPException(status_code=404, detail="Döküman bulunamadı")
+
+
+@app.get("/api/documents/{document_id}/preview", tags=["Documents"])
+async def preview_document(document_id: str):
+    """Döküman içeriğini önizle (text tabanlı dosyalar için)."""
+    upload_dir = settings.DATA_DIR / "uploads"
+    
+    # Find file
+    for file_path in upload_dir.iterdir():
+        if file_path.name.startswith(document_id):
+            # Get file extension
+            ext = file_path.suffix.lower()
+            
+            # Text-based files
+            if ext in ['.txt', '.md', '.json', '.csv', '.log', '.py', '.js', '.html', '.xml']:
+                try:
+                    content = file_path.read_text(encoding='utf-8')
+                    return {
+                        "success": True,
+                        "content": content[:50000],  # Limit to 50KB
+                        "truncated": len(content) > 50000,
+                        "filename": file_path.name,
+                        "type": "text"
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"Dosya okunamadı: {str(e)}",
+                        "type": "error"
+                    }
+            
+            # PDF files - extract text if possible
+            elif ext == '.pdf':
+                try:
+                    import pypdf
+                    reader = pypdf.PdfReader(str(file_path))
+                    text = ""
+                    for page in reader.pages[:10]:  # First 10 pages
+                        text += page.extract_text() + "\n---\n"
+                    return {
+                        "success": True,
+                        "content": text[:50000],
+                        "truncated": len(text) > 50000 or len(reader.pages) > 10,
+                        "filename": file_path.name,
+                        "type": "pdf",
+                        "page_count": len(reader.pages)
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": f"PDF okunamadı: {str(e)}",
+                        "type": "error"
+                    }
+            
+            # Binary files - not previewable
+            else:
+                return {
+                    "success": False,
+                    "error": "Bu dosya türü önizlenemez",
+                    "type": "binary",
+                    "filename": file_path.name
+                }
+    
+    raise HTTPException(status_code=404, detail="Döküman bulunamadı")
+
+
 @app.delete("/api/documents/{document_id}", tags=["Documents"])
 async def delete_document(document_id: str):
     """Dökümanı sil."""
@@ -1994,6 +2076,305 @@ async def search_documents(request: SearchRequest):
         
     except Exception as e:
         analytics.track_error("search", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/search", tags=["Search"])
+async def search_documents_get(query: str, top_k: int = 5):
+    """
+    Bilgi tabanında semantic arama (GET method).
+    Frontend uyumluluğu için GET desteği.
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        results = vector_store.search_with_scores(
+            query=query,
+            n_results=top_k,
+        )
+        
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        analytics.track_search(
+            query=query,
+            results_count=len(results),
+            duration_ms=duration_ms,
+        )
+        
+        return {
+            "results": results,
+            "total": len(results),
+            "query": query,
+        }
+        
+    except Exception as e:
+        analytics.track_error("search", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ SESSIONS API ============
+
+class SessionResponse(BaseModel):
+    """Session response modeli."""
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int
+    is_pinned: Optional[bool] = False
+    tags: Optional[List[str]] = []
+    category: Optional[str] = None
+
+
+class SessionMessagesResponse(BaseModel):
+    """Session mesajları response modeli."""
+    session: SessionResponse
+    messages: List[Dict[str, Any]]
+
+
+@app.get("/api/sessions", tags=["Sessions"])
+async def get_sessions():
+    """
+    Tüm oturumları listele.
+    """
+    try:
+        session_list = []
+        for session_id, messages in sessions.items():
+            if messages:
+                first_msg_time = messages[0].get("timestamp", datetime.now().isoformat())
+                last_msg_time = messages[-1].get("timestamp", datetime.now().isoformat())
+                
+                # Generate title from first user message
+                title = "Yeni Sohbet"
+                for msg in messages:
+                    if msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        title = content[:50] + "..." if len(content) > 50 else content
+                        break
+                
+                session_list.append({
+                    "id": session_id,
+                    "title": title,
+                    "created_at": first_msg_time,
+                    "updated_at": last_msg_time,
+                    "message_count": len(messages),
+                    "is_pinned": False,
+                    "tags": [],
+                    "category": None,
+                })
+        
+        # Sort by updated_at descending
+        session_list.sort(key=lambda x: x["updated_at"], reverse=True)
+        
+        return {"sessions": session_list}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/{session_id}", tags=["Sessions"])
+async def get_session(session_id: str):
+    """
+    Belirli bir oturumu ve mesajlarını getir.
+    """
+    try:
+        if session_id not in sessions:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+        
+        messages = sessions[session_id]
+        
+        # Generate title
+        title = "Yeni Sohbet"
+        for msg in messages:
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                title = content[:50] + "..." if len(content) > 50 else content
+                break
+        
+        first_msg_time = messages[0].get("timestamp", datetime.now().isoformat()) if messages else datetime.now().isoformat()
+        last_msg_time = messages[-1].get("timestamp", datetime.now().isoformat()) if messages else datetime.now().isoformat()
+        
+        session_info = {
+            "id": session_id,
+            "title": title,
+            "created_at": first_msg_time,
+            "updated_at": last_msg_time,
+            "message_count": len(messages),
+        }
+        
+        return {
+            "session": session_info,
+            "messages": messages,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/sessions/{session_id}", tags=["Sessions"])
+async def delete_session(session_id: str):
+    """
+    Bir oturumu sil.
+    """
+    try:
+        if session_id not in sessions:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+        
+        del sessions[session_id]
+        
+        return {"message": "Oturum silindi", "session_id": session_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ NOTES API ============
+
+# In-memory notes storage (for persistence, should use database)
+notes_storage: Dict[str, Dict[str, Any]] = {}
+
+
+class NoteCreate(BaseModel):
+    """Not oluşturma modeli."""
+    title: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(default="")
+    folder: Optional[str] = None
+    color: Optional[str] = "default"
+    is_pinned: Optional[bool] = False
+    tags: Optional[List[str]] = []
+
+
+class NoteUpdate(BaseModel):
+    """Not güncelleme modeli."""
+    title: Optional[str] = None
+    content: Optional[str] = None
+    folder: Optional[str] = None
+    color: Optional[str] = None
+    is_pinned: Optional[bool] = None
+    tags: Optional[List[str]] = None
+
+
+@app.get("/api/notes", tags=["Notes"])
+async def get_notes():
+    """
+    Tüm notları listele.
+    """
+    try:
+        notes_list = list(notes_storage.values())
+        # Sort by updated_at descending, pinned first
+        notes_list.sort(key=lambda x: (not x.get("is_pinned", False), x.get("updated_at", "")), reverse=False)
+        notes_list.sort(key=lambda x: x.get("is_pinned", False), reverse=True)
+        
+        return {"notes": notes_list}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notes", tags=["Notes"])
+async def create_note(note: NoteCreate):
+    """
+    Yeni not oluştur.
+    """
+    try:
+        import uuid
+        
+        note_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+        
+        note_data = {
+            "id": note_id,
+            "title": note.title,
+            "content": note.content,
+            "folder": note.folder,
+            "color": note.color,
+            "is_pinned": note.is_pinned,
+            "tags": note.tags or [],
+            "created_at": now,
+            "updated_at": now,
+        }
+        
+        notes_storage[note_id] = note_data
+        
+        return note_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notes/{note_id}", tags=["Notes"])
+async def get_note(note_id: str):
+    """
+    Belirli bir notu getir.
+    """
+    try:
+        if note_id not in notes_storage:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        
+        return notes_storage[note_id]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/notes/{note_id}", tags=["Notes"])
+async def update_note(note_id: str, note: NoteUpdate):
+    """
+    Bir notu güncelle.
+    """
+    try:
+        if note_id not in notes_storage:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        
+        existing = notes_storage[note_id]
+        
+        # Update only provided fields
+        if note.title is not None:
+            existing["title"] = note.title
+        if note.content is not None:
+            existing["content"] = note.content
+        if note.folder is not None:
+            existing["folder"] = note.folder
+        if note.color is not None:
+            existing["color"] = note.color
+        if note.is_pinned is not None:
+            existing["is_pinned"] = note.is_pinned
+        if note.tags is not None:
+            existing["tags"] = note.tags
+        
+        existing["updated_at"] = datetime.now().isoformat()
+        
+        return existing
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/notes/{note_id}", tags=["Notes"])
+async def delete_note(note_id: str):
+    """
+    Bir notu sil.
+    """
+    try:
+        if note_id not in notes_storage:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        
+        del notes_storage[note_id]
+        
+        return {"message": "Not silindi", "note_id": note_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2475,6 +2856,14 @@ async def analyze_query_routing(request: MoEQueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/moe/route", response_model=MoERouteResponse, tags=["MoE Router"])
+async def route_query(request: MoEQueryRequest):
+    """
+    Alias for /api/moe/analyze - Frontend compatibility.
+    """
+    return await analyze_query_routing(request)
+
+
 @app.get("/api/moe/experts", tags=["MoE Router"])
 async def get_available_experts():
     """Kullanılabilir expert'leri listele."""
@@ -2930,6 +3319,8 @@ async def add_score(
 @app.get("/api/admin/stats", tags=["Admin"])
 async def get_stats():
     """Sistem istatistikleri."""
+    import psutil
+    
     # Vector store stats
     try:
         vs_stats = vector_store.get_stats() if hasattr(vector_store, 'get_stats') else {}
@@ -2947,6 +3338,27 @@ async def get_stats():
                 doc_count += 1
                 total_size += file_path.stat().st_size
     
+    # System resources
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        system_resources = {
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory.percent,
+            "memory_used_gb": memory.used / (1024 ** 3),
+            "memory_total_gb": memory.total / (1024 ** 3),
+            "disk_percent": disk.percent,
+            "disk_used_gb": disk.used / (1024 ** 3),
+            "disk_total_gb": disk.total / (1024 ** 3),
+        }
+    except Exception:
+        system_resources = {
+            "cpu_percent": 0,
+            "memory_percent": 0,
+            "disk_percent": 0,
+        }
+    
     return {
         "documents": {
             "total": doc_count,
@@ -2955,7 +3367,9 @@ async def get_stats():
         },
         "sessions": len(sessions),
         "total_messages": sum(len(s) for s in sessions.values()),
-        "vector_store": vs_stats
+        "vector_store": vs_stats,
+        "vector_count": vs_stats.get("total_documents", vector_store.count()) if vs_stats else vector_store.count(),
+        "system_resources": system_resources
     }
 
 

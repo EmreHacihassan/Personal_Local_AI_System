@@ -106,12 +106,31 @@ SINIRLAMALAR:
             )
             
         except Exception as e:
+            error_type = type(e).__name__
+            error_message = str(e)
+            
+            # Kullanıcı dostu hata mesajları
+            if "connection" in error_message.lower() or "timeout" in error_message.lower():
+                user_message = "Bağlantı hatası oluştu. Lütfen ağ bağlantınızı kontrol edin."
+            elif "memory" in error_message.lower() or "resource" in error_message.lower():
+                user_message = "Sistem kaynakları yetersiz. Lütfen daha kısa bir sorgu deneyin."
+            elif "rate" in error_message.lower() or "limit" in error_message.lower():
+                user_message = "Çok fazla istek gönderildi. Lütfen biraz bekleyin."
+            elif "model" in error_message.lower() or "llm" in error_message.lower():
+                user_message = "AI modeli yanıt veremedi. Lütfen tekrar deneyin."
+            else:
+                user_message = f"Beklenmeyen bir hata oluştu: {error_type}"
+            
             return AgentResponse(
-                content="Üzgünüm, bir hata oluştu. Lütfen tekrar deneyin.",
+                content=user_message,
                 agent_name=self.name,
                 agent_role=self.role.value,
                 success=False,
-                error=str(e),
+                error=error_message,
+                metadata={
+                    "error_type": error_type,
+                    "technical_details": f"{error_type}: {error_message}",
+                },
             )
     
     def _needs_knowledge_search(self, task: str) -> bool:

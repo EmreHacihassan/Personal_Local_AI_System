@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { ChatPage } from '@/components/pages/ChatPage';
@@ -10,15 +10,89 @@ import { DashboardPage } from '@/components/pages/DashboardPage';
 import { SettingsPage } from '@/components/pages/SettingsPage';
 import { NotesPage } from '@/components/pages/NotesPage';
 import { LearningPage } from '@/components/pages/LearningPage';
+import { FavoritesPage } from '@/components/pages/FavoritesPage';
+import { TemplatesPage } from '@/components/pages/TemplatesPage';
+import { SearchPage } from '@/components/pages/SearchPage';
+import { KeyboardShortcutsModal } from '@/components/modals/KeyboardShortcutsModal';
 import { useStore } from '@/store/useStore';
 
 export default function Home() {
-  const { currentPage } = useStore();
+  const { currentPage, setCurrentPage, theme, setTheme } = useStore();
   const [mounted, setMounted] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Global keyboard shortcuts
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Don't trigger shortcuts when typing in inputs
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+
+    // Ctrl + ? - Show keyboard shortcuts
+    if (e.ctrlKey && e.key === '?') {
+      e.preventDefault();
+      setShowShortcuts(true);
+    }
+
+    // Ctrl + K - Quick search (go to search page)
+    if (e.ctrlKey && e.key === 'k') {
+      e.preventDefault();
+      setCurrentPage('search');
+    }
+
+    // Ctrl + N - New chat
+    if (e.ctrlKey && e.key === 'n') {
+      e.preventDefault();
+      setCurrentPage('chat');
+    }
+
+    // Ctrl + , - Settings
+    if (e.ctrlKey && e.key === ',') {
+      e.preventDefault();
+      setCurrentPage('settings');
+    }
+
+    // Ctrl + Shift + T - Toggle theme
+    if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+      e.preventDefault();
+      setTheme(theme === 'light' ? 'dark' : 'light');
+    }
+
+    // Ctrl + 1-5 - Navigation shortcuts
+    if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+      switch (e.key) {
+        case '1':
+          e.preventDefault();
+          setCurrentPage('chat');
+          break;
+        case '2':
+          e.preventDefault();
+          setCurrentPage('history');
+          break;
+        case '3':
+          e.preventDefault();
+          setCurrentPage('notes');
+          break;
+        case '4':
+          e.preventDefault();
+          setCurrentPage('documents');
+          break;
+        case '5':
+          e.preventDefault();
+          setCurrentPage('learning');
+          break;
+      }
+    }
+  }, [setCurrentPage, theme, setTheme]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 
   if (!mounted) {
     return (
@@ -47,6 +121,12 @@ export default function Home() {
         return <NotesPage />;
       case 'learning':
         return <LearningPage />;
+      case 'favorites':
+        return <FavoritesPage />;
+      case 'templates':
+        return <TemplatesPage />;
+      case 'search':
+        return <SearchPage />;
       default:
         return <ChatPage />;
     }
@@ -72,6 +152,12 @@ export default function Home() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal 
+        isOpen={showShortcuts} 
+        onClose={() => setShowShortcuts(false)} 
+      />
     </div>
   );
 }

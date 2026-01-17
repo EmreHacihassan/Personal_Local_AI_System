@@ -456,13 +456,13 @@ class MissingConfigError(ConfigurationError):
 class ExternalServiceError(BaseAppException):
     """Harici servis hatası."""
     
-    def __init__(self, service_name: str, message: str = None, **kwargs):
+    def __init__(self, service_name: str, message: str = None, code: str = None, **kwargs):
         super().__init__(
             message=message or f"Harici servis hatası: {service_name}",
-            code="EXTERNAL_SERVICE_ERROR",
+            code=code or "EXTERNAL_SERVICE_ERROR",
             retryable=True,
-            details={"service_name": service_name},
-            user_message=f"{service_name} servisi şu anda erişilemez.",
+            details={"service_name": service_name, **kwargs.pop("details", {})},
+            user_message=kwargs.pop("user_message", f"{service_name} servisi şu anda erişilemez."),
             **kwargs
         )
 

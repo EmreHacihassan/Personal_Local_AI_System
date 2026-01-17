@@ -4,6 +4,12 @@ Endüstri Standartlarında Kurumsal AI Çözümü
 
 Tek komutla tüm sistemi başlat - SIFIR SORUN GARANTİSİ.
 Port temizleme, auto-restart ve health check dahil.
+
+Kullanım:
+  python run.py              # Varsayılan: Streamlit frontend
+  python run.py --next       # Next.js frontend kullan
+  python run.py --all        # Tüm frontend'leri başlat
+  python run.py --api-only   # Sadece API başlat
 """
 
 import subprocess
@@ -13,6 +19,9 @@ import time
 import webbrowser
 import socket
 import atexit
+import argparse
+import signal
+import threading
 from pathlib import Path
 
 # Add project root to path
@@ -21,36 +30,34 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # SABIT PORTLAR - değiştirme
 API_PORT = 8001
-FRONTEND_PORT = 8501
+STREAMLIT_PORT = 8501
+NEXTJS_PORT = 3000
 
 # Global process references for cleanup
-_api_process = None
-_frontend_process = None
+_processes = {
+    "api": None,
+    "streamlit": None,
+    "nextjs": None,
+}
+_shutdown_requested = False
 
 
 def cleanup_on_exit():
     """Çıkışta tüm process'leri temizle."""
-    global _api_process, _frontend_process
+    global _processes, _shutdown_requested
+    _shutdown_requested = True
     
-    if _api_process:
-        try:
-            _api_process.terminate()
-            _api_process.wait(timeout=3)
-        except:
+    for name, proc in _processes.items():
+        if proc is not None:
             try:
-                _api_process.kill()
+                print(f"   🛑 {name} durduruluyor...")
+                proc.terminate()
+                proc.wait(timeout=5)
             except:
-                pass
-    
-    if _frontend_process:
-        try:
-            _frontend_process.terminate()
-            _frontend_process.wait(timeout=3)
-        except:
-            try:
-                _frontend_process.kill()
-            except:
-                pass
+                try:
+                    proc.kill()
+                except:
+                    pass
 
 
 def kill_port(port: int) -> bool:
@@ -199,14 +206,14 @@ def wait_for_api(port: int, max_retries: int = 30) -> bool:
 
 def run_api(port: int):
     """API sunucusunu başlat - ROBUST."""
-    global _api_process
+    global _processes
     
     env = os.environ.copy()
     env['API_PORT'] = str(port)
     env['PYTHONUNBUFFERED'] = '1'
     
     if sys.platform == 'win32':
-        _api_process = subprocess.Popen(
+        _processes["api"] = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "api.main:app",
              "--host", "0.0.0.0",
              "--port", str(port),
@@ -218,7 +225,7 @@ def run_api(port: int):
             stderr=subprocess.STDOUT,
         )
     else:
-        _api_process = subprocess.Popen(
+        _processes["api"] = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "api.main:app",
              "--host", "0.0.0.0",
              "--port", str(port),
@@ -230,14 +237,18 @@ def run_api(port: int):
             stderr=subprocess.STDOUT,
         )
     
-    return _api_process
+    return _processes["api"]
 
 
-def run_frontend(port: int, api_port: int):
+def run_streamlit(port: int, api_port: int):
     """Streamlit frontend'i başlat - ROBUST."""
-    global _frontend_process
+    global _processes
     
     frontend_path = PROJECT_ROOT / "frontend" / "app.py"
+    
+    if not frontend_path.exists():
+        print(f"   ⚠️ Streamlit frontend bulunamadı: {frontend_path}")
+        return None
     
     env = os.environ.copy()
     env['API_BASE_URL'] = f'http://localhost:{api_port}'
@@ -245,7 +256,7 @@ def run_frontend(port: int, api_port: int):
     env['PYTHONUNBUFFERED'] = '1'
     
     if sys.platform == 'win32':
-        _frontend_process = subprocess.Popen(
+        _processes["streamlit"] = subprocess.Popen(
             [sys.executable, "-m", "streamlit", "run", str(frontend_path),
              "--server.port", str(port),
              "--server.headless", "true",
@@ -257,7 +268,7 @@ def run_frontend(port: int, api_port: int):
             stderr=subprocess.STDOUT,
         )
     else:
-        _frontend_process = subprocess.Popen(
+        _processes["streamlit"] = subprocess.Popen(
             [sys.executable, "-m", "streamlit", "run", str(frontend_path),
              "--server.port", str(port),
              "--server.headless", "true",
@@ -269,31 +280,248 @@ def run_frontend(port: int, api_port: int):
             stderr=subprocess.STDOUT,
         )
     
-    return _frontend_process
+    return _processes["streamlit"]
+
+
+def check_node_installed() -> bool:
+    """Node.js kurulu mu kontrol et."""
+    try:
+        result = subprocess.run(
+            ["node", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        )
+        return result.returncode == 0
+    except:
+        return False
+
+
+def check_npm_installed() -> bool:
+    """npm kurulu mu kontrol et."""
+    try:
+        result = subprocess.run(
+            ["npm", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            shell=True if sys.platform == 'win32' else False
+        )
+        return result.returncode == 0
+    except:
+        return False
+
+
+def install_nextjs_deps() -> bool:
+    """Next.js bağımlılıklarını yükle."""
+    nextjs_dir = PROJECT_ROOT / "frontend-next"
+    node_modules = nextjs_dir / "node_modules"
+    
+    if node_modules.exists() and (node_modules / "next").exists():
+        return True
+    
+    print("   📦 Next.js bağımlılıkları yükleniyor (ilk seferde gerekli)...")
+    
+    try:
+        result = subprocess.run(
+            ["npm", "install"],
+            cwd=str(nextjs_dir),
+            capture_output=True,
+            text=True,
+            timeout=300,
+            shell=True if sys.platform == 'win32' else False
+        )
+        return result.returncode == 0
+    except Exception as e:
+        print(f"   ❌ npm install hatası: {e}")
+        return False
+
+
+def run_nextjs(port: int, api_port: int, dev_mode: bool = False):
+    """Next.js frontend'i başlat."""
+    global _processes
+    
+    nextjs_dir = PROJECT_ROOT / "frontend-next"
+    
+    if not nextjs_dir.exists():
+        print(f"   ⚠️ Next.js frontend bulunamadı: {nextjs_dir}")
+        return None
+    
+    # Node.js kontrol et
+    if not check_node_installed():
+        print("   ❌ Node.js kurulu değil! https://nodejs.org adresinden indirin.")
+        return None
+    
+    # Bağımlılıkları yükle
+    if not install_nextjs_deps():
+        print("   ❌ Next.js bağımlılıkları yüklenemedi!")
+        return None
+    
+    env = os.environ.copy()
+    env['NEXT_PUBLIC_API_URL'] = f'http://localhost:{api_port}'
+    env['PORT'] = str(port)
+    
+    # Production build kontrol
+    next_build = nextjs_dir / ".next"
+    
+    if dev_mode or not next_build.exists():
+        # Development mode
+        cmd = ["npm", "run", "dev"]
+        mode_text = "development"
+    else:
+        # Production mode
+        cmd = ["npm", "run", "start"]
+        mode_text = "production"
+    
+    print(f"   🔧 Next.js {mode_text} mode başlatılıyor...")
+    
+    if sys.platform == 'win32':
+        _processes["nextjs"] = subprocess.Popen(
+            cmd,
+            cwd=str(nextjs_dir),
+            env=env,
+            shell=True,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    else:
+        _processes["nextjs"] = subprocess.Popen(
+            cmd,
+            cwd=str(nextjs_dir),
+            env=env,
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+    
+    return _processes["nextjs"]
+
+
+def wait_for_service(url: str, name: str, max_retries: int = 30) -> bool:
+    """Servisin hazır olmasını bekle."""
+    import requests
+    
+    for i in range(max_retries):
+        try:
+            response = requests.get(url, timeout=3)
+            if response.status_code in [200, 304]:
+                return True
+        except:
+            pass
+        
+        if i > 0 and i % 5 == 0:
+            print(f"   ⏳ {name} bekleniyor... ({i}/{max_retries})")
+        
+        time.sleep(1)
+    
+    return False
+
+
+def parse_args():
+    """Komut satırı argümanlarını parse et."""
+    parser = argparse.ArgumentParser(
+        description="Enterprise AI Assistant - Tek komutla tüm sistemi başlat",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Örnekler:
+  python run.py              # Varsayılan: Streamlit frontend
+  python run.py --next       # Next.js frontend kullan
+  python run.py --all        # Tüm frontend'leri başlat
+  python run.py --api-only   # Sadece API başlat
+  python run.py --dev        # Development mode (hot reload)
+        """
+    )
+    
+    parser.add_argument(
+        "--next", "-n",
+        action="store_true",
+        help="Next.js frontend kullan (port 3000)"
+    )
+    parser.add_argument(
+        "--streamlit", "-s",
+        action="store_true",
+        help="Streamlit frontend kullan (port 8501) [varsayılan]"
+    )
+    parser.add_argument(
+        "--all", "-a",
+        action="store_true",
+        help="Tüm frontend'leri başlat (Streamlit + Next.js)"
+    )
+    parser.add_argument(
+        "--api-only",
+        action="store_true",
+        help="Sadece API sunucusunu başlat"
+    )
+    parser.add_argument(
+        "--dev", "-d",
+        action="store_true",
+        help="Development mode (hot reload aktif)"
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Tarayıcıyı otomatik açma"
+    )
+    parser.add_argument(
+        "--skip-ollama",
+        action="store_true",
+        help="Ollama kontrolünü atla"
+    )
+    
+    return parser.parse_args()
 
 
 def main():
     """Ana çalıştırma fonksiyonu - SORUNSUZ."""
-    global _api_process, _frontend_process
+    global _processes, _shutdown_requested
+    
+    # Argümanları parse et
+    args = parse_args()
     
     # Cleanup handler kaydet
     atexit.register(cleanup_on_exit)
+    
+    # Signal handler
+    def signal_handler(sig, frame):
+        global _shutdown_requested
+        _shutdown_requested = True
+        print("\n\n🛑 Kapatılıyor...")
+        cleanup_on_exit()
+        print("✅ Güle güle!")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    if hasattr(signal, 'SIGTERM'):
+        signal.signal(signal.SIGTERM, signal_handler)
     
     print("=" * 60)
     print("🤖 Enterprise AI Assistant")
     print("   Endüstri Standartlarında Kurumsal AI Çözümü")
     print("=" * 60)
     
+    # Hangi frontend'leri başlatacağımızı belirle
+    use_streamlit = args.streamlit or args.all or (not args.next and not args.api_only)
+    use_nextjs = args.next or args.all
+    api_only = args.api_only
+    
     # ===== STEP 1: OLLAMA =====
-    print("\n📡 Ollama kontrol ediliyor...")
-    if not start_ollama():
-        print("❌ Ollama başlatılamadı!")
-        print("   → Ollama uygulamasını manuel başlatın")
-        input("\n   Ollama'yı başlattıktan sonra Enter'a basın...")
-        if not check_ollama():
-            print("❌ Ollama hala çalışmıyor. Çıkılıyor.")
-            return
-    print("✅ Ollama aktif")
+    if not args.skip_ollama:
+        print("\n📡 Ollama kontrol ediliyor...")
+        if not start_ollama():
+            print("⚠️ Ollama başlatılamadı!")
+            print("   → Ollama uygulamasını manuel başlatın veya --skip-ollama kullanın")
+            try:
+                user_input = input("\n   Devam etmek için Enter'a basın (Ollama olmadan) veya 'q' ile çıkın: ")
+                if user_input.lower() == 'q':
+                    return
+            except:
+                pass
+        else:
+            print("✅ Ollama aktif")
+    else:
+        print("\n⏭️ Ollama kontrolü atlandı")
     
     # ===== STEP 2: DIRECTORIES =====
     print("\n📁 Klasörler hazırlanıyor...")
@@ -312,10 +540,17 @@ def main():
         return
     print(f"   ✅ API port: {API_PORT}")
     
-    if not ensure_port_available(FRONTEND_PORT):
-        print(f"❌ Frontend portu ({FRONTEND_PORT}) temizlenemedi!")
-        return
-    print(f"   ✅ Frontend port: {FRONTEND_PORT}")
+    if use_streamlit:
+        if not ensure_port_available(STREAMLIT_PORT):
+            print(f"❌ Streamlit portu ({STREAMLIT_PORT}) temizlenemedi!")
+            return
+        print(f"   ✅ Streamlit port: {STREAMLIT_PORT}")
+    
+    if use_nextjs:
+        if not ensure_port_available(NEXTJS_PORT):
+            print(f"❌ Next.js portu ({NEXTJS_PORT}) temizlenemedi!")
+            return
+        print(f"   ✅ Next.js port: {NEXTJS_PORT}")
     
     # ===== STEP 4: START SERVICES =====
     print("\n🚀 Servisler başlatılıyor...")
@@ -323,62 +558,106 @@ def main():
     try:
         # Start API
         print(f"   📡 API başlatılıyor...")
-        api_proc = run_api(API_PORT)
+        run_api(API_PORT)
         
         # API'nin hazır olmasını bekle
         print(f"   ⏳ API hazır olması bekleniyor...")
-        if not wait_for_api(API_PORT, max_retries=30):
+        if not wait_for_service(f"http://localhost:{API_PORT}/health", "API", max_retries=30):
             print("   ⚠️ API health check zaman aşımı, yine de devam ediliyor...")
         else:
             print(f"   ✅ API hazır!")
         
-        # Start Frontend
-        print(f"   🌐 Frontend başlatılıyor...")
-        frontend_proc = run_frontend(FRONTEND_PORT, API_PORT)
-        time.sleep(3)
-        
-        print("\n" + "=" * 60)
-        print("✅ Enterprise AI Assistant BAŞLATILDI!")
-        print("=" * 60)
-        print("\n📍 Erişim Adresleri:")
-        print(f"   🌐 Frontend: http://localhost:{FRONTEND_PORT}")
-        print(f"   📡 API:      http://localhost:{API_PORT}")
-        print(f"   📚 API Docs: http://localhost:{API_PORT}/docs")
-        print("\n⌨️  Durdurmak için Ctrl+C")
-        print("=" * 60)
-        
-        # Tarayıcı aç
-        time.sleep(1)
-        try:
-            webbrowser.open(f"http://localhost:{FRONTEND_PORT}")
-        except:
-            pass
+        # Sadece API modunda frontend başlatma
+        if api_only:
+            print("\n" + "=" * 60)
+            print("✅ API BAŞLATILDI (Frontend yok)")
+            print("=" * 60)
+            print(f"\n📍 API: http://localhost:{API_PORT}")
+            print(f"📚 Docs: http://localhost:{API_PORT}/docs")
+            print("\n⌨️  Durdurmak için Ctrl+C")
+            print("=" * 60)
+            
+            if not args.no_browser:
+                try:
+                    webbrowser.open(f"http://localhost:{API_PORT}/docs")
+                except:
+                    pass
+        else:
+            # Start Streamlit
+            if use_streamlit:
+                print(f"   🎨 Streamlit başlatılıyor...")
+                run_streamlit(STREAMLIT_PORT, API_PORT)
+                time.sleep(2)
+            
+            # Start Next.js
+            if use_nextjs:
+                print(f"   ⚛️ Next.js başlatılıyor...")
+                run_nextjs(NEXTJS_PORT, API_PORT, dev_mode=args.dev)
+                time.sleep(3)
+            
+            # Success message
+            print("\n" + "=" * 60)
+            print("✅ Enterprise AI Assistant BAŞLATILDI!")
+            print("=" * 60)
+            print("\n📍 Erişim Adresleri:")
+            
+            primary_url = None
+            
+            if use_streamlit:
+                print(f"   🎨 Streamlit: http://localhost:{STREAMLIT_PORT}")
+                primary_url = f"http://localhost:{STREAMLIT_PORT}"
+            
+            if use_nextjs:
+                print(f"   ⚛️ Next.js:   http://localhost:{NEXTJS_PORT}")
+                if not primary_url:
+                    primary_url = f"http://localhost:{NEXTJS_PORT}"
+            
+            print(f"   📡 API:       http://localhost:{API_PORT}")
+            print(f"   📚 API Docs:  http://localhost:{API_PORT}/docs")
+            print("\n⌨️  Durdurmak için Ctrl+C")
+            print("=" * 60)
+            
+            # Tarayıcı aç
+            if not args.no_browser and primary_url:
+                time.sleep(1)
+                try:
+                    webbrowser.open(primary_url)
+                except:
+                    pass
         
         # Process'leri izle ve gerekirse yeniden başlat
-        while True:
+        while not _shutdown_requested:
             # API durdu mu?
-            if api_proc.poll() is not None:
+            if _processes["api"] and _processes["api"].poll() is not None:
                 print("\n⚠️ API durdu, yeniden başlatılıyor...")
                 time.sleep(2)
                 ensure_port_available(API_PORT)
-                api_proc = run_api(API_PORT)
-                wait_for_api(API_PORT, max_retries=15)
+                run_api(API_PORT)
+                wait_for_service(f"http://localhost:{API_PORT}/health", "API", max_retries=15)
             
-            # Frontend durdu mu?
-            if frontend_proc.poll() is not None:
-                print("\n⚠️ Frontend durdu, yeniden başlatılıyor...")
+            # Streamlit durdu mu?
+            if use_streamlit and _processes["streamlit"] and _processes["streamlit"].poll() is not None:
+                print("\n⚠️ Streamlit durdu, yeniden başlatılıyor...")
                 time.sleep(2)
-                ensure_port_available(FRONTEND_PORT)
-                frontend_proc = run_frontend(FRONTEND_PORT, API_PORT)
+                ensure_port_available(STREAMLIT_PORT)
+                run_streamlit(STREAMLIT_PORT, API_PORT)
+            
+            # Next.js durdu mu?
+            if use_nextjs and _processes["nextjs"] and _processes["nextjs"].poll() is not None:
+                print("\n⚠️ Next.js durdu, yeniden başlatılıyor...")
+                time.sleep(2)
+                ensure_port_available(NEXTJS_PORT)
+                run_nextjs(NEXTJS_PORT, API_PORT, dev_mode=args.dev)
             
             time.sleep(5)
             
     except KeyboardInterrupt:
-        print("\n\n🛑 Kapatılıyor...")
-        cleanup_on_exit()
-        print("✅ Güle güle!")
+        pass
     except Exception as e:
         print(f"\n❌ Hata: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
         cleanup_on_exit()
 
 

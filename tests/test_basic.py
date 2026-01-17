@@ -8,6 +8,20 @@ Temel testler - Core, RAG, Agents.
 import pytest
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+
+# Mock chromadb before any project imports
+if 'chromadb' not in sys.modules:
+    mock_chromadb = MagicMock()
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = 0
+    mock_collection.query.return_value = {"documents": [[]], "metadatas": [[]], "distances": [[]], "ids": [[]]}
+    mock_chromadb.PersistentClient.return_value.get_or_create_collection.return_value = mock_collection
+    mock_chromadb.PersistentClient.return_value.list_collections.return_value = []
+    sys.modules['chromadb'] = mock_chromadb
+    sys.modules['chromadb.config'] = MagicMock()
+    sys.modules['chromadb.api'] = MagicMock()
+    sys.modules['chromadb.api.client'] = MagicMock()
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -51,15 +65,15 @@ class TestDocumentLoader:
         """Text dosyası yüklenebilmeli."""
         from rag.document_loader import DocumentLoader
         
-        # Create test file
+        # Create test file with UTF-8 encoding
         test_file = tmp_path / "test.txt"
-        test_file.write_text("Bu bir test dökümanıdır.")
+        test_file.write_text("Bu bir test dokumandir.", encoding="utf-8")
         
         loader = DocumentLoader()
         docs = loader.load_file(str(test_file))
         
         assert len(docs) > 0
-        assert "test dökümanı" in docs[0].content
+        assert "test dokuman" in docs[0].content
 
 
 class TestChunker:

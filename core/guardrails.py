@@ -60,12 +60,12 @@ class InputGuard:
     
     # Prompt injection patterns
     INJECTION_PATTERNS = [
-        r"ignore\s+(previous|all|above)\s+instructions",
-        r"disregard\s+(previous|all|above)",
+        r"ignore\s+(all\s+)?(previous|above)?\s*instructions",
+        r"disregard\s+(all\s+)?(previous|above)?",
         r"forget\s+(everything|all|previous)",
         r"you\s+are\s+now\s+a",
         r"act\s+as\s+if\s+you",
-        r"pretend\s+(you|to)\s+are",
+        r"pretend\s+(you|to)\s+(are|be)",
         r"system\s*:\s*",
         r"\[system\]",
         r"<\|im_start\|>",

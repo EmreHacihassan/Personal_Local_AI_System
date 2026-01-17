@@ -20,6 +20,47 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 # =============================================================================
+# CHROMADB MOCK - Module level to prevent import errors
+# =============================================================================
+
+def _setup_chromadb_mock():
+    """Setup ChromaDB mock before any imports."""
+    mock_chromadb = MagicMock()
+    mock_chromadb.PersistentClient = MagicMock(return_value=MagicMock())
+    mock_chromadb.Client = MagicMock(return_value=MagicMock())
+    
+    # Mock the collection
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = 0
+    mock_collection.query.return_value = {
+        "documents": [[]],
+        "metadatas": [[]],
+        "distances": [[]],
+        "ids": [[]]
+    }
+    mock_collection.add.return_value = None
+    mock_collection.delete.return_value = None
+    mock_collection.get.return_value = {"documents": [], "metadatas": [], "ids": []}
+    
+    mock_chromadb.PersistentClient.return_value.get_or_create_collection.return_value = mock_collection
+    mock_chromadb.PersistentClient.return_value.list_collections.return_value = []
+    mock_chromadb.Client.return_value.get_or_create_collection.return_value = mock_collection
+    
+    # Pre-mock chromadb before imports try to use it
+    if 'chromadb' not in sys.modules:
+        sys.modules['chromadb'] = mock_chromadb
+        sys.modules['chromadb.config'] = MagicMock()
+        sys.modules['chromadb.api'] = MagicMock()
+        sys.modules['chromadb.api.client'] = MagicMock()
+    
+    return mock_chromadb
+
+
+# Initialize mock immediately
+_mock_chromadb = _setup_chromadb_mock()
+
+
+# =============================================================================
 # MOCK FACTORIES
 # =============================================================================
 

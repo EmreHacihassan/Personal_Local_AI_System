@@ -171,7 +171,7 @@ export const useStore = create<AppState>()(
       // Widget
       widgetEnabled: false,
       toggleWidget: () => set((state) => ({ widgetEnabled: !state.widgetEnabled })),
-      widgetPosition: { x: window?.innerWidth ? window.innerWidth - 420 : 100, y: 100 },
+      widgetPosition: { x: 100, y: 100 },
       setWidgetPosition: (pos) => set({ widgetPosition: pos }),
 
       // Settings

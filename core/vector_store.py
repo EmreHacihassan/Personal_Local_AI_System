@@ -215,6 +215,31 @@ class VectorStore:
         except Exception:
             return 0
     
+    def delete_by_metadata(self, where: Dict[str, Any]) -> int:
+        """
+        Metadata'ya göre dökümanları sil.
+        
+        Args:
+            where: Metadata filtresi, örn: {"document_id": "abc123"}
+            
+        Returns:
+            Silinen döküman sayısı
+        """
+        try:
+            # Önce matching dokümanları bul
+            results = self.collection.get(where=where)
+            
+            if results["ids"]:
+                self.collection.delete(ids=results["ids"])
+                return len(results["ids"])
+            
+            return 0
+        except Exception as e:
+            from .logger import get_logger
+            logger = get_logger("vector_store")
+            logger.error(f"delete_by_metadata failed: {e}")
+            return 0
+    
     def update_document(
         self,
         doc_id: str,

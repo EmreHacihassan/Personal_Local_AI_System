@@ -18,18 +18,25 @@ Protocol:
     Client -> Server:
         {"type": "chat", "message": "...", "session_id": "..."}
         {"type": "stop"}  - Streaming'i durdur
+        {"type": "resume", "stream_id": "...", "from_index": N}  - Kaldığı yerden devam et
         {"type": "ping"}  - Manuel ping
     
     Server -> Client:
         {"type": "connected", "client_id": "...", "ts": ...}
-        {"type": "start", "ts": ...}  - Yanıt başladı
-        {"type": "token", "content": "..."}  - Her token anında
+        {"type": "start", "ts": ..., "stream_id": "..."}  - Yanıt başladı (stream_id ile)
+        {"type": "token", "content": "...", "index": N}  - Her token anında (index ile)
         {"type": "status", "message": "...", "phase": "..."}  - Durum güncellemesi
         {"type": "sources", "sources": [...]}  - Kaynaklar
         {"type": "end", "stats": {...}}  - Tamamlandı
         {"type": "error", "message": "..."}  - Hata
         {"type": "stopped", "elapsed_ms": ...}  - Durduruldu
         {"type": "pong", "ts": ...}  - Ping yanıtı
+        {"type": "resume_data", ...}  - Resume verisi
+
+Mimari Prensip:
+    WebSocket hiçbir zaman state taşımaz. WebSocket sadece iletir.
+    Token'lar StreamBuffer'da saklanır.
+    Client reconnect edince kaldığı yerden devam eder.
 """
 
 import json
@@ -37,10 +44,24 @@ import asyncio
 import time
 import logging
 import uuid
+import sys
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Set
 from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
+
+# Python 3.10 ve altı için async_timeout uyumluluğu
+if sys.version_info < (3, 11):
+    try:
+        from async_timeout import timeout as asyncio_timeout
+    except ImportError:
+        # async_timeout yoksa, basit bir wrapper kullan
+        @asynccontextmanager
+        async def asyncio_timeout(seconds):
+            """Basit timeout wrapper - Python 3.10 uyumlu."""
+            yield
+else:
+    asyncio_timeout = asyncio.timeout
 
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -49,6 +70,7 @@ from core.config import settings
 from core.llm_manager import llm_manager
 from core.vector_store import vector_store
 from core.session_manager import session_manager
+from core.stream_buffer import stream_buffer
 from agents.orchestrator import orchestrator
 
 logger = logging.getLogger(__name__)
@@ -58,7 +80,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 PING_INTERVAL: int = 25          # Keepalive ping aralığı (saniye)
-STREAM_TIMEOUT: int = 180        # Maksimum yanıt süresi (saniye)
+STREAM_TIMEOUT: int = 800        # Maksimum yanıt süresi (saniye)
 RATE_LIMIT_WINDOW: int = 5       # Rate limit penceresi (saniye)
 RATE_LIMIT_MAX: int = 10         # Pencere içinde maksimum istek
 MAX_MESSAGE_SIZE: int = 100000   # 100KB maksimum mesaj boyutu
@@ -82,6 +104,7 @@ class ClientConnection:
     is_streaming: bool = False
     stop_flag: bool = False
     session_id: Optional[str] = None
+    current_stream_id: Optional[str] = None  # Aktif stream ID
     
     @property
     def connection_duration(self) -> float:
@@ -351,19 +374,126 @@ class WebSocketHandlerV2:
         elif msg_type == "stop":
             await self._handle_stop()
         
+        elif msg_type == "resume":
+            await self._handle_resume(data)
+        
         elif msg_type == "chat":
             await self._handle_chat(data)
         
         # Bilinmeyen mesaj tipleri sessizce yoksayılır (hata gönderme!)
     
+    async def _handle_resume(self, data: dict) -> None:
+        """
+        Resume komutunu işle - kaldığı yerden devam et.
+        
+        Client reconnect ettikten sonra eksik token'ları alır.
+        """
+        stream_id = data.get("stream_id")
+        from_index = data.get("from_index", 0)
+        
+        if not stream_id:
+            # Session'ın aktif stream'ini bul
+            session_id = data.get("session_id") or self.conn.session_id
+            if session_id:
+                stream = stream_buffer.get_active_stream(session_id)
+                if stream:
+                    stream_id = stream.stream_id
+        
+        if not stream_id:
+            await self._send({
+                "type": "error",
+                "code": "no_stream",
+                "message": "Devam edilecek stream bulunamadı"
+            })
+            return
+        
+        # Resume verisini al
+        resume_data = stream_buffer.get_resume_data(stream_id, from_index)
+        
+        if "error" in resume_data:
+            await self._send({
+                "type": "error",
+                "code": "stream_not_found",
+                "message": "Stream bulunamadı"
+            })
+            return
+        
+        # Resume verisini gönder
+        await self._send({
+            "type": "resume_data",
+            **resume_data
+        })
+        
+        # Eğer stream hala aktifse, yeni token'ları canlı olarak göndermeye devam et
+        stream = stream_buffer.get_stream(stream_id)
+        if stream and stream.is_active:
+            self.conn.current_stream_id = stream_id
+            # Stream'i takip et
+            asyncio.create_task(self._follow_stream(stream_id, stream.token_count))
+    
+    async def _follow_stream(self, stream_id: str, last_sent_index: int) -> None:
+        """
+        Aktif bir stream'i takip et ve yeni token'ları gönder.
+        
+        Resume sonrası veya reconnect durumunda kullanılır.
+        """
+        while True:
+            stream = stream_buffer.get_stream(stream_id)
+            if not stream:
+                break
+            
+            # Yeni token'lar var mı?
+            if stream.token_count > last_sent_index:
+                new_tokens = stream.get_tokens_from(last_sent_index)
+                for token in new_tokens:
+                    await self._send({
+                        "type": "token",
+                        "content": token.content,
+                        "index": token.index
+                    })
+                last_sent_index = stream.token_count
+            
+            # Stream tamamlandı mı?
+            if not stream.is_active:
+                if stream.status == "completed":
+                    await self._send({
+                        "type": "end",
+                        "stats": {
+                            "duration_ms": stream.duration_ms,
+                            "tokens": stream.token_count,
+                        }
+                    })
+                elif stream.status == "stopped":
+                    await self._send({
+                        "type": "stopped",
+                        "elapsed_ms": stream.duration_ms,
+                        "tokens": stream.token_count,
+                    })
+                elif stream.status == "error":
+                    await self._send({
+                        "type": "error",
+                        "message": stream.error or "Stream hatası"
+                    })
+                break
+            
+            # Kısa bekle
+            await asyncio.sleep(0.05)
+    
     async def _handle_stop(self) -> None:
-        """Stop komutunu işle."""
+        """Stop komutunu işle - o ana kadar yazılanları koru."""
         self.conn.stop_flag = True
         
-        if self._stream_task and not self._stream_task.done():
-            self._stream_task.cancel()
+        # Stream buffer'a stop isteği gönder
+        if self.conn.session_id:
+            stream_buffer.request_stop(self.conn.session_id)
         
-        await self._send({"type": "stopped", "ts": int(time.time() * 1000)})
+        # Task'ı cancel etmiyoruz - streaming loop stop_flag'i kontrol edecek
+        # ve graceful olarak duracak, böylece o ana kadar yazılanlar korunur
+        # Stream task kendi "stopped" mesajını gönderecek
+        
+        # Sadece stream aktif değilse burada "stopped" gönder
+        if not self._stream_task or self._stream_task.done():
+            await self._send({"type": "stopped", "ts": int(time.time() * 1000)})
     
     async def _handle_chat(self, data: dict) -> None:
         """Chat mesajını işle."""
@@ -422,25 +552,32 @@ class WebSocketHandlerV2:
         """
         Streaming yanıt üret ve gönder.
         
-        Her token anında client'a iletilir - buffering YOK.
+        Token'lar StreamBuffer'da saklanır - WebSocket kopsa bile kaybolmaz.
+        Client reconnect edince kaldığı yerden devam edebilir.
         
         Args:
             complexity_level: "auto", "simple", "moderate", "advanced", "comprehensive"
         """
         stats = StreamStats(start_time=time.time())
         
-        # Başlangıç mesajı
+        # Stream buffer'da yeni stream oluştur
+        stream = stream_buffer.create_stream(session_id, message)
+        stream_id = stream.stream_id
+        self.conn.current_stream_id = stream_id
+        
+        # Başlangıç mesajı - stream_id ile
         await self._send({
             "type": "start",
             "ts": int(time.time() * 1000),
             "session_id": session_id,
+            "stream_id": stream_id,  # Client bu ID ile resume yapabilir
         })
         
         try:
             # ⚡ SIMPLE MOD: Ultra hızlı - RAG araması yapma, direkt LLM
             skip_rag = complexity_level == "simple"
             
-            async with asyncio.timeout(STREAM_TIMEOUT):
+            async with asyncio_timeout(STREAM_TIMEOUT):
                 knowledge_context = ""
                 sources = []
                 
@@ -476,12 +613,13 @@ class WebSocketHandlerV2:
                     except Exception as e:
                         logger.warning(f"RAG search error: {e}")
                     
-                    # Kaynakları gönder
-                    if sources:
-                        await self._send({
-                            "type": "sources",
-                            "sources": sources[:5]
-                        })
+                # Kaynakları buffer'a kaydet
+                if sources:
+                    stream_buffer.set_sources(stream_id, sources[:5])
+                    await self._send({
+                        "type": "sources",
+                        "sources": sources[:5]
+                    })
                 
                 # LLM'e gönder
                 await self._send({
@@ -507,15 +645,17 @@ class WebSocketHandlerV2:
                 if complexity_level in complexity_instructions:
                     system_prompt += complexity_instructions[complexity_level]
                 
-                # Streaming response
+                # Streaming response - token'lar buffer'a kaydedilir
                 full_response = ""
+                token_index = 0
                 async for chunk in llm_manager.generate_stream_async(
                     prompt=message,
                     system_prompt=system_prompt,
                 ):
-                    # Stop kontrolü
-                    if self.conn.stop_flag:
+                    # Stop kontrolü - hem local flag hem buffer'dan
+                    if self.conn.stop_flag or stream_buffer.is_stop_requested(stream_id):
                         stats.was_stopped = True
+                        stream_buffer.stop_stream(stream_id)
                         break
                     
                     if chunk:
@@ -523,49 +663,78 @@ class WebSocketHandlerV2:
                         stats.char_count += len(chunk)
                         full_response += chunk
                         
-                        # ANLIK gönder
+                        # Token'ı buffer'a kaydet
+                        token = stream_buffer.add_token(stream_id, chunk)
+                        
+                        # ANLIK gönder - index ile (resume için gerekli)
                         await self._send({
                             "type": "token",
-                            "content": chunk
+                            "content": chunk,
+                            "index": token.index if token else token_index
                         })
+                        token_index += 1
                 
                 stats.end_time = time.time()
                 self.conn.total_tokens += stats.token_count
                 
-                # Bitiş mesajı
+                # Bitiş mesajı ve buffer güncelle
                 if stats.was_stopped:
+                    stream_buffer.stop_stream(stream_id)
                     await self._send({
                         "type": "stopped",
                         "elapsed_ms": stats.duration_ms,
                         "tokens": stats.token_count,
+                        "stream_id": stream_id,
                     })
                 else:
+                    stream_buffer.complete_stream(stream_id)
                     await self._send({
                         "type": "end",
                         "stats": stats.to_dict(),
                         "ts": int(time.time() * 1000),
+                        "stream_id": stream_id,
                     })
                 
-                # Session'a kaydet
-                if full_response and not stats.was_stopped:
+                # Session'a kaydet (durdurulsa bile kısmi yanıtı kaydet)
+                if full_response:
                     try:
                         session_manager.add_message(session_id, "user", message)
-                        session_manager.add_message(session_id, "assistant", full_response)
+                        # Durdurulduysa yanıta işaret ekle
+                        saved_response = full_response
+                        if stats.was_stopped:
+                            saved_response += "\n\n*[Yanıt durduruldu]*"
+                        session_manager.add_message(session_id, "assistant", saved_response)
                     except Exception as e:
                         logger.warning(f"Session save error: {e}")
                 
         except asyncio.TimeoutError:
             stats.error = "timeout"
+            stream_buffer.error_stream(stream_id, "timeout")
             await self._send({
                 "type": "error",
                 "code": "timeout",
                 "message": f"Yanıt {STREAM_TIMEOUT} saniye içinde tamamlanamadı",
                 "elapsed_ms": stats.duration_ms,
+                "stream_id": stream_id,
             })
         
         except asyncio.CancelledError:
+            # Kullanıcı durduğunda, o ana kadar yazılanları koru
             stats.was_stopped = True
-            logger.debug(f"Stream cancelled: {self.conn.client_id}")
+            stats.end_time = time.time()
+            stream_buffer.stop_stream(stream_id)
+            logger.debug(f"Stream cancelled: {self.conn.client_id}, tokens: {stats.token_count}")
+            # Frontend'e "stopped" mesajı gönder - o ana kadar yazılanlar korunacak
+            try:
+                await self._send({
+                    "type": "stopped",
+                    "elapsed_ms": stats.duration_ms,
+                    "tokens": stats.token_count,
+                    "partial": True,
+                    "stream_id": stream_id,
+                })
+            except Exception:
+                pass  # Bağlantı kapanmış olabilir
         
         except Exception as e:
             stats.error = str(e)

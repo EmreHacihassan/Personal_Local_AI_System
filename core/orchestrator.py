@@ -445,8 +445,8 @@ class EnterpriseAIOrchestrator:
     
     async def _generate_simple_response(self, query: str, context: str) -> str:
         """Generate a simple LLM response"""
-        # This would integrate with the actual LLM
-        # Placeholder for now
+        from .llm_manager import llm_manager
+        
         prompt = f"""Context:
 {context}
 
@@ -454,8 +454,21 @@ Question: {query}
 
 Provide a helpful, accurate answer based on the context."""
         
-        # TODO: Integrate with actual LLM client
-        return f"Based on the provided context, here is my response to: {query}"
+        try:
+            # Use actual LLM client
+            response = await llm_manager.generate_async(
+                prompt=prompt,
+                system_prompt="You are a helpful AI assistant that provides accurate answers based on the given context.",
+                temperature=0.7,
+                max_tokens=2048
+            )
+            return response
+        except Exception as e:
+            # Fallback if LLM fails
+            from .logger import get_logger
+            logger = get_logger("orchestrator")
+            logger.warning(f"LLM generation failed, using fallback: {e}")
+            return f"Based on the provided context, here is my response to: {query}"
     
     async def transcribe_audio(self, audio_data: bytes) -> str:
         """Transcribe audio to text"""

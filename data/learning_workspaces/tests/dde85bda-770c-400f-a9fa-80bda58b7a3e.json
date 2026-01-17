@@ -1,0 +1,17 @@
+{
+  "id": "dde85bda-770c-400f-a9fa-80bda58b7a3e",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "powerpoint quiz (dökümanlarım kaynak alınarak)",
+  "description": "",
+  "test_type": "multiple_choice",
+  "question_count": 10,
+  "difficulty": "mixed",
+  "questions": [],
+  "user_answers": {},
+  "score": null,
+  "status": "not_started",
+  "created_at": "2026-01-17T09:33:24.155632",
+  "started_at": null,
+  "completed_at": null,
+  "feedback": ""
+}

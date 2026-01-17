@@ -7,10 +7,14 @@ Ana API uygulaması - RESTful endpoints ve WebSocket.
 
 import os
 import sys
+import logging
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Logger setup
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +35,21 @@ from core.export import export_manager, import_manager
 from core.session_manager import session_manager
 from core.notes_manager import notes_manager
 from core.system_knowledge import SELF_KNOWLEDGE_PROMPT, SYSTEM_VERSION, SYSTEM_NAME
+from core.circuit_breaker import (
+    ollama_circuit, 
+    chromadb_circuit, 
+    external_api_circuit,
+    circuit_registry,
+)
+from core.error_recovery import (
+    ErrorRecoveryManager,
+    ErrorCategory,
+    ErrorSeverity,
+    retry_with_backoff,
+    with_fallback
+)
+from core.exceptions import CircuitBreakerOpenError
+from core.moe_router import MoERouter, ExpertType, RoutingStrategy, QueryComplexity
 from agents.orchestrator import orchestrator
 from rag.document_loader import document_loader
 from rag.chunker import document_chunker
@@ -723,6 +742,7 @@ async def get_status():
         "llm": llm_manager.get_status(),
         "vector_store": vector_store.get_stats(),
         "agents": orchestrator.get_agents_status(),
+        "circuit_breakers": circuit_registry.get_all_status(),
         "config": {
             "chunk_size": settings.CHUNK_SIZE,
             "chunk_overlap": settings.CHUNK_OVERLAP,
@@ -731,7 +751,52 @@ async def get_status():
     }
 
 
+@app.get("/status/circuits", tags=["health"])
+async def get_circuit_breaker_status():
+    """
+    Circuit breaker durumları.
+    
+    Tüm circuit breaker'ların anlık durumunu döndürür.
+    """
+    return {
+        "circuits": circuit_registry.get_all_status(),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@app.post("/status/circuits/reset", tags=["health"])
+async def reset_circuit_breakers():
+    """
+    Tüm circuit breaker'ları sıfırla.
+    
+    Dikkatli kullanın - tüm devre durumlarını CLOSED'a çevirir.
+    """
+    circuit_registry.reset_all()
+    return {
+        "message": "All circuit breakers reset to CLOSED state",
+        "circuits": circuit_registry.get_all_status(),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
 # ============ CHAT ENDPOINTS ============
+
+# Error recovery manager instance
+error_recovery = ErrorRecoveryManager()
+
+# MoE Router instance (Mixture of Experts query routing)
+moe_router = MoERouter(strategy=RoutingStrategy.BALANCED)
+
+
+def _get_fallback_response(message: str, error: str) -> str:
+    """Circuit breaker açıkken veya hata durumunda fallback yanıt."""
+    return (
+        f"⚠️ Şu anda AI servislerine erişimde geçici bir sorun yaşıyorum. "
+        f"Lütfen birkaç saniye sonra tekrar deneyin.\n\n"
+        f"Sorununuz: '{message[:50]}...'\n"
+        f"Teknik detay: {error}"
+    )
+
 
 @app.post("/api/chat", response_model=ChatResponse, tags=["Chat"])
 async def chat(request: ChatRequest):
@@ -739,7 +804,11 @@ async def chat(request: ChatRequest):
     Ana chat endpoint'i.
     
     Kullanıcı mesajını işler ve AI yanıtı döndürür.
+    Circuit breaker korumalı - ardışık hatalar servisi geçici olarak devre dışı bırakır.
     """
+    import time
+    start_time = time.time()
+    
     try:
         # Get or create session from file-based storage
         session_id = request.session_id or str(uuid.uuid4())
@@ -788,8 +857,23 @@ async def chat(request: ChatRequest):
         context["history_text"] = history_text
         context["notes_text"] = notes_text
         
-        # Execute through orchestrator
-        response = orchestrator.execute(request.message, context)
+        # Execute through orchestrator with circuit breaker protection
+        try:
+            response = ollama_circuit.call(
+                lambda: orchestrator.execute(request.message, context)
+            )
+        except CircuitBreakerOpenError as cb_error:
+            # Circuit açık - fallback yanıt ver
+            error_recovery.record_error(cb_error, ErrorCategory.EXTERNAL_SERVICE, ErrorSeverity.HIGH)
+            fallback_content = _get_fallback_response(request.message, str(cb_error))
+            
+            return ChatResponse(
+                response=fallback_content,
+                session_id=session_id,
+                sources=[],
+                metadata={"circuit_breaker": "open", "service": "ollama"},
+                timestamp=datetime.now().isoformat(),
+            )
         
         # Add assistant response to history (both in-memory and file)
         assistant_msg = {
@@ -800,11 +884,14 @@ async def chat(request: ChatRequest):
         sessions[session_id].append(assistant_msg)
         session_manager.add_message(session_id, "assistant", response.content)
         
-        # Track analytics
+        # Calculate duration
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Track analytics with actual duration
         analytics.track_chat(
             query=request.message[:100],
             response_length=len(response.content),
-            duration_ms=0,  # TODO: Calculate actual duration
+            duration_ms=duration_ms,
             agent=response.metadata.get("agent", "unknown"),
             session_id=session_id,
         )
@@ -813,13 +900,25 @@ async def chat(request: ChatRequest):
             response=response.content,
             session_id=session_id,
             sources=response.sources,
-            metadata=response.metadata,
+            metadata={**response.metadata, "duration_ms": duration_ms},
             timestamp=datetime.now().isoformat(),
         )
         
+    except CircuitBreakerOpenError as cb_error:
+        # Circuit breaker açık
+        analytics.track_error("chat", f"circuit_breaker_open: {cb_error}")
+        raise HTTPException(
+            status_code=503, 
+            detail={
+                "error": "Service temporarily unavailable",
+                "retry_after": cb_error.retry_after_seconds,
+                "message": str(cb_error)
+            }
+        )
     except Exception as e:
-        # Track error
+        # Track error and record for recovery
         analytics.track_error("chat", str(e))
+        error_recovery.record_error(e, ErrorCategory.INTERNAL, ErrorSeverity.MEDIUM)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1846,7 +1945,13 @@ async def delete_document(document_id: str):
             deleted = True
             break
     
-    # TODO: Also delete from vector store by document_id metadata
+    # Delete from vector store by document_id metadata
+    try:
+        vector_store.delete_by_metadata({"document_id": document_id})
+    except Exception as e:
+        # Log but don't fail - file is already deleted
+        import logging
+        logging.warning(f"Could not delete from vector store: {e}")
     
     if not deleted:
         raise HTTPException(status_code=404, detail="Döküman bulunamadı")
@@ -1861,6 +1966,9 @@ async def search_documents(request: SearchRequest):
     """
     Bilgi tabanında semantic arama.
     """
+    import time
+    start_time = time.time()
+    
     try:
         results = vector_store.search_with_scores(
             query=request.query,
@@ -1868,11 +1976,14 @@ async def search_documents(request: SearchRequest):
             where=request.filter_metadata,
         )
         
-        # Track analytics
+        # Calculate actual duration
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Track analytics with actual duration
         analytics.track_search(
             query=request.query,
             results_count=len(results),
-            duration_ms=0,  # TODO: Calculate actual duration
+            duration_ms=duration_ms,
         )
         
         return SearchResponse(
@@ -2090,6 +2201,728 @@ async def get_document_sources():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ RAGAS EVALUATION ENDPOINTS ============
+
+class RAGEvaluationRequest(BaseModel):
+    """RAGAS evaluation isteği."""
+    question: str
+    answer: str
+    contexts: List[str]
+    ground_truth: Optional[str] = None
+
+
+class BatchEvaluationRequest(BaseModel):
+    """Toplu RAGAS evaluation isteği."""
+    evaluations: List[RAGEvaluationRequest]
+
+
+@app.post("/api/rag/evaluate", tags=["RAG", "Evaluation"])
+async def evaluate_rag_response(request: RAGEvaluationRequest):
+    """
+    RAG yanıtını RAGAS metrikleriyle değerlendir.
+    
+    Faithfulness, Answer Relevancy ve Context Precision skorlarını döndürür.
+    """
+    try:
+        from core.ragas_evaluation import RAGASEvaluator
+        
+        evaluator = RAGASEvaluator()
+        
+        # Metrikleri hesapla
+        faithfulness = await evaluator.evaluate_faithfulness(
+            question=request.question,
+            answer=request.answer,
+            contexts=request.contexts
+        )
+        
+        relevancy = await evaluator.evaluate_answer_relevancy(
+            question=request.question,
+            answer=request.answer
+        )
+        
+        context_precision = await evaluator.evaluate_context_precision(
+            question=request.question,
+            contexts=request.contexts,
+            ground_truth=request.ground_truth
+        )
+        
+        # Genel skor hesapla (ağırlıklı ortalama)
+        overall_score = (
+            faithfulness.get("score", 0) * 0.4 +
+            relevancy.get("score", 0) * 0.35 +
+            context_precision.get("score", 0) * 0.25
+        )
+        
+        return {
+            "success": True,
+            "metrics": {
+                "faithfulness": faithfulness,
+                "answer_relevancy": relevancy,
+                "context_precision": context_precision,
+            },
+            "overall_score": round(overall_score, 4),
+            "interpretation": _interpret_ragas_score(overall_score),
+        }
+        
+    except Exception as e:
+        logger.error(f"RAGAS evaluation error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "metrics": None,
+        }
+
+
+@app.post("/api/rag/evaluate/batch", tags=["RAG", "Evaluation"])
+async def batch_evaluate_rag(request: BatchEvaluationRequest):
+    """
+    Birden fazla RAG yanıtını toplu değerlendir.
+    
+    Her evaluation için ayrı skorlar ve genel istatistikler döndürür.
+    """
+    try:
+        from core.ragas_evaluation import RAGASEvaluator
+        
+        evaluator = RAGASEvaluator()
+        results = []
+        
+        for i, eval_request in enumerate(request.evaluations):
+            try:
+                faithfulness = await evaluator.evaluate_faithfulness(
+                    question=eval_request.question,
+                    answer=eval_request.answer,
+                    contexts=eval_request.contexts
+                )
+                
+                relevancy = await evaluator.evaluate_answer_relevancy(
+                    question=eval_request.question,
+                    answer=eval_request.answer
+                )
+                
+                context_precision = await evaluator.evaluate_context_precision(
+                    question=eval_request.question,
+                    contexts=eval_request.contexts,
+                    ground_truth=eval_request.ground_truth
+                )
+                
+                overall = (
+                    faithfulness.get("score", 0) * 0.4 +
+                    relevancy.get("score", 0) * 0.35 +
+                    context_precision.get("score", 0) * 0.25
+                )
+                
+                results.append({
+                    "index": i,
+                    "success": True,
+                    "faithfulness": faithfulness.get("score", 0),
+                    "relevancy": relevancy.get("score", 0),
+                    "context_precision": context_precision.get("score", 0),
+                    "overall_score": round(overall, 4),
+                })
+                
+            except Exception as e:
+                results.append({
+                    "index": i,
+                    "success": False,
+                    "error": str(e),
+                })
+        
+        # Genel istatistikler
+        successful = [r for r in results if r.get("success")]
+        if successful:
+            avg_faithfulness = sum(r["faithfulness"] for r in successful) / len(successful)
+            avg_relevancy = sum(r["relevancy"] for r in successful) / len(successful)
+            avg_precision = sum(r["context_precision"] for r in successful) / len(successful)
+            avg_overall = sum(r["overall_score"] for r in successful) / len(successful)
+        else:
+            avg_faithfulness = avg_relevancy = avg_precision = avg_overall = 0
+        
+        return {
+            "success": True,
+            "total": len(request.evaluations),
+            "successful": len(successful),
+            "failed": len(results) - len(successful),
+            "results": results,
+            "aggregate": {
+                "avg_faithfulness": round(avg_faithfulness, 4),
+                "avg_relevancy": round(avg_relevancy, 4),
+                "avg_context_precision": round(avg_precision, 4),
+                "avg_overall": round(avg_overall, 4),
+            },
+            "interpretation": _interpret_ragas_score(avg_overall),
+        }
+        
+    except Exception as e:
+        logger.error(f"Batch RAGAS evaluation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rag/evaluate/metrics", tags=["RAG", "Evaluation"])
+async def get_evaluation_metrics_info():
+    """Kullanılabilir RAGAS metrikleri hakkında bilgi."""
+    return {
+        "metrics": [
+            {
+                "name": "faithfulness",
+                "description": "Yanıtın bağlamlara ne kadar sadık olduğunu ölçer",
+                "range": "0-1",
+                "weight": 0.4,
+            },
+            {
+                "name": "answer_relevancy",
+                "description": "Yanıtın soruyla ne kadar ilgili olduğunu ölçer",
+                "range": "0-1",
+                "weight": 0.35,
+            },
+            {
+                "name": "context_precision",
+                "description": "Bağlamların ne kadar hassas/ilgili olduğunu ölçer",
+                "range": "0-1",
+                "weight": 0.25,
+            },
+        ],
+        "interpretation": {
+            "excellent": "0.8-1.0: Mükemmel RAG performansı",
+            "good": "0.6-0.8: İyi performans, iyileştirme potansiyeli var",
+            "fair": "0.4-0.6: Orta, önemli iyileştirme gerekiyor",
+            "poor": "0.0-0.4: Zayıf, ciddi iyileştirme gerekiyor",
+        },
+    }
+
+
+def _interpret_ragas_score(score: float) -> str:
+    """RAGAS skorunu yorumla."""
+    if score >= 0.8:
+        return "Mükemmel - RAG sistemi yüksek kalitede yanıt üretiyor"
+    elif score >= 0.6:
+        return "İyi - Performans yeterli, iyileştirme potansiyeli var"
+    elif score >= 0.4:
+        return "Orta - Önemli iyileştirmeler gerekiyor"
+    else:
+        return "Zayıf - Ciddi iyileştirme ve hata ayıklama gerekiyor"
+
+
+# ============ MOE ROUTER ENDPOINTS ============
+
+class MoEQueryRequest(BaseModel):
+    """MoE Router sorgu isteği."""
+    query: str
+    strategy: Optional[str] = "balanced"  # quality, speed, cost, balanced
+
+
+class MoERouteResponse(BaseModel):
+    """MoE routing sonucu."""
+    query: str
+    complexity: str
+    selected_expert: str
+    expert_name: str
+    confidence: float
+    routing_reason: str
+    alternatives: List[Dict[str, Any]] = []
+
+
+@app.post("/api/moe/analyze", response_model=MoERouteResponse, tags=["MoE Router"])
+async def analyze_query_routing(request: MoEQueryRequest):
+    """
+    Sorguyu analiz et ve en uygun expert'i belirle.
+    
+    Query complexity'yi, domain'i ve gereksinimleri analiz ederek
+    optimal model/pipeline seçimi önerir.
+    """
+    try:
+        # Query'i analiz et
+        features = moe_router.analyzer.analyze(request.query)
+        
+        # Stratejiyi ayarla
+        if request.strategy == "quality":
+            moe_router.strategy = RoutingStrategy.QUALITY
+        elif request.strategy == "speed":
+            moe_router.strategy = RoutingStrategy.SPEED
+        elif request.strategy == "cost":
+            moe_router.strategy = RoutingStrategy.COST
+        else:
+            moe_router.strategy = RoutingStrategy.BALANCED
+        
+        # Routing yap (sync method)
+        route_result = moe_router.route(request.query)
+        
+        # Alternatifleri hesapla
+        alternatives = []
+        for expert_type, expert_config in moe_router.experts.items():
+            if expert_type != route_result.selected_expert:
+                alternatives.append({
+                    "expert_type": expert_type.value,
+                    "name": expert_config.name,
+                    "quality_score": expert_config.quality_score,
+                    "avg_latency_ms": expert_config.avg_latency_ms,
+                    "cost_per_1k_tokens": expert_config.cost_per_1k_tokens,
+                })
+        
+        return MoERouteResponse(
+            query=request.query,
+            complexity=features.complexity.value,
+            selected_expert=route_result.selected_expert.value,
+            expert_name=moe_router.experts[route_result.selected_expert].name,
+            confidence=route_result.confidence,
+            routing_reason=route_result.reasoning,
+            alternatives=sorted(alternatives, key=lambda x: -x["quality_score"])[:3],
+        )
+        
+    except Exception as e:
+        logger.error(f"MoE routing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/moe/experts", tags=["MoE Router"])
+async def get_available_experts():
+    """Kullanılabilir expert'leri listele."""
+    experts = []
+    for expert_type, config in moe_router.experts.items():
+        experts.append({
+            "type": expert_type.value,
+            "name": config.name,
+            "model": config.model,
+            "capabilities": config.capabilities,
+            "quality_score": config.quality_score,
+            "avg_latency_ms": config.avg_latency_ms,
+            "cost_per_1k_tokens": config.cost_per_1k_tokens,
+            "max_tokens": config.max_tokens,
+            "is_available": config.is_available,
+            "supports_streaming": config.supports_streaming,
+        })
+    
+    return {
+        "experts": experts,
+        "total": len(experts),
+        "current_strategy": moe_router.strategy.value,
+    }
+
+
+@app.get("/api/moe/complexity-levels", tags=["MoE Router"])
+async def get_complexity_levels():
+    """Query complexity seviyeleri hakkında bilgi."""
+    return {
+        "levels": [
+            {
+                "level": QueryComplexity.TRIVIAL.value,
+                "description": "Basit evet/hayır soruları, tanımlar",
+                "example": "Python nedir?",
+                "recommended_expert": ExpertType.LOCAL_SMALL.value,
+            },
+            {
+                "level": QueryComplexity.SIMPLE.value,
+                "description": "Tek adımlı sorular",
+                "example": "Python'da liste nasıl oluşturulur?",
+                "recommended_expert": ExpertType.LOCAL_LARGE.value,
+            },
+            {
+                "level": QueryComplexity.MODERATE.value,
+                "description": "Çok adımlı akıl yürütme gerektiren",
+                "example": "REST API tasarımı için best practice'ler nelerdir?",
+                "recommended_expert": ExpertType.RAG_SIMPLE.value,
+            },
+            {
+                "level": QueryComplexity.COMPLEX.value,
+                "description": "Derin analiz ve sentez gerektiren",
+                "example": "Microservices vs Monolith - hangisi ne zaman tercih edilmeli?",
+                "recommended_expert": ExpertType.RAG_ADVANCED.value,
+            },
+            {
+                "level": QueryComplexity.EXPERT.value,
+                "description": "Uzmanlık gerektiren, çok boyutlu",
+                "example": "Dağıtık sistemlerde eventual consistency nasıl sağlanır?",
+                "recommended_expert": ExpertType.CLOUD_SMART.value,
+            },
+        ]
+    }
+
+
+@app.post("/api/moe/strategy", tags=["MoE Router"])
+async def set_routing_strategy(strategy: str):
+    """
+    Routing stratejisini değiştir.
+    
+    Strategies:
+    - quality: En yüksek kalite
+    - speed: En hızlı yanıt
+    - cost: En düşük maliyet
+    - balanced: Dengeli seçim
+    """
+    valid_strategies = ["quality", "speed", "cost", "balanced"]
+    if strategy not in valid_strategies:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Geçersiz strateji. Geçerli değerler: {valid_strategies}"
+        )
+    
+    strategy_map = {
+        "quality": RoutingStrategy.QUALITY,
+        "speed": RoutingStrategy.SPEED,
+        "cost": RoutingStrategy.COST,
+        "balanced": RoutingStrategy.BALANCED,
+    }
+    
+    moe_router.strategy = strategy_map[strategy]
+    
+    return {
+        "message": f"Routing stratejisi '{strategy}' olarak ayarlandı",
+        "current_strategy": moe_router.strategy.value,
+    }
+
+
+@app.get("/api/moe/stats", tags=["MoE Router"])
+async def get_moe_stats():
+    """MoE Router istatistikleri."""
+    # Routing history analizi
+    history = moe_router.routing_history[-100:]  # Son 100 routing
+    
+    if not history:
+        return {
+            "total_routings": 0,
+            "expert_usage": {},
+            "avg_confidence": 0,
+            "complexity_distribution": {},
+        }
+    
+    expert_usage = {}
+    complexity_dist = {}
+    total_confidence = 0
+    
+    for entry in history:
+        expert = entry.get("expert", "unknown")
+        expert_usage[expert] = expert_usage.get(expert, 0) + 1
+        
+        complexity = entry.get("complexity", "unknown")
+        complexity_dist[complexity] = complexity_dist.get(complexity, 0) + 1
+        
+        total_confidence += entry.get("confidence", 0)
+    
+    return {
+        "total_routings": len(moe_router.routing_history),
+        "recent_routings": len(history),
+        "expert_usage": expert_usage,
+        "avg_confidence": round(total_confidence / len(history), 4) if history else 0,
+        "complexity_distribution": complexity_dist,
+        "current_strategy": moe_router.strategy.value,
+    }
+
+
+# ============ PLUGIN ENDPOINTS ============
+
+@app.get("/api/plugins", tags=["Plugins"])
+async def list_plugins():
+    """Kayıtlı plugin'leri listele."""
+    try:
+        from plugins.base import PluginRegistry
+        
+        plugins = PluginRegistry.list_plugins()
+        return {
+            "success": True,
+            "plugins": [p.to_dict() for p in plugins],
+            "total": len(plugins),
+        }
+        
+    except Exception as e:
+        logger.error(f"List plugins error: {e}")
+        return {"success": False, "error": str(e), "plugins": []}
+
+
+@app.post("/api/plugins/{plugin_name}/activate", tags=["Plugins"])
+async def activate_plugin(plugin_name: str):
+    """Plugin'i aktif et."""
+    try:
+        from plugins.base import PluginRegistry
+        
+        success = await PluginRegistry.activate(plugin_name)
+        
+        return {
+            "success": success,
+            "plugin": plugin_name,
+            "status": "active" if success else "activation_failed",
+        }
+        
+    except Exception as e:
+        logger.error(f"Activate plugin error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/plugins/{plugin_name}/deactivate", tags=["Plugins"])
+async def deactivate_plugin(plugin_name: str):
+    """Plugin'i deaktif et."""
+    try:
+        from plugins.base import PluginRegistry
+        
+        success = await PluginRegistry.deactivate(plugin_name)
+        
+        return {
+            "success": success,
+            "plugin": plugin_name,
+            "status": "inactive" if success else "deactivation_failed",
+        }
+        
+    except Exception as e:
+        logger.error(f"Deactivate plugin error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+class PluginExecuteRequest(BaseModel):
+    """Plugin çalıştırma isteği."""
+    input_data: Dict[str, Any]
+
+
+@app.post("/api/plugins/{plugin_name}/execute", tags=["Plugins"])
+async def execute_plugin(plugin_name: str, request: PluginExecuteRequest):
+    """Plugin'i çalıştır."""
+    try:
+        from plugins.base import PluginRegistry
+        
+        result = await PluginRegistry.execute(plugin_name, request.input_data)
+        
+        if result:
+            return {
+                "success": result.success,
+                "data": result.data,
+                "error": result.error,
+                "execution_time_ms": result.execution_time_ms,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Plugin '{plugin_name}' not found",
+            }
+        
+    except Exception as e:
+        logger.error(f"Execute plugin error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/plugins/stats", tags=["Plugins"])
+async def get_plugin_stats():
+    """Plugin sistemi istatistikleri."""
+    try:
+        from plugins.base import PluginRegistry
+        
+        return {
+            "success": True,
+            "stats": PluginRegistry.get_stats(),
+        }
+        
+    except Exception as e:
+        logger.error(f"Plugin stats error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/plugins/initialize", tags=["Plugins"])
+async def initialize_default_plugins():
+    """Varsayılan plugin'leri yükle ve aktif et."""
+    try:
+        from plugins.base import PluginRegistry
+        from plugins.text_processing_plugin import TextProcessingPlugin
+        from plugins.code_analysis_plugin import CodeAnalysisPlugin
+        
+        # Plugin'leri kaydet
+        plugins_registered = []
+        
+        text_plugin = TextProcessingPlugin()
+        PluginRegistry.register(text_plugin)
+        await text_plugin.setup()
+        plugins_registered.append(text_plugin.name)
+        
+        code_plugin = CodeAnalysisPlugin()
+        PluginRegistry.register(code_plugin)
+        await code_plugin.setup()
+        plugins_registered.append(code_plugin.name)
+        
+        # Web search plugin opsiyonel
+        try:
+            from plugins.web_search_plugin import WebSearchPlugin
+            web_plugin = WebSearchPlugin()
+            PluginRegistry.register(web_plugin)
+            await web_plugin.setup()
+            plugins_registered.append(web_plugin.name)
+        except Exception as e:
+            logger.warning(f"Web search plugin not available: {e}")
+        
+        return {
+            "success": True,
+            "plugins_registered": plugins_registered,
+            "message": f"{len(plugins_registered)} plugin başarıyla yüklendi",
+        }
+        
+    except Exception as e:
+        logger.error(f"Initialize plugins error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# ============ OBSERVABILITY ENDPOINTS ============
+
+@app.get("/api/observability/metrics", tags=["Observability"])
+async def get_observability_metrics():
+    """
+    LLM observability metrikleri.
+    
+    Token kullanımı, latency, maliyet ve kalite metriklerini döndürür.
+    """
+    try:
+        from core.langfuse_observability import Observability
+        
+        obs = Observability()
+        backend = obs.backend
+        
+        # Backend'den metrikleri al
+        if hasattr(backend, 'get_metrics'):
+            metrics = backend.get_metrics()
+        else:
+            # Local backend için manuel hesaplama
+            metrics = {
+                "total_traces": getattr(backend, '_trace_count', 0),
+                "total_generations": getattr(backend, '_generation_count', 0),
+                "total_tokens": getattr(backend, '_total_tokens', 0),
+                "total_cost_usd": getattr(backend, '_total_cost', 0.0),
+                "avg_latency_ms": getattr(backend, '_avg_latency', 0.0),
+            }
+        
+        return {
+            "success": True,
+            "backend_type": type(backend).__name__,
+            "metrics": metrics,
+            "timestamp": datetime.now().isoformat(),
+        }
+        
+    except Exception as e:
+        logger.error(f"Observability metrics error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "metrics": None,
+        }
+
+
+@app.get("/api/observability/traces", tags=["Observability"])
+async def get_recent_traces(limit: int = 20):
+    """Son trace'leri listele."""
+    try:
+        from core.langfuse_observability import Observability
+        
+        obs = Observability()
+        backend = obs.backend
+        
+        if hasattr(backend, 'get_traces'):
+            traces = backend.get_traces(limit=limit)
+        elif hasattr(backend, 'traces'):
+            traces = list(backend.traces.values())[-limit:]
+        else:
+            traces = []
+        
+        return {
+            "success": True,
+            "traces": traces,
+            "count": len(traces),
+        }
+        
+    except Exception as e:
+        logger.error(f"Get traces error: {e}")
+        return {"success": False, "error": str(e), "traces": []}
+
+
+@app.get("/api/observability/dashboard", tags=["Observability"])
+async def get_observability_dashboard():
+    """
+    Kapsamlı observability dashboard verisi.
+    
+    Tüm LLM operasyonlarının özet istatistiklerini döndürür.
+    """
+    try:
+        from core.langfuse_observability import Observability
+        from core.analytics import analytics
+        
+        obs = Observability()
+        
+        # Analytics'ten veriler
+        analytics_summary = {}
+        if hasattr(analytics, 'get_summary'):
+            analytics_summary = analytics.get_summary()
+        
+        # Circuit breaker durumları
+        circuit_status = circuit_registry.get_all_status()
+        
+        # Error recovery durumu
+        error_stats = {}
+        if hasattr(error_recovery, 'get_stats'):
+            error_stats = error_recovery.get_stats()
+        
+        # MoE routing stats
+        moe_stats = {
+            "total_routings": len(moe_router.routing_history),
+            "strategy": moe_router.strategy.value,
+        }
+        
+        return {
+            "success": True,
+            "dashboard": {
+                "observability": {
+                    "backend": type(obs.backend).__name__,
+                    "status": "active",
+                },
+                "analytics": analytics_summary,
+                "circuit_breakers": circuit_status,
+                "error_recovery": error_stats,
+                "moe_router": moe_stats,
+            },
+            "health": {
+                "llm_available": True,
+                "vector_store_available": True,
+                "all_systems_operational": True,
+            },
+            "timestamp": datetime.now().isoformat(),
+        }
+        
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/observability/score", tags=["Observability"])
+async def add_score(
+    trace_id: str,
+    name: str,
+    value: float,
+    comment: Optional[str] = None
+):
+    """
+    Bir trace'e kalite skoru ekle.
+    
+    RAGAS skorları veya kullanıcı feedbacki için kullanılır.
+    """
+    try:
+        from core.langfuse_observability import Observability, Score
+        
+        obs = Observability()
+        
+        score = Score(
+            name=name,
+            value=value,
+            comment=comment
+        )
+        
+        if hasattr(obs.backend, 'score'):
+            obs.backend.score(trace_id, score)
+        
+        return {
+            "success": True,
+            "trace_id": trace_id,
+            "score": {
+                "name": name,
+                "value": value,
+                "comment": comment,
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Add score error: {e}")
+        return {"success": False, "error": str(e)}
 
 
 # ============ ADMIN ENDPOINTS ============

@@ -1279,14 +1279,21 @@ def check_health():
 
 class WebSocketClient:
     """
-    Enterprise WebSocket Client with Auto-Reconnect.
+    Enterprise WebSocket Client with Auto-Reconnect + Resume.
     
-    HTTP Streaming yerine gerçek WebSocket kullanır:
+    Mimari Prensibi:
+    - WebSocket her an kapanabilir - bu normal
+    - Kopma olduğunda client sessizce reconnect eder
+    - Resume ile kaldığı yerden devam eder
+    - Kullanıcı kopma hissetmez
+    
+    Özellikler:
     - Bidirectional communication
-    - Düşük latency
+    - Düşük latency  
     - Stop komutu anında gönderilir
     - Keepalive otomatik
-    - Otomatik yeniden bağlanma (max 3 deneme)
+    - Otomatik yeniden bağlanma (max 5 deneme)
+    - Resume desteği (stream_id + last_index ile)
     - Sessiz hata yönetimi (UI'ı bloklamaz)
     """
     
@@ -1294,9 +1301,12 @@ class WebSocketClient:
         self.ws = None
         self.connected = False
         self.client_id = None
-        self._max_retries = 3
-        self._retry_delay = 0.5  # saniye
+        self._max_retries = 5
+        self._retry_delay = 0.3  # saniye - hızlı retry
         self._last_error = None
+        self._current_stream_id = None
+        self._last_token_index = -1
+        self._received_tokens = []  # Resume için token geçmişi
     
     def connect(self, retry_count: int = 0) -> bool:
         """WebSocket bağlantısı kur (otomatik retry ile)."""
@@ -1360,16 +1370,26 @@ class WebSocketClient:
                 pass
     
     def stream_chat(self, message: str, session_id: str, web_search: bool = False, response_mode: str = "normal", complexity_level: str = "auto"):
-        """WebSocket üzerinden streaming chat (HTTP fallback ile)."""
+        """
+        WebSocket üzerinden streaming chat (auto-reconnect + resume ile).
+        
+        Kopma olursa:
+        1. Sessizce reconnect eder
+        2. Resume ile eksik token'ları alır  
+        3. Kullanıcı fark etmez
+        """
         try:
             import websocket
         except ImportError:
-            # websocket-client yüklü değil, HTTP'ye fallback
             yield {"type": "fallback_to_http"}
             return
         
+        # State'i sıfırla
+        self._current_stream_id = None
+        self._last_token_index = -1
+        self._received_tokens = []
+        
         if not self.connect():
-            # WebSocket bağlanamadı, HTTP'ye fallback yap
             yield {"type": "fallback_to_http"}
             return
         
@@ -1385,24 +1405,59 @@ class WebSocketClient:
             }))
             
             # Yanıtları al
+            reconnect_attempts = 0
+            max_reconnect = 3
+            
             while True:
                 try:
                     response = self.ws.recv()
                     if not response:
                         continue
                     
+                    reconnect_attempts = 0  # Başarılı mesaj, reset
                     data = json.loads(response)
                     msg_type = data.get("type")
                     
-                    # Mesaj tipine göre dönüştür (eski format uyumluluğu)
-                    if msg_type == "token":
-                        yield {"type": "token", "content": data.get("content", "")}
-                    elif msg_type == "start":
+                    # Stream ID'yi kaydet (resume için)
+                    if msg_type == "start":
+                        self._current_stream_id = data.get("stream_id")
                         yield {"type": "status", "message": "Bağlantı kuruldu", "phase": "connect"}
+                    
+                    elif msg_type == "token":
+                        token_index = data.get("index", self._last_token_index + 1)
+                        content = data.get("content", "")
+                        
+                        # Duplicate kontrolü (resume sonrası)
+                        if token_index > self._last_token_index:
+                            self._last_token_index = token_index
+                            self._received_tokens.append(content)
+                            yield {"type": "token", "content": content}
+                    
+                    elif msg_type == "resume_data":
+                        # Resume yanıtı - eksik token'ları işle
+                        for token_data in data.get("tokens", []):
+                            t_index = token_data.get("index", 0)
+                            t_content = token_data.get("content", "")
+                            if t_index > self._last_token_index:
+                                self._last_token_index = t_index
+                                self._received_tokens.append(t_content)
+                                yield {"type": "token", "content": t_content}
+                        
+                        # Stream tamamlandıysa
+                        if data.get("is_complete"):
+                            status = data.get("status", "completed")
+                            if status == "completed":
+                                yield {"type": "end", "timing": {"total_ms": 0}, "stats": {}}
+                            elif status == "stopped":
+                                yield {"type": "stopped", "elapsed_ms": 0}
+                            break
+                    
                     elif msg_type == "status":
                         yield {"type": "status", "message": data.get("message", ""), "phase": data.get("phase", "")}
+                    
                     elif msg_type == "sources":
                         yield {"type": "sources", "sources": data.get("sources", [])}
+                    
                     elif msg_type == "end":
                         stats = data.get("stats", {})
                         yield {
@@ -1411,24 +1466,48 @@ class WebSocketClient:
                             "stats": stats
                         }
                         break
+                    
                     elif msg_type == "stopped":
                         yield {"type": "stopped", "elapsed_ms": data.get("elapsed_ms", 0)}
                         break
+                    
                     elif msg_type == "error":
                         yield {"type": "error", "message": data.get("message", "Bilinmeyen hata")}
                         break
+                    
                     elif msg_type == "ping":
-                        # Ping'e pong ile cevap ver (otomatik keepalive)
                         self.ws.send(json.dumps({"type": "pong"}))
+                    
                     elif msg_type == "pong":
-                        # Sunucudan gelen pong - sadece yoksay (keepalive onayı)
-                        continue
-                    else:
-                        # Bilinmeyen mesaj tipi - sessizce yoksay
                         continue
                 
                 except websocket.WebSocketTimeoutException:
                     continue
+                    
+                except websocket.WebSocketConnectionClosedException:
+                    # Bağlantı koptu - resume dene
+                    if reconnect_attempts < max_reconnect and self._current_stream_id:
+                        reconnect_attempts += 1
+                        self.connected = False
+                        self.ws = None
+                        
+                        # Kısa bekle ve reconnect
+                        time.sleep(self._retry_delay * reconnect_attempts)
+                        
+                        if self.connect():
+                            # Resume isteği gönder
+                            self.ws.send(json.dumps({
+                                "type": "resume",
+                                "stream_id": self._current_stream_id,
+                                "from_index": self._last_token_index + 1,
+                                "session_id": session_id
+                            }))
+                            continue  # Döngüye devam
+                    
+                    # Resume başarısız
+                    yield {"type": "error", "message": "Bağlantı koptu"}
+                    break
+                    
                 except Exception as e:
                     yield {"type": "error", "message": str(e)}
                     break
@@ -2366,8 +2445,16 @@ if st.session_state.current_page == "chat":
                 # Durdurma kontrolü
                 if st.session_state.stop_generation:
                     was_stopped = True
-                    full_response += "\n\n*[Yanıt kullanıcı tarafından durduruldu]*"
-                    response_placeholder.markdown(full_response)
+                    # Backend'e stop mesajı gönder
+                    try:
+                        ws_client = get_ws_client()
+                        ws_client.send_stop()
+                    except:
+                        pass
+                    # O ana kadar oluşan yanıtı koru ve göster
+                    if full_response:
+                        full_response += "\n\n*[Yanıt durduruldu]*"
+                        response_placeholder.markdown(full_response)
                     break
                 
                 chunk_type = chunk.get("type")
@@ -2502,6 +2589,14 @@ if st.session_state.current_page == "chat":
                 elif chunk_type == "error":
                     # ✅ HATA MESAJINI KAYDET - kalıcı olarak chat'te gösterilecek
                     error_message = chunk.get('message', 'Bilinmeyen hata')
+                    break
+                
+                elif chunk_type == "stopped":
+                    # Backend tarafından durduruldu - yanıtı koru
+                    was_stopped = True
+                    if full_response:
+                        full_response += "\n\n*[Yanıt durduruldu]*"
+                        response_placeholder.markdown(full_response)
                     break
                 
                 elif chunk_type == "end":

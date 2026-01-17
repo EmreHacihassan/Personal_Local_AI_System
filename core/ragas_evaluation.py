@@ -687,6 +687,221 @@ class RAGASEvaluator:
         """Remove a metric"""
         if metric_type in self.metrics:
             del self.metrics[metric_type]
+    
+    # ============ CONVENIENCE METHODS FOR API ============
+    
+    async def evaluate_faithfulness(
+        self,
+        question: str,
+        answer: str,
+        contexts: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Sadece Faithfulness metriğini değerlendir.
+        
+        Args:
+            question: Kullanıcı sorusu
+            answer: RAG yanıtı
+            contexts: Kullanılan bağlamlar
+            
+        Returns:
+            {"score": float, "reasoning": str, "details": dict}
+        """
+        sample = EvaluationSample(
+            id="single_eval",
+            question=question,
+            answer=answer,
+            contexts=contexts
+        )
+        
+        try:
+            if MetricType.FAITHFULNESS in self.metrics:
+                result = await self.metrics[MetricType.FAITHFULNESS].evaluate(sample)
+                return {
+                    "score": result.score,
+                    "reasoning": result.reasoning,
+                    "details": result.details
+                }
+        except Exception as e:
+            logger.error(f"Faithfulness evaluation error: {e}")
+        
+        # Fallback: basit kelime eşleşme skoru
+        return self._simple_faithfulness(answer, contexts)
+    
+    def _simple_faithfulness(self, answer: str, contexts: List[str]) -> Dict[str, Any]:
+        """Basit faithfulness hesaplama (LLM olmadan)"""
+        answer_words = set(answer.lower().split())
+        context_words = set()
+        for ctx in contexts:
+            context_words.update(ctx.lower().split())
+        
+        if not answer_words:
+            return {"score": 0.0, "reasoning": "Boş yanıt", "details": {}}
+        
+        overlap = len(answer_words & context_words)
+        score = min(overlap / len(answer_words), 1.0)
+        
+        return {
+            "score": round(score, 4),
+            "reasoning": f"Yanıttaki {len(answer_words)} kelimeden {overlap} tanesi bağlamlarda bulundu",
+            "details": {"method": "word_overlap", "overlap_count": overlap}
+        }
+    
+    async def evaluate_answer_relevancy(
+        self,
+        question: str,
+        answer: str
+    ) -> Dict[str, Any]:
+        """
+        Sadece Answer Relevancy metriğini değerlendir.
+        
+        Args:
+            question: Kullanıcı sorusu
+            answer: RAG yanıtı
+            
+        Returns:
+            {"score": float, "reasoning": str, "details": dict}
+        """
+        sample = EvaluationSample(
+            id="single_eval",
+            question=question,
+            answer=answer,
+            contexts=[]
+        )
+        
+        try:
+            if MetricType.ANSWER_RELEVANCY in self.metrics:
+                result = await self.metrics[MetricType.ANSWER_RELEVANCY].evaluate(sample)
+                return {
+                    "score": result.score,
+                    "reasoning": result.reasoning,
+                    "details": result.details
+                }
+        except Exception as e:
+            logger.error(f"Answer relevancy evaluation error: {e}")
+        
+        # Fallback: basit benzerlik skoru
+        return self._simple_relevancy(question, answer)
+    
+    def _simple_relevancy(self, question: str, answer: str) -> Dict[str, Any]:
+        """Basit relevancy hesaplama (LLM olmadan)"""
+        q_words = set(question.lower().split())
+        a_words = set(answer.lower().split())
+        
+        # Soru kelimelerinin yanıtta bulunma oranı
+        if not q_words:
+            return {"score": 0.5, "reasoning": "Boş soru", "details": {}}
+        
+        # Stop words çıkar
+        stop_words = {'ne', 'nasıl', 'neden', 'kim', 'nerede', 'hangi', 'mi', 'mı', 'mu', 'mü',
+                      'what', 'how', 'why', 'who', 'where', 'which', 'is', 'are', 'the', 'a', 'an'}
+        q_meaningful = q_words - stop_words
+        
+        if not q_meaningful:
+            q_meaningful = q_words
+        
+        overlap = len(q_meaningful & a_words)
+        score = min(overlap / len(q_meaningful), 1.0)
+        
+        # Uzun yanıtlar için bonus
+        if len(answer.split()) > 20:
+            score = min(score + 0.1, 1.0)
+        
+        return {
+            "score": round(score, 4),
+            "reasoning": f"Soru kelimelerinin {overlap}/{len(q_meaningful)} tanesi yanıtta bulundu",
+            "details": {"method": "keyword_overlap", "overlap_count": overlap}
+        }
+    
+    async def evaluate_context_precision(
+        self,
+        question: str,
+        contexts: List[str],
+        ground_truth: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Sadece Context Precision metriğini değerlendir.
+        
+        Args:
+            question: Kullanıcı sorusu
+            contexts: Kullanılan bağlamlar
+            ground_truth: Doğru yanıt (opsiyonel)
+            
+        Returns:
+            {"score": float, "reasoning": str, "details": dict}
+        """
+        sample = EvaluationSample(
+            id="single_eval",
+            question=question,
+            answer="",  # Precision için answer gerekli değil
+            contexts=contexts,
+            ground_truth=ground_truth
+        )
+        
+        try:
+            if MetricType.CONTEXT_PRECISION in self.metrics:
+                result = await self.metrics[MetricType.CONTEXT_PRECISION].evaluate(sample)
+                return {
+                    "score": result.score,
+                    "reasoning": result.reasoning,
+                    "details": result.details
+                }
+        except Exception as e:
+            logger.error(f"Context precision evaluation error: {e}")
+        
+        # Fallback: basit precision skoru
+        return self._simple_context_precision(question, contexts, ground_truth)
+    
+    def _simple_context_precision(
+        self,
+        question: str,
+        contexts: List[str],
+        ground_truth: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Basit context precision hesaplama"""
+        if not contexts:
+            return {"score": 0.0, "reasoning": "Bağlam yok", "details": {}}
+        
+        q_words = set(question.lower().split())
+        stop_words = {'ne', 'nasıl', 'neden', 'kim', 'nerede', 'hangi', 'mi', 'mı', 'mu', 'mü',
+                      'what', 'how', 'why', 'who', 'where', 'which', 'is', 'are', 'the', 'a', 'an'}
+        q_meaningful = q_words - stop_words
+        
+        if not q_meaningful:
+            q_meaningful = q_words
+        
+        # Her bağlam için skor hesapla
+        context_scores = []
+        for ctx in contexts:
+            ctx_words = set(ctx.lower().split())
+            overlap = len(q_meaningful & ctx_words)
+            ctx_score = overlap / len(q_meaningful) if q_meaningful else 0
+            context_scores.append(min(ctx_score, 1.0))
+        
+        # Ground truth varsa, ground truth kelimelerini de kontrol et
+        if ground_truth:
+            gt_words = set(ground_truth.lower().split())
+            for i, ctx in enumerate(contexts):
+                ctx_words = set(ctx.lower().split())
+                gt_overlap = len(gt_words & ctx_words) / len(gt_words) if gt_words else 0
+                context_scores[i] = (context_scores[i] + gt_overlap) / 2
+        
+        # Precision: ilk bağlamların daha önemli olduğu ağırlıklı ortalama
+        weights = [1 / (i + 1) for i in range(len(context_scores))]
+        weighted_sum = sum(s * w for s, w in zip(context_scores, weights))
+        total_weight = sum(weights)
+        
+        precision = weighted_sum / total_weight if total_weight > 0 else 0
+        
+        return {
+            "score": round(precision, 4),
+            "reasoning": f"{len(contexts)} bağlam değerlendirildi, ağırlıklı precision hesaplandı",
+            "details": {
+                "method": "weighted_precision",
+                "context_scores": [round(s, 4) for s in context_scores],
+                "weights": [round(w, 4) for w in weights]
+            }
+        }
 
 
 # ============ A/B TESTING ============

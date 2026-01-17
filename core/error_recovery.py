@@ -353,39 +353,120 @@ class ErrorRecoveryManager:
                 elif isinstance(self._metrics[key], dict):
                     self._metrics[key] = {}
 
+    def record_error(
+        self,
+        error: Exception,
+        category: Optional[ErrorCategory] = None,
+        severity: Optional[ErrorSeverity] = None,
+        component: str = "",
+        operation: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Hatayı kaydet ve metriklere ekle.
+        
+        Daha basit API - sadece kayıt, kurtarma denemez.
+        """
+        if category is None or severity is None:
+            auto_category, auto_severity = ErrorClassifier.classify(error)
+            category = category or auto_category
+            severity = severity or auto_severity
+        
+        context = ErrorContext(
+            error=error,
+            category=category,
+            severity=severity,
+            component=component,
+            operation=operation,
+            metadata=metadata or {},
+            stack_trace=traceback.format_exc(),
+        )
+        
+        with self._lock:
+            self._error_log.append(context)
+            if len(self._error_log) > self.max_errors:
+                self._error_log = self._error_log[-self.max_errors:]
+            
+            self._metrics["total_errors"] += 1
+            self._metrics["by_category"][category.value] = \
+                self._metrics["by_category"].get(category.value, 0) + 1
+            self._metrics["by_severity"][severity.value] = \
+                self._metrics["by_severity"].get(severity.value, 0) + 1
 
-def with_retry(
-    max_attempts: int = 3,
-    retry_strategy: Callable[[int], float] = None,
+
+def retry_with_backoff(
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+    max_delay: float = 60.0,
+    exponential_base: float = 2.0,
     retryable_exceptions: tuple = (Exception,),
-    on_retry: Optional[Callable[[int, Exception], None]] = None,
 ):
     """
-    Decorator: Otomatik yeniden deneme.
-    """
-    if retry_strategy is None:
-        retry_strategy = RetryStrategy.exponential()
+    Decorator: Exponential backoff ile retry.
     
+    Args:
+        max_retries: Maksimum deneme sayısı
+        initial_delay: İlk bekleme süresi (saniye)
+        max_delay: Maksimum bekleme süresi
+        exponential_base: Üstel çarpan
+        retryable_exceptions: Yeniden denenecek exception türleri
+    
+    Usage:
+        @retry_with_backoff(max_retries=3, initial_delay=0.5)
+        def flaky_operation():
+            ...
+    """
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             last_exception = None
             
-            for attempt in range(max_attempts):
+            for attempt in range(max_retries):
                 try:
                     return fn(*args, **kwargs)
                 except retryable_exceptions as e:
                     last_exception = e
                     
-                    if attempt < max_attempts - 1:
-                        delay = retry_strategy(attempt)
-                        
-                        if on_retry:
-                            on_retry(attempt + 1, e)
-                        
+                    if attempt < max_retries - 1:
+                        delay = min(
+                            initial_delay * (exponential_base ** attempt),
+                            max_delay
+                        )
+                        logging.warning(
+                            f"Retry {attempt + 1}/{max_retries} for {fn.__name__} "
+                            f"after {delay:.2f}s: {e}"
+                        )
                         time.sleep(delay)
             
             raise last_exception
+        
+        @wraps(fn)
+        async def async_wrapper(*args, **kwargs):
+            import asyncio
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    return await fn(*args, **kwargs)
+                except retryable_exceptions as e:
+                    last_exception = e
+                    
+                    if attempt < max_retries - 1:
+                        delay = min(
+                            initial_delay * (exponential_base ** attempt),
+                            max_delay
+                        )
+                        logging.warning(
+                            f"Retry {attempt + 1}/{max_retries} for {fn.__name__} "
+                            f"after {delay:.2f}s: {e}"
+                        )
+                        await asyncio.sleep(delay)
+            
+            raise last_exception
+        
+        import asyncio
+        if asyncio.iscoroutinefunction(fn):
+            return async_wrapper
         return wrapper
     return decorator
 
@@ -475,6 +556,7 @@ __all__ = [
     "ErrorRecoveryManager",
     "with_retry",
     "with_fallback",
+    "retry_with_backoff",
     "graceful_degradation",
     "error_recovery_manager",
 ]

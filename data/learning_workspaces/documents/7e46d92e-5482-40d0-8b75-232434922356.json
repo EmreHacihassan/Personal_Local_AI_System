@@ -1,0 +1,27 @@
+{
+  "id": "7e46d92e-5482-40d0-8b75-232434922356",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "Duzenlenmis Dok",
+  "topic": "Yeni konu",
+  "page_count": 1,
+  "style": "summary",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-17T01:34:58.829849",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-17T01:37:49.743476] ✏️ Düzenleme: başlık: Duzenlenmis Dok, konu: Yeni konu",
+    "[2026-01-17T01:37:49.764408] 🚀 Üretim isteği alındı",
+    "[2026-01-17T01:37:49.774960] Üretim başladı",
+    "[2026-01-17T01:37:49.774960] Outline oluşturuluyor...",
+    "[2026-01-17T01:40:13.069745] Outline oluşturuldu: 4 bölüm",
+    "[2026-01-17T01:40:13.070270] Araştırma yapılıyor...",
+    "[2026-01-17T01:40:16.414335] Araştırma tamamlandı: 7 kaynak",
+    "[2026-01-17T01:40:16.415336] Bölüm 1/4 yazılıyor: Giriş",
+    "[2026-01-17T01:41:49.964808] Bölüm tamamlandı: Giriş",
+    "[2026-01-17T01:41:49.965315] Bölüm 2/4 yazılıyor: Temel Kavramlar",
+    "[2026-01-17T01:46:08.188655] Bölüm tamamlandı: Temel Kavramlar",
+    "[2026-01-17T01:46:08.189183] Bölüm 3/4 yazılıyor: Uygulama"
+  ]
+}

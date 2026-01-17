@@ -34,9 +34,13 @@ from core.system_knowledge import SELF_KNOWLEDGE_PROMPT, SYSTEM_VERSION, SYSTEM_
 from agents.orchestrator import orchestrator
 from rag.document_loader import document_loader
 from rag.chunker import document_chunker
+from rag.async_processor import robust_loader, batch_processor
 from api.websocket import websocket_endpoint, manager
 from tools.web_search_engine import PremiumWebSearchEngine, get_search_engine, WebSearchTool
 from tools.research_synthesizer import get_synthesizer, ResearchSynthesizer
+
+# Learning module router
+from api.learning_endpoints import router as learning_router
 
 
 # ============ PYDANTIC MODELS ============
@@ -1632,33 +1636,42 @@ async def clear_session(session_id: str):
 @app.post("/api/documents/upload", response_model=DocumentUploadResponse, tags=["Documents"])
 async def upload_document(file: UploadFile = File(...)):
     """
-    Döküman yükle ve indexle.
+    Döküman yükle ve indexle - ROBUST VERSION.
     
     Desteklenen formatlar: PDF, DOCX, PPTX, XLSX, TXT, MD, CSV, JSON, HTML
     
-    DUPLICATE KONTROLÜ:
-    - Aynı isimli dosya daha önce yüklendiyse güncellenir
-    - Eski chunks silinir, yeni chunks eklenir
+    Özellikler:
+    - Timeout korumalı işleme
+    - Çoklu fallback mekanizması
+    - Büyük dosya desteği
+    - Duplicate kontrolü
     """
+    import time
+    import warnings
+    import asyncio
+    import concurrent.futures
+    
+    start_time = time.time()
+    warnings.filterwarnings("ignore")
+    
     try:
-        import warnings
-        warnings.filterwarnings("ignore")
-        
         # Validate file extension
         filename = file.filename or "unknown"
         extension = Path(filename).suffix.lower()
         
-        if extension not in document_loader.SUPPORTED_EXTENSIONS:
+        if extension not in robust_loader.SUPPORTED_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Desteklenmeyen dosya formatı: {extension}. Desteklenen formatlar: {', '.join(document_loader.SUPPORTED_EXTENSIONS.keys())}",
+                detail=f"Desteklenmeyen dosya formatı: {extension}. Desteklenen: {', '.join(robust_loader.SUPPORTED_EXTENSIONS.keys())}",
             )
         
-        # DUPLICATE KONTROLÜ - Aynı dosya daha önce yüklendi mi?
+        # DUPLICATE KONTROLÜ
         upload_dir = settings.DATA_DIR / "uploads"
         upload_dir.mkdir(parents=True, exist_ok=True)
         
         existing_file = None
+        was_updated = False
+        
         for f in upload_dir.iterdir():
             if f.is_file():
                 parts = f.name.split("_", 1)
@@ -1667,77 +1680,93 @@ async def upload_document(file: UploadFile = File(...)):
                     break
         
         if existing_file:
-            # Eski dosyayı ve chunk'larını sil
-            document_id = existing_file.name.split("_")[0]
+            was_updated = True
+            old_doc_id = existing_file.name.split("_")[0]
             
             # Vector store'dan eski chunk'ları sil
             try:
                 all_data = vector_store.collection.get(include=['metadatas'])
                 ids_to_delete = []
-                for i, meta in enumerate(all_data['metadatas']):
+                for i, meta in enumerate(all_data.get('metadatas', [])):
                     if meta:
-                        orig_filename = meta.get('original_filename', '')
-                        # UUID prefix'i kaldır
-                        if '_' in orig_filename and len(orig_filename.split('_')[0]) == 36:
-                            orig_filename = orig_filename.split('_', 1)[1]
-                        if orig_filename == filename:
+                        orig = meta.get('original_filename', '')
+                        if '_' in orig and len(orig.split('_')[0]) == 36:
+                            orig = orig.split('_', 1)[1]
+                        if orig == filename:
                             ids_to_delete.append(all_data['ids'][i])
                 
                 if ids_to_delete:
                     vector_store.collection.delete(ids=ids_to_delete)
-            except Exception as e:
-                print(f"Eski chunk silme hatası: {e}")
+            except Exception:
+                pass
             
             # Eski dosyayı sil
-            existing_file.unlink()
+            try:
+                existing_file.unlink()
+            except Exception:
+                pass
         
-        # Save new file
+        # Dosyayı kaydet
         document_id = str(uuid.uuid4())
         file_path = upload_dir / f"{document_id}_{filename}"
         
+        # Async file write
+        content = await file.read()
         with open(file_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+            f.write(content)
         
-        # Load and process document with error tolerance
-        try:
-            documents = document_loader.load_file(str(file_path))
-        except Exception as load_error:
-            # Hata durumunda minimal döküman oluştur
-            from rag.document_loader import Document
-            documents = [Document(
-                content=f"[Dosya içeriği okunamadı: {filename}]\n\nHata: {str(load_error)[:200]}",
-                metadata={
+        file_size = file_path.stat().st_size
+        file_size_mb = file_size / (1024 * 1024)
+        
+        # ROBUST LOADER ile yükle (timeout korumalı)
+        timeout = robust_loader.get_timeout(
+            robust_loader.SUPPORTED_EXTENSIONS.get(extension, "default"),
+            file_size_mb
+        )
+        
+        # Thread pool'da işle (blocking I/O)
+        loop = asyncio.get_event_loop()
+        documents, error = await loop.run_in_executor(
+            None,
+            lambda: robust_loader.load_with_timeout(str(file_path), timeout=timeout)
+        )
+        
+        if error:
+            # Hata durumunda bile minimal içerik oluştur
+            documents = [{
+                "content": f"[Dosya işlenemedi: {filename}]\n\nHata: {error}",
+                "metadata": {
                     "source": str(file_path),
                     "filename": filename,
                     "file_type": extension,
-                    "error": str(load_error)[:100]
+                    "error": error[:100]
                 }
-            )]
+            }]
         
         if not documents:
-            # Boş döküman yerine bilgilendirici içerik oluştur
-            from rag.document_loader import Document
-            documents = [Document(
-                content=f"[Boş veya okunamayan dosya: {filename}]",
-                metadata={
+            documents = [{
+                "content": f"[Boş dosya: {filename}]",
+                "metadata": {
                     "source": str(file_path),
                     "filename": filename,
                     "file_type": extension
                 }
-            )]
+            }]
         
-        # Chunk documents
-        chunks = document_chunker.chunk_documents(documents)
+        # Chunk documents - rag.document_loader.Document formatına çevir
+        from rag.document_loader import Document
+        doc_objects = [
+            Document(content=d["content"], metadata=d["metadata"])
+            for d in documents
+        ]
+        
+        chunks = document_chunker.chunk_documents(doc_objects)
         
         if not chunks:
-            # Chunking başarısız olduysa orijinal dökümanları kullan
             from rag.chunker import Chunk
-            chunks = [Chunk(
-                content=doc.content,
-                metadata=doc.metadata
-            ) for doc in documents]
+            chunks = [Chunk(content=d.content, metadata=d.metadata) for d in doc_objects]
         
-        # Add to vector store
+        # Vector store'a ekle
         chunk_texts = [c.content for c in chunks]
         chunk_metadatas = [
             {**c.metadata, "document_id": document_id, "original_filename": filename}
@@ -1749,27 +1778,31 @@ async def upload_document(file: UploadFile = File(...)):
             metadatas=chunk_metadatas,
         )
         
-        # Track analytics
+        # Analytics
+        processing_time = time.time() - start_time
         analytics.track_document_upload(
             filename=filename,
-            file_size=file_path.stat().st_size,
+            file_size=file_size,
             chunks_created=len(chunks),
         )
+        
+        status_msg = f"{filename} başarıyla yüklendi ({len(chunks)} parça, {processing_time:.1f}s)"
+        if was_updated:
+            status_msg += " [güncellendi]"
         
         return DocumentUploadResponse(
             success=True,
             document_id=document_id,
             filename=filename,
             chunks_created=len(chunks),
-            message=f"{filename} başarıyla yüklendi ve indexlendi" + 
-                   (" (güncellendi)" if existing_file else ""),
+            message=status_msg,
         )
         
     except HTTPException:
         raise
     except Exception as e:
         analytics.track_error("upload", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Yükleme hatası: {str(e)[:200]}")
 
 
 @app.get("/api/documents", tags=["Documents"])
@@ -2064,10 +2097,32 @@ async def get_document_sources():
 @app.get("/api/admin/stats", tags=["Admin"])
 async def get_stats():
     """Sistem istatistikleri."""
+    # Vector store stats
+    try:
+        vs_stats = vector_store.get_stats() if hasattr(vector_store, 'get_stats') else {}
+    except Exception:
+        vs_stats = {}
+    
+    # Upload folder stats
+    upload_dir = settings.DATA_DIR / "uploads"
+    doc_count = 0
+    total_size = 0
+    
+    if upload_dir.exists():
+        for file_path in upload_dir.iterdir():
+            if file_path.is_file():
+                doc_count += 1
+                total_size += file_path.stat().st_size
+    
     return {
-        "documents": vector_store.count(),
+        "documents": {
+            "total": doc_count,
+            "chunks": vs_stats.get("total_documents", vector_store.count()) if vs_stats else vector_store.count(),
+            "total_size_mb": total_size / (1024 * 1024)
+        },
         "sessions": len(sessions),
         "total_messages": sum(len(s) for s in sessions.values()),
+        "vector_store": vs_stats
     }
 
 
@@ -2766,6 +2821,11 @@ async def import_sessions(file: UploadFile = File(...)):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ INCLUDE ROUTERS ============
+
+app.include_router(learning_router)
 
 
 # ============ RUN SERVER ============

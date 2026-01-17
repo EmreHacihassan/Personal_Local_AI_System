@@ -1,0 +1,19 @@
+{
+  "id": "b14233cd-cc41-4f02-8135-c3a8bf247849",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "Test Dokuman",
+  "topic": "Excel formulleri ve islevleri",
+  "page_count": 2,
+  "style": "detailed",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-16T23:58:53.755240",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-17T00:01:49.252120] Outline oluşturuldu: 4 bölüm",
+    "[2026-01-17T00:01:52.391928] Araştırma tamamlandı: 8 kaynak",
+    "[2026-01-17T00:04:10.609204] Bölüm tamamlandı: Giriş",
+    "[2026-01-17T00:07:38.924240] Bölüm tamamlandı: Temel Formüller ve İşlevler"
+  ]
+}

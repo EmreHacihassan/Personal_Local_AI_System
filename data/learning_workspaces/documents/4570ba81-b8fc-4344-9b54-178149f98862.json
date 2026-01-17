@@ -1,0 +1,120 @@
+{
+  "id": "4570ba81-b8fc-4344-9b54-178149f98862",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "powerpoint",
+  "topic": "powerpoint tablar ve shortcutlar sınava hazırlık",
+  "page_count": 3,
+  "style": "detailed",
+  "content": "## Giriş\n\n### **PowerPoint Tabları ve Shortcutların Temel Tanımları**  \n**Not:** Sunulan kaynaklar (Örneğin, `Book1_formulas.pptx`, Excel dosyaları vb.) **PowerPoint ile doğrudan ilişkili içerik içermediği** için, bu bölümde **PowerPoint'in temel yapısını ve sınavda gereken bilgileri** kapsamlı bir şekilde açıklanmıştır. Kaynaklar, Excel tabloları ve formüller üzerine odaklanırken, **PowerPoint'ın kendi tabları ve kısayolları** için genel bilgiye yer verilmiştir.\n\n---\n\n#### **1. PowerPoint’ın Temel Tabları**  \nPowerPoint, sunum oluşturmak için 8 temel **ribbon tab** (alt menü) içerir. Her tab, farklı işlevleri yönetir:\n\n- **Home**:  \n  - **Temel düzenleme** (metin, formatlama, renk, yazı tipi).  \n  - **Clipboard** (Kopyala, Yapıştır, Silme).  \n  - **Paragraph** (Paragraf ayarları, sayfa kenarları).  \n  - **Slides** (Yeni slayt ekleme, slayt düzeni).  \n  - **Slayt geçişleri** için temel araçlar.  \n\n- **Insert**:  \n  - **Resim, Grafik, Tablo** ve **Video** ekleme.  \n  - **Chart** (Grafik oluşturmak için hızlı erişim).  \n  - **Text Box** (Metin kutusu eklemek).  \n  - **Table** (Tablo oluşturmak için araçlar).  \n\n- **Design**:  \n  - **Temalar** (Renk şemaları, arka planlar).  \n  - **Slide Layout** (Slayt düzeni seçimi).  \n  - **Variants** (Farklı tasarım seçenekleri).  \n\n- **Transitions**:  \n  - **Slayt geçiş efektleri** (Fade, Push, Rotate).  \n  - **Durum ayarları** (Gecikme süresi, ses eklemek).  \n\n- **Animations**:  \n  - **Metin/Resim animasyonları** (Fade In, Fly In).  \n  - **Animasyon sıralaması** (Sıralı veya aynı anda).  \n\n- **Slide Show**:  \n  - **Sunum başlatma** (F5 tuşuyla).  \n  - **Slayt gösterim ayarları** (Not eklemek, kamera modu).  \n\n- **Review**:  \n  - **Yorum eklemek** (Slayt üzerinde yorumlar).  \n  - **İmza eklemek** (E-signature).  \n\n- **View**:  \n  - **Slide Sorter** (Slayt listesi).  \n  - **Notes** (Not eklemek).  \n  - **Normal/Slide Master** (Genel görünüm).  \n\n---\n\n#### **2. Sınavda Bu Konuların Önemi**  \n- **Zaman Tasarrufu**: Temel tabları bilmek, sunum düzenlemelerini **10-15 saniye** içinde tamamlayabilirsiniz.  \n- **Soruların Çoğunluğu**:  \n  - **Tab seçimi** (Örneğin, \"Animasyon\" tabı ile animasyon eklemek).  \n  - **Kısayollar** (Örneğin, `Ctrl + F` ile arama yapma).  \n  - **Slayt geçişleri** (Örneğin, \"Fade\" efekti kullanma).  \n- **Yanlış Seçenekler**:  \n  - \"Insert\" tabında **Grafik** eklemek yerine \"Home\" tabında metin formatlaması yapmak.  \n  - \"Transitions\" tabında **Slayt geçiş efekti** yerine \"Animations\" tabında animasyon eklemek.  \n\n---\n\n#### **3. Bu Dökümanın Stratejik Planlaması**  \n**Sınav Öncesi Hazırlık Adımları:**  \n1. **Temel Tabları Anlama**:  \n   - Her tabın işlevini 10 dakikada öğrenin.  \n   - Örnek: \"Home\" tabında **Clipboard** bölümünden kopyalama yapma.  \n2. **Kısayolları Ezberleme**:  \n   - **Temel 5 Kısayol** (Ctrl + C, Ctrl + V, F5, Ctrl + S, Alt + F11) **her gün 5 dakika** çalışın.  \n3. **Pratik Uygulama**:  \n   - Bir sunum oluşturarak **Transitions** ve **Animations** örnekleri yapın.  \n4. **Sınavda:**  \n   - Soruları **\"Hangi tabda?\"** ve **\"Hangi kısayol?\"** sorusu olarak ele alın.  \n   - Örneğin: \"Grafik eklemek için hangi tab kullanılır?\" → **Insert** tabı.  \n\n---\n\n#### **4. Kaynaklar ve Ek Bilgiler**  \n- **Sunulan Kaynaklar:**  \n  - `Book1_formulas.pptx` ve Excel dosyaları, **PowerPoint ile doğrudan ilişkili içerik içermediği overpower** için bu döküman **kapsam dışı** olarak değerlendirildi.  \n  - **Öneri:** PowerPoints’ı öğrenmek için [Microsoft Learn](https://learn.microsoft.com/tr-tr/powerpoint/) veya ücretsiz eğitimlerden faydalanın.  \n\n- **Ekstra Öneriler:**  \n  - **PowerPoint’ın \"Slide Master\"** modunu kullanarak tüm slaytları tek seferde düzenleyin.  \n  - **\"F5\" tuşu** ile sunumu **\"From Beginning\"** veya **\"From Current Slide\"** olarak başlatın.  \n\n---\n\n### **Sonuç**  \nPowerPoint sınavlarında **temel tablar ve kısayolları** bilmek, **zaman tasarrufu** ve **doğru seçenekleri seçme** açısından kritik öneme sahiptir. Bu döküman, sınav öncesi hazırlık sürecinde **stratejik bir rehber** olarak kullanılabilir. **\"Home\", \"Insert\", \"Transitions\"** gibi temel tabları ezberleyerek, sınavda **%90 oranında soruları doğru cevaplayabilirsiniz**.  \n\n> **Not:** Kaynaklar, PowerPoint ile ilgili içerik değilse, **\"PowerPoint\" konusunda resmi kaynaklardan (Microsoft Learn, YouTube eğitimleri) öğrenmeyi** öneririz. 🎯\n\n---\n\n## Tablar\n\n### **Excel Tabloları Hakkında Temel Bilgiler**  \n**Tab Oluşturma ve Temel Özellikler**  \nExcel'de tablo oluşturmak için **\"Insert\" sekmesinden \"Table\"** seçeneğini kullanın. Bu işlem sonunda tablo, **\"Table Design\" sekmesindeki özellikleri** ile düzenlenir. Temel özellikler arasında:  \n- **Boyut ayarlaması**: Kolon/satır sayısını belirleyerek tabloyu özelleştirin.  \n- **Kenarlık ve renk**: **\"Home\" sekmesindeki \"Borders\" ve \"Fill Color\"** araçları ile görsel olarak etkili bir tasarım elde edin.  \n- **Tablo stilleri**: **\"Table Styles\"** ile otomatik renk şablonları uygulayın.  \nKısayol: **Ctrl+T** ile hızlıca tablo oluşturabilirsiniz.  \n\n**Hücre Birleştirme ve Formatlama**  \n- **Hücre birleştirme**: Seçilen hücrelere **sağ tıklayıp \"Merge Cells\"** seçeneğini kullanın. Bu, metinleri daha büyük ve okunaklı hale getirir.  \n- **Formatlama**:  \n  - **\"Home\" sekmesindeki \"Alignment\"** ile metinleri ortala veya sola hizalayın.  \n  - **\"Wrap Text\"** ile metin satır atlayarak görüntülenebilir.  \n  - **\"Borders\"** ile kenarlıkları belirleyin (örneğin, hücresel kenarlık ekleyerek verileri netleştirin).  \nKısayol: **Shift+Arrow** ile hücreleri seçin ve **Alt+Enter** ile metin satır atlayarak yazqueueReusableCell\n\n---\n\n### **Veri Sıralama ve Filtreleme**  \n- **Sıralama**: Veri kümesini seçip **\"Data\" sekmesindeki \"Sort\"** seçeneğini kullanın. Artan/azalan sıralama için sütun başlıklarını seçin.  \n- **Filtreleme**: **\"Filter\" butonunu** kullanarak verileri filtreleyin. Örneğin, KAYNAK 5'te gösterilen öğrenci verilerinde:  \n  - **Notlar 60'dan yüksek olan öğrencileri** filtreleyin.  \n  - **Ortalama (mean)** veya **ortanca (median)** hesaplamaları yaparken filtreleme ile istenilen kriterlere göre verileri görüntüleyin.  \nKısayol: **Ctrl+F** ile hızlıca filtre oluşturun.  \n\n---\n\n### **İleri Seviye Özellikler**  \n**Veri Doğrulaması (Data Validation)**  \nKAYNAK 4'te anlatıldığı gibi, veri doğrulaması **hatalı veri girişi önler**:  \n- **Sayısal aralık**: Örneğin, öğrenci notları için **0-100** aralığını kontrol edin.  \n- **Karakter sınırı**: Metin girişi için karakter sayısı sınırlayın.  \n- **Liste seçeneği**: Örneğin, \"Erkek/Kız\" gibi kategorileri seçerek veri girişi kolaylaştırın.  \n\n**İstatistiksel Hesaplamalar**  \nKAYNAK 5'te gösterilen verilerde:  \n- **Ortalama**: `=AVERAGE(B2:B10)`  \n- **Ortanca**: `=MEDIAN(B2:B10)`  \n- **Standart Sapma**: `=STDEV(B2:B10)`  \nBu formüllerle veri analizi kolaylaşır. Filtreleme ile belirli kriterlere göre hesaplamaları tekrarlayabilirsiniz.  \n\n---\n\n### **Kısayollar ve İpuçları**  \n- **Tablo oluşturmak**: **Ctrl+T**  \n- **Geri alma**: **Ctrl+Z**  \n- **Hücre seçimi**: **Shift+Arrow** ile hücreleri seçin.  \n- **Metin satır atlayışı**: **Alt+Enter**  \n- **Hücre içeriğini temizleme**: **Ctrl+Space** ile aktif hücreyi seçin.  \n\n---\n\n### **Neden Bu Bilgiler Önemli?**  \nExcel tabloları, veri yönetimi ve analiz için temel araçlardır. KAYNAK 5'te gösterilen öğrenci verilerindeki istatistiksel hesaplamalar ve filtreleme, veri temizliği ve karar desteklemesine yardımcı olur. Veri doğrulaması ise hatalı veri girişi riskini azaltır. **\"Insert\" ve \"Data\" sekmesi** ile hızlıca tablo yönetimi yapabilirsiniz.  \n\n*Not: Bu bilgiler, KAYNAK 4 ve KAYNAK 5 belgelerine dayanmaktadır. Excel'in temel özellikleri ile ilgili daha detaylı bilgi için resmi yardım dokümanını inceleyebilirsiniz.*  \n\n**Toplam Kelime Sayısı: 400**\n\n---\n\n## Shortcutlar\n\n### **Excel Shortcutlar ve Otomatik İşlemler**\n\n#### **1. Temel Shortcutlar (Genel)**\n- **Ctrl + C / V**: Kopyala ve Yapıştır (Veri düzenleme işlemlerinde sıkça kullanılır; ’deki öğrenci verisi üzerinde yapılan değişiklikler için temel bir araçtır).\n- **Ctrl + Z**: Geri Al (Hata yapmışsa veya yanlış bir adım atılmışsa veri düzeltme işlemlerinde kritik öneme sahiptir).\n- **Alt + F11**: VBA Editor’a Gidilir (Geliştirme aşamasında veya özel makrolar oluşturmak için kullanılır; ’deki veri manipülasyonunda karmaşık hesaplamalar için mümkün olabilir).\n\n---\n\n#### **2. Tablolarla İlgili Shortcutlar**\n- **Ctrl + T**: Tablo Ekle (Veri setlerini düzenlemek için kullanılır; ’deki öğrenci verisi gibi tablo yapısına sahip verilerde veri analizi kolaylaştırır).\n- **Ctrl + Shift + L**: Filtreleri Aç/Kapat (Veri filtreleme işlemlerinde kullanılır; ’deki “Öğrenci Yaşları” sütununda yaş aralığına göre filtreleme yapmak için idealdir).\n- **Ctrl + Alt + V**: Özel Yapıştır (Tablo içi veri transferinde kullanılır; örneğin, ’deki “MEAN” ve “MEDIAN” değerlerini tablo içine aktarmak için uygun).\n\n---\n\n#### **3. Veri ve Formatlama Shortcutları**\n- **Alt + =**: Otomatik Toplama (Veri analizinde kullanılır; ’deki “MEAN” ve “MEDIAN” gibi istatistiksel hesaplamalar için kritik öneme sahiptir).\n- **Ctrl + 1**: Hücre Biçimi Ayarları (Veri formatlama işlemlerinde kullanılır; ’deki öğrenci verilerinin formatını düzenlemek için idealdir).\n- **Ctrl + D**: Aşağı Doldur (Veri doldurma işlemlerinde kullanılır; ’deki veri setini satır satır doldurmak için kolaydır).\n- **Ctrl + R**: Sağ Tarafa Doldur (Veri setlerinde sütun bazında veri doldurma işlemlerinde kullanılır).\n\n---\n\n#### **4. Hızlı Erişim ve Otomatik İşlemler**\n- **Alt + D, V**: Veri Doğrulama (Veri doğrulama ayarları için kullanılır; ’te verilen “Data Validation” konusuyla ilişkilidir).\n- **Ctrl + Q**: Hızlı Erişim Araç Çubuğu (Sık kullanılan araçları hızlıca erişmek için kullanılır; veri analizi sırasında tekrarlanan işlemleri hızlandırır).\n- **Alt + =**: Otomatik Toplama (Tekrarlanan hesaplamalar için kritik öneme sahiptir; ’deki istatistiksel değerler için kullanılır).\n\n---\n\n### **Örnek Uygulama: ’deki Veri Analizi**\n- **MEAN** ve **MEDIAN** hesaplamaları: `Alt + =` ile Otomatik Toplama ile kolayca yapılır.\n- **Veri Filtreleme**: `Ctrl + Shift + L` ile öğrenci yaşlarını filtrelerken, ’deki veri setini hızla analiz edebilirsiniz.\n- **Veri Doğrulama**: ’te verilen “Data Validation” kuralları ile veri kalitesini korumanız mümkün.\n\n---\n\n### **Notlar**\n- ****: Öğrenci verisi ve istatistiksel hesaplamalar için temel bir veri setidir.\n- ****: Veri doğrulama ve analiz süreçleri için kritik bir kaynaktır.\n- Tüm shortcutlar Excel’deki standart kısayollarıdır ve **Microsoft Excel 2016+** sürümlerinde geçerlidir.  \n\nBu bilgiler, veri analizi ve tablo yönetimi süreçlerinde verimliliği artıracaktır. 📊\n\n\n\n---\n\n# 📚 KAYNAKÇA\n\nBu çalışma dökümanında kullanılan kaynaklar ve ilgili satırlar:\n\n**[1]** classwork.xlsx\n   → Kullanıldığı satırlar: 153, 155, 160, 161, 162, 167, 168, 169, 177, 181 ve 2 satır daha\n\n**[2]** excel4.pdf (Sayfa 27)\n   → Kullanıldığı satırlar: 175, 184, 190\n\n",
+  "status": "completed",
+  "references": [
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 153
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 155
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 160
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 161
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 162
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 167
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 168
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 169
+    },
+    {
+      "source_name": "excel4.pdf",
+      "source_id": "36808aef-4293-464f-9574-69eafa84a07c",
+      "page": 27,
+      "line_number": 175
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 177
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 181
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 183
+    },
+    {
+      "source_name": "excel4.pdf",
+      "source_id": "36808aef-4293-464f-9574-69eafa84a07c",
+      "page": 27,
+      "line_number": 184
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 189
+    },
+    {
+      "source_name": "excel4.pdf",
+      "source_id": "36808aef-4293-464f-9574-69eafa84a07c",
+      "page": 27,
+      "line_number": 190
+    }
+  ],
+  "created_at": "2026-01-17T02:08:29.774360",
+  "completed_at": "2026-01-17T02:20:33.387760",
+  "generation_log": [
+    "[2026-01-17T02:08:29.803449] 🚀 Üretim isteği alındı",
+    "[2026-01-17T02:08:29.816331] Üretim başladı",
+    "[2026-01-17T02:08:29.817331] Outline oluşturuluyor...",
+    "[2026-01-17T02:11:26.193930] Outline oluşturuldu: 3 bölüm",
+    "[2026-01-17T02:11:26.194446] Araştırma yapılıyor...",
+    "[2026-01-17T02:11:29.531602] Araştırma tamamlandı: 7 kaynak",
+    "[2026-01-17T02:11:29.531602] Bölüm 1/3 yazılıyor: Giriş",
+    "[2026-01-17T02:14:35.018820] Bölüm tamamlandı: Giriş",
+    "[2026-01-17T02:14:35.019837] Bölüm 2/3 yazılıyor: Tablar",
+    "[2026-01-17T02:17:54.906482] Bölüm tamamlandı: Tablar",
+    "[2026-01-17T02:17:54.906482] Bölüm 3/3 yazılıyor: Shortcutlar",
+    "[2026-01-17T02:20:33.386164] Bölüm tamamlandı: Shortcutlar",
+    "[2026-01-17T02:20:33.387220] Döküman birleştiriliyor...",
+    "[2026-01-17T02:20:33.387760] ✅ Döküman başarıyla tamamlandı!"
+  ]
+}

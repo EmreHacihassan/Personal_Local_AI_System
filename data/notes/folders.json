@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": "f2ae31cb-c587-4ceb-9c9a-ddca9a88c675",
+    "name": "deneme",
+    "parent_id": null,
+    "color": "blue",
+    "icon": "📁",
+    "created_at": "2026-01-14T11:02:07.447993",
+    "updated_at": "2026-01-14T11:02:07.447993"
+  }
+]

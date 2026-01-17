@@ -1,0 +1,17 @@
+{
+  "id": "7ff348c3-b36c-40a7-9117-1b0019477f16",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "Full Test",
+  "topic": "Excel basit konular",
+  "page_count": 1,
+  "style": "concise",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-17T00:34:02.453195",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-17T00:38:24.221207] Outline oluşturuldu: 6 bölüm",
+    "[2026-01-17T00:38:26.747304] Araştırma tamamlandı: 11 kaynak"
+  ]
+}

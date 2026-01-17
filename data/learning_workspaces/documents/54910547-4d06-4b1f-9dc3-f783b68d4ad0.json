@@ -1,0 +1,17 @@
+{
+  "id": "54910547-4d06-4b1f-9dc3-f783b68d4ad0",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "Basit Test",
+  "topic": "Python nedir",
+  "page_count": 1,
+  "style": "summary",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-17T00:49:10.632537",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-17T01:03:34.022937] Outline oluşturuldu: 3 bölüm",
+    "[2026-01-17T01:03:36.132252] Araştırma tamamlandı: 5 kaynak"
+  ]
+}

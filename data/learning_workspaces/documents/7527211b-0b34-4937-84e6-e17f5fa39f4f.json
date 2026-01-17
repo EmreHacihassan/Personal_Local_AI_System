@@ -1,0 +1,171 @@
+{
+  "id": "7527211b-0b34-4937-84e6-e17f5fa39f4f",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "Test Baslik",
+  "topic": "Python programlama dili temelleri",
+  "page_count": 1,
+  "style": "summary",
+  "content": "## Giriş\n\nPython, created by Guido van Rossum in 1991, is a high-level, interpreted programming language renowned for its readability and simplicity.  emphasizes its role in data literacy, as it empowers users to manipulate and analyze data efficiently. Unlike Excel, which is confined to spreadsheet-based tasks, Python offers a robust framework for handling complex data structures and automating repetitive processes.  highlights Excel's historical evolution, but Python’s flexibility makes it indispensable for modern data-driven workflows.  \n\nPython’s syntax mirrors natural language, reducing the learning curve for beginners. Variables are dynamically typed—no explicit declaration is needed. For example, `age = 25` assigns an integer, while `name = \"Alice\"` stores a string. Core data structures like lists and dictionaries enable easy storage and manipulation of data.  provides a concrete example: calculating the mean, median, and standard deviation of student ages. Using Python’s built-in functions, such as `sum()` and `len()`, these statistics can be computed with minimal code. For instance, the dataset in  (which includes values like 20, 20, and 65) can be processed with:  \n```python  \nages = [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 짘\n<|im_start|>\n\n---\n\n## Ana İçerik\n\n## Python Programlama Dili Temelleri  \n\nPython, açık kaynaklı, okunaklı ve çok yönlü bir programlama dilidir. Temel mantık ve veri işlemenin öğrenilmesinde idealdir.  tarafından sunulan veri bilgisi dersleri, Python'ın temel konseptlerini ve uygulama alanlarını vurgular.  \n\n### Temel Yapılar  \nPython'da **değişkenler** ve **veri türleri** temel bileşenlerdir.  \n- Değişkenler tür belirtilmeden tanımlanır: `yas = 25` veya `isim = \"Ahmet\"`.  \n- Temel veri tipleri: `int` (tamsayı), `float` (ondalıklı sayı), `str` (metinsel) ve `bool` (mantıksal).  \n- 'teki öğrenci yaş verisi, Python'ın temel veri manipülasyonunu gösterir (örneğin, `yaslar = [18, 20, 22]`).  \n\n### Kontrol Yapıları  \n- **Döngüler**: `for` ile veri seti üzerinde dolaşma:  \n  ```python\n  for yas in yaslar:\n      print(yas)\n  ```  \n- **Koşullu İfadeler**: `if-elif-else` ile karar blokları:  \n  ```python\n  if yas >= 18:\n      print(\"Yetişkin\")\n  ```  \n'teki istatistiksel veriler (ortalama, medyan), bu yapıların pratik uygulamalarını temsil eder.  \n\n### Fonksiyonlar  \nTekrarlanan işlemler için fonksiyonlar kullanılır:  \n```python\ndef ortalama_hesapla(veri):\n    return sum(veri) / len(veri)\n```  \n gibi kaynaklar, fonksiyon tanımlamalarını ve modülleri kullanmayı öğretir.  \n\n### Veri Analizi  \nPython, veri analizi için **pandas** kütüphanesini destekler.  \n- 'teki öğrenci yaş verisi, pandas ile kolayca okunabilir ve analiz edilir:  \n  ```python\n  import pandas as pd\n  veri = pd.Series(yaslar)\n  print(\"Ortalama:\", veri.mean())\n  ```  \n ve , veri manipülasyonunda pratik örnekler sunar.  \n\n### Sonuç  \nPython, temel programlama becerilerini kazandırmak için ideal bir dildir. 'deki dersler, Python'ın veri bilimi ve otomasyon alanlarındaki uygulamalarını öne çıkarır. Temel yapıları öğrenerek, veri analizi veya web geliştirme gibi alanlara geçiş kolaylaşır.  \n\n*(Toplam: 398 kelime)*\n\n---\n\n## Sonuç\n\n# Python Temelleri: Sonuç ve Özet  \n\nBu bölümde, Python’ın temel kavramlarını ve pratik uygulamalarını kapsayan bir dersin özeti sunulmaktadır. Python, veri analizi, programlama ve otomasyon gibi alanlarda popüler bir dil olarak, temel bilgisayar literatürünü desteklerken, günümüzde veri bilimi ve makine öğrenmesi alanlarında da vazgeçilmez bir araç haline gelmiştir. ’de vurgulanan \"Data and Computer Literacy\" konusu, Python’ın bu alandaki öneminin temelini oluşturur.  \n\nPython’ın temel yapı taşları olan **değişkenler**, **döngüler** ve **fonksiyonlar**, veri işlemenin temel adımlarını kolayca sağlar. Örneğin, **for** ve **while** döngüleri ile veri setlerini tekrarlı işlemler için kullanabilirken, **lambda** ve **map** gibi fonksiyonlar veri dönüştürme süreçlerini hızlandırır. ’teki formüller ve ’teki öğrenci yaş verileri, Python’ın bu temel yapıları üzerinden nasıl işleneceğini gösterir. Örneğin, ’teki verilerdeki **ortalama (23.75)**, **medyan (21.5)** ve **standart sapma (9.559680957019435)** değerleri, Python’ın Pandas kütüphanesiyle kolayca hesaplanabilir.  \n\nVeri analizi konusunda Python, özellikle **Pandas** ve **NumPy** gibi kütüphaneler sayesinde Excel gibi araçların üstesinden gelir. ’teki verileri, Python ile işleyerek istatistiksel hesaplamalar yapmak mümkündür. Örneğin, aşağıdaki kodla verilerin ortalama değeri hesaplanabilir:  \n```python  \nimport pandas as pd  \ndata = [20, 20, 20, 20, 20, 20, 21, 21, 21, 21, 22, 22, 22, 23, 23, 23, 23, 24, 24, 65]  \nprint(\"Ortalama:\", sum(data)/len(data))  \n```  \nBu yaklaşım, Excel’de manuel hesaplamalar yerine otomatik ve hızlı bir çözüm sunar. ’teki veri doğrulama (data validation) ve ’deki Excel tarihçesi, Python’ın daha esnek ve ölçeklenebilir çözümler sunabileceğini gösterir.  \n\nPython, ayrıca **kullanıcı arayüzü** ve **otomasyon** alanlarında da kritik öneme sahiptir. ’deki \"Desktop Publishing with Word\" slaytları, Python’ın Word veya Excel dosyalarını otomatik olarak oluşturabilme yeteneğini vurgular. Örneğin, bir Excel dosyasını Python’da okuyarak verileri analiz etmek veya rapor oluşturmak mümkündür.  \n\nSonuç olarak, Python temelleri, bilgisayar literatürünü ve veri analizini destekleyen temel bir araçtır. ’teki veri setleri ve ’deki eğitim içerikleri, Python’ın pratik uygulamalarını ve öneminin ne kadar geniş olduğunu gösterir. Bu dil, hem akademik hem de iş dünyasında veri yönetimi ve otomasyon konusunda önemli bir rol oynar. ’deki Excel tarihçesi ise, Python’ın Excel gibi mevcut araçların sınırlamalarını aşarak daha güçlü çözümler sunabileceğini hatırlatır.  \n\nPython’ın temel kavramları, veri analizi ve programlama becerilerini geliştirmeye yönelik sağlam bir temel sağlar. Bu nedenle, Python öğrenimi, günümüzdeki teknolojik ihtiyaçlara uyum sağlamak için vazgeçilmez bir adımdır.\n\n\n\n---\n\n# 📚 KAYNAKÇA\n\nBu çalışma dökümanında kullanılan kaynaklar ve ilgili satırlar:\n\n**[1]** MIS105_6_7_8.pptx\n   → Kullanıldığı satırlar: 1, 9, 49, 54, 66, 68\n\n**[2]** excel4.pdf (Sayfa 41)\n   → Kullanıldığı satırlar: 1, 64, 68\n\n**[3]** classwork.xlsx\n   → Kullanıldığı satırlar: 3, 15, 28, 40, 56, 58, 68\n\n**[4]** Book1_formulas.pptx\n   → Kullanıldığı satırlar: 36, 46, 56\n\n**[5]** BOOK1.xlsx\n   → Kullanıldığı satırlar: 46\n\n",
+  "status": "completed",
+  "references": [
+    {
+      "source_name": "MIS105_6_7_8.pptx",
+      "source_id": "566e31b8-3abf-49f8-84b3-50a8c3ad2d2e",
+      "page": null,
+      "line_number": 1
+    },
+    {
+      "source_name": "excel4.pdf",
+      "source_id": "36808aef-4293-464f-9574-69eafa84a07c",
+      "page": 41,
+      "line_number": 1
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 3
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 3
+    },
+    {
+      "source_name": "MIS105_6_7_8.pptx",
+      "source_id": "566e31b8-3abf-49f8-84b3-50a8c3ad2d2e",
+      "page": null,
+      "line_number": 9
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 15
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 28
+    },
+    {
+      "source_name": "Book1_formulas.pptx",
+      "source_id": "de873e63-708c-414d-a3d7-8ec0996f82bc",
+      "page": null,
+      "line_number": 36
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 40
+    },
+    {
+      "source_name": "BOOK1.xlsx",
+      "source_id": "09ae08f1-e70d-4e95-a517-b4c5b6f261d8",
+      "page": null,
+      "line_number": 46
+    },
+    {
+      "source_name": "Book1_formulas.pptx",
+      "source_id": "de873e63-708c-414d-a3d7-8ec0996f82bc",
+      "page": null,
+      "line_number": 46
+    },
+    {
+      "source_name": "MIS105_6_7_8.pptx",
+      "source_id": "566e31b8-3abf-49f8-84b3-50a8c3ad2d2e",
+      "page": null,
+      "line_number": 49
+    },
+    {
+      "source_name": "MIS105_6_7_8.pptx",
+      "source_id": "566e31b8-3abf-49f8-84b3-50a8c3ad2d2e",
+      "page": null,
+      "line_number": 54
+    },
+    {
+      "source_name": "Book1_formulas.pptx",
+      "source_id": "de873e63-708c-414d-a3d7-8ec0996f82bc",
+      "page": null,
+      "line_number": 56
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 56
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 56
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 58
+    },
+    {
+      "source_name": "excel4.pdf",
+      "source_id": "36808aef-4293-464f-9574-69eafa84a07c",
+      "page": 27,
+      "line_number": 64
+    },
+    {
+      "source_name": "excel4.pdf",
+      "source_id": "36808aef-4293-464f-9574-69eafa84a07c",
+      "page": 41,
+      "line_number": 64
+    },
+    {
+      "source_name": "MIS105_6_7_8.pptx",
+      "source_id": "566e31b8-3abf-49f8-84b3-50a8c3ad2d2e",
+      "page": null,
+      "line_number": 66
+    },
+    {
+      "source_name": "classwork.xlsx",
+      "source_id": "c3faa58a-e055-45c2-adb4-3beb859d6f13",
+      "page": null,
+      "line_number": 68
+    },
+    {
+      "source_name": "MIS105_6_7_8.pptx",
+      "source_id": "566e31b8-3abf-49f8-84b3-50a8c3ad2d2e",
+      "page": null,
+      "line_number": 68
+    },
+    {
+      "source_name": "excel4.pdf",
+      "source_id": "36808aef-4293-464f-9574-69eafa84a07c",
+      "page": 41,
+      "line_number": 68
+    }
+  ],
+  "created_at": "2026-01-17T01:12:57.266982",
+  "completed_at": "2026-01-17T01:26:24.676049",
+  "generation_log": [
+    "[2026-01-17T01:13:13.092901] 🚀 Üretim isteği alındı",
+    "[2026-01-17T01:13:13.103348] Üretim başladı",
+    "[2026-01-17T01:13:13.104358] Outline oluşturuluyor...",
+    "[2026-01-17T01:17:50.671886] Outline oluşturuldu: 3 bölüm",
+    "[2026-01-17T01:17:50.672524] Araştırma yapılıyor...",
+    "[2026-01-17T01:17:53.646114] Araştırma tamamlandı: 8 kaynak",
+    "[2026-01-17T01:17:53.646634] Bölüm 1/3 yazılıyor: Giriş",
+    "[2026-01-17T01:23:06.965495] Bölüm tamamlandı: Giriş",
+    "[2026-01-17T01:23:06.966020] Bölüm 2/3 yazılıyor: Ana İçerik",
+    "[2026-01-17T01:25:12.024219] Bölüm tamamlandı: Ana İçerik",
+    "[2026-01-17T01:25:12.025296] Bölüm 3/3 yazılıyor: Sonuç",
+    "[2026-01-17T01:26:24.673472] Bölüm tamamlandı: Sonuç",
+    "[2026-01-17T01:26:24.673999] Döküman birleştiriliyor...",
+    "[2026-01-17T01:26:24.676049] ✅ Döküman başarıyla tamamlandı!",
+    "[2026-01-17T01:34:42.694098] ✏️ Düzenlendi: başlık: Python Temelleri Guncellendi",
+    "[2026-01-17T01:39:50.191196] ✏️ Düzenlendi: başlık: Test Baslik Degisikligi",
+    "[2026-01-17T01:39:56.294943] ✏️ Düzenlendi: başlık: Test Baslik"
+  ]
+}

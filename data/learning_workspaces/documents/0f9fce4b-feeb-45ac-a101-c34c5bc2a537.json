@@ -1,0 +1,17 @@
+{
+  "id": "0f9fce4b-feeb-45ac-a101-c34c5bc2a537",
+  "workspace_id": "dd5fddef-3092-48cb-9f28-7cf81b82b3d8",
+  "title": "Mini Test",
+  "topic": "Excel",
+  "page_count": 1,
+  "style": "concise",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-17T00:20:13.669345",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-17T00:24:07.711523] Outline oluşturuldu: 3 bölüm",
+    "[2026-01-17T00:24:10.577847] Araştırma tamamlandı: 6 kaynak"
+  ]
+}

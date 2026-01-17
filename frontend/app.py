@@ -1279,23 +1279,31 @@ def check_health():
 
 class WebSocketClient:
     """
-    Enterprise WebSocket Client.
+    Enterprise WebSocket Client with Auto-Reconnect.
     
     HTTP Streaming yerine gerçek WebSocket kullanır:
     - Bidirectional communication
     - Düşük latency
     - Stop komutu anında gönderilir
     - Keepalive otomatik
+    - Otomatik yeniden bağlanma (max 3 deneme)
+    - Sessiz hata yönetimi (UI'ı bloklamaz)
     """
     
     def __init__(self):
         self.ws = None
         self.connected = False
         self.client_id = None
+        self._max_retries = 3
+        self._retry_delay = 0.5  # saniye
+        self._last_error = None
     
-    def connect(self):
-        """WebSocket bağlantısı kur."""
-        import websocket
+    def connect(self, retry_count: int = 0) -> bool:
+        """WebSocket bağlantısı kur (otomatik retry ile)."""
+        try:
+            import websocket
+        except ImportError:
+            return False  # websocket-client yüklü değil
         
         if self.connected and self.ws:
             return True
@@ -1307,10 +1315,11 @@ class WebSocketClient:
             
             self.ws = websocket.create_connection(
                 ws_url,
-                timeout=5,
+                timeout=3,  # Daha kısa timeout
                 enable_multithread=True
             )
             self.connected = True
+            self._last_error = None
             
             # Bağlantı onayını bekle
             response = self.ws.recv()
@@ -1321,6 +1330,13 @@ class WebSocketClient:
         except Exception as e:
             self.connected = False
             self.ws = None
+            self._last_error = str(e)
+            
+            # Retry mekanizması
+            if retry_count < self._max_retries:
+                time.sleep(self._retry_delay)
+                return self.connect(retry_count + 1)
+            
             return False
         
         return False
@@ -1344,11 +1360,17 @@ class WebSocketClient:
                 pass
     
     def stream_chat(self, message: str, session_id: str, web_search: bool = False, response_mode: str = "normal", complexity_level: str = "auto"):
-        """WebSocket üzerinden streaming chat."""
-        import websocket
+        """WebSocket üzerinden streaming chat (HTTP fallback ile)."""
+        try:
+            import websocket
+        except ImportError:
+            # websocket-client yüklü değil, HTTP'ye fallback
+            yield {"type": "fallback_to_http"}
+            return
         
         if not self.connect():
-            yield {"type": "error", "message": "WebSocket bağlantısı kurulamadı"}
+            # WebSocket bağlanamadı, HTTP'ye fallback yap
+            yield {"type": "fallback_to_http"}
             return
         
         try:
@@ -1431,30 +1453,43 @@ def stream_chat_message(message: str, use_web_search: bool = False, response_mod
     Streaming chat mesajı gönder.
     
     WebSocket kullanılabiliyorsa WebSocket, yoksa HTTP Streaming.
+    Otomatik fallback mekanizması ile kesintisiz çalışır.
     
     Args:
         complexity_level: "auto", "simple", "moderate", "advanced", "comprehensive"
     """
-    # Önce WebSocket dene
-    try:
-        import websocket
-        ws_available = True
-    except ImportError:
-        ws_available = False
+    use_http_fallback = False
     
-    # WebSocket tercih et (daha düşük latency)
-    if ws_available and not use_web_search:  # Web search HTTP'de kalsın (daha kararlı)
-        ws_client = get_ws_client()
-        yield from ws_client.stream_chat(
-            message, 
-            st.session_state.session_id, 
-            use_web_search, 
-            response_mode,
-            complexity_level
-        )
-        return
+    # Önce WebSocket dene (web search hariç)
+    if not use_web_search:
+        try:
+            import websocket
+            ws_available = True
+        except ImportError:
+            ws_available = False
+        
+        if ws_available:
+            ws_client = get_ws_client()
+            for event in ws_client.stream_chat(
+                message, 
+                st.session_state.session_id, 
+                use_web_search, 
+                response_mode,
+                complexity_level
+            ):
+                # Fallback sinyali kontrolü
+                if event.get("type") == "fallback_to_http":
+                    use_http_fallback = True
+                    break
+                yield event
+            
+            # WebSocket başarılı olduysa çık
+            if not use_http_fallback:
+                return
+    else:
+        use_http_fallback = True
     
-    # Fallback: HTTP Streaming
+    # HTTP Streaming (fallback veya web search için)
     endpoint = "/api/chat/web-stream" if use_web_search else "/api/chat/stream"
     
     try:
@@ -1482,10 +1517,14 @@ def stream_chat_message(message: str, use_web_search: bool = False, response_mod
                         except json.JSONDecodeError:
                             continue
         else:
-            yield {"type": "error", "message": f"HTTP {response.status_code}"}
-            
+            yield {"type": "error", "message": f"Sunucu yanıt vermedi (HTTP {response.status_code}). Lütfen tekrar deneyin."}
+    
+    except requests.exceptions.ConnectionError:
+        yield {"type": "error", "message": "⚠️ Backend bağlantısı kurulamadı. Lütfen sistemin çalıştığından emin olun."}
+    except requests.exceptions.Timeout:
+        yield {"type": "error", "message": "⚠️ İstek zaman aşımına uğradı. Lütfen tekrar deneyin."}
     except requests.exceptions.RequestException as e:
-        yield {"type": "error", "message": str(e)}
+        yield {"type": "error", "message": f"Bağlantı hatası: {str(e)[:100]}"}
 
 
 def stream_vision_message(message: str, image_file):
@@ -1523,7 +1562,7 @@ def stream_vision_message(message: str, image_file):
 
 
 def upload_document(file):
-    """Döküman yükle."""
+    """Döküman yükle - ROBUST VERSION."""
     file_type = file.type
     if not file_type:
         ext = Path(file.name).suffix.lower()
@@ -1543,14 +1582,25 @@ def upload_document(file):
         }
         file_type = type_map.get(ext, "application/octet-stream")
     
+    # Dosya boyutuna göre dinamik timeout
+    file_size_mb = file.size / (1024 * 1024) if file.size else 0
+    base_timeout = 60
+    # Her 10MB için 60 saniye ekle
+    timeout = base_timeout + int(file_size_mb / 10) * 60
+    timeout = min(timeout, 600)  # Max 10 dakika
+    
     try:
         response = requests.post(
             f"{API_BASE_URL}/api/documents/upload",
             files={"file": (file.name, file, file_type)},
-            timeout=300,
+            timeout=timeout,
         )
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": f"Timeout ({timeout}s): Dosya çok büyük, işlem uzun sürdü"}
+    except requests.exceptions.ConnectionError:
+        return {"success": False, "error": "Bağlantı hatası: Backend'e ulaşılamadı"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1787,10 +1837,10 @@ with st.sidebar:
     st.markdown("## 🤖 Enterprise AI")
     st.markdown("---")
     
-    # Navigation - Favoriler ve Şablonlar eklendi
+    # Navigation - AI ile Öğren eklendi
     page = st.radio(
         "📍 Navigasyon",
-        ["💬 Chat", "📝 Notlar", "📜 Geçmiş", "📁 Dökümanlar", "🔍 Arama", "⭐ Favoriler", "📋 Şablonlar", "📊 Dashboard", "⚙️ Ayarlar"],
+        ["💬 Chat", "📝 Notlar", "📜 Geçmiş", "📁 Dökümanlar", "🔍 Arama", "📚 AI ile Öğren", "⭐ Favoriler", "📋 Şablonlar", "📊 Dashboard", "⚙️ Ayarlar"],
         label_visibility="collapsed",
     )
     
@@ -1800,6 +1850,7 @@ with st.sidebar:
         "📜 Geçmiş": "history",
         "📁 Dökümanlar": "documents",
         "🔍 Arama": "search",
+        "📚 AI ile Öğren": "learning",
         "⭐ Favoriler": "favorites",
         "📋 Şablonlar": "templates",
         "📊 Dashboard": "dashboard",
@@ -2748,78 +2799,174 @@ elif st.session_state.current_page == "documents":
     st.markdown("## 📁 Döküman Yönetimi")
     st.caption("RAG bilgi tabanına döküman yükleyin ve yönetin")
     
+    # İstatistikler
+    try:
+        stats_response = api_request("GET", "/api/admin/stats")
+        if stats_response and not stats_response.get("error"):
+            stat_col1, stat_col2, stat_col3 = st.columns(3)
+            with stat_col1:
+                st.metric("📚 Toplam Döküman", stats_response.get("documents", {}).get("total", 0))
+            with stat_col2:
+                st.metric("📦 Toplam Chunk", stats_response.get("documents", {}).get("chunks", 0))
+            with stat_col3:
+                st.metric("💾 Toplam Boyut", f"{stats_response.get('documents', {}).get('total_size_mb', 0):.1f} MB")
+    except Exception:
+        pass
+    
+    st.markdown("---")
+    
     # Upload
     st.markdown("### 📤 Döküman Yükle")
     
     uploaded_files = st.file_uploader(
         "Döküman seçin (birden fazla seçebilirsiniz)",
         type=["pdf", "docx", "doc", "txt", "md", "csv", "json", "html", "pptx", "ppt", "xlsx", "xls"],
-        help="Desteklenen: PDF, Word (DOC/DOCX), PowerPoint (PPT/PPTX), Excel (XLS/XLSX), TXT, MD, CSV, JSON, HTML",
+        help="Desteklenen formatlar: PDF, Word (DOC/DOCX), PowerPoint (PPT/PPTX), Excel (XLS/XLSX), TXT, MD, CSV, JSON, HTML. Maksimum dosya boyutu: 200MB",
         key="doc_uploader",
         accept_multiple_files=True
     )
     
     if uploaded_files:
         # Seçilen dosyaları listele
-        st.markdown(f"**📋 Seçilen dosyalar: {len(uploaded_files)}**")
         total_size = sum(f.size for f in uploaded_files)
         
-        with st.expander(f"📁 Dosya listesi ({total_size / 1024:.1f} KB toplam)", expanded=True):
-            for f in uploaded_files:
-                st.text(f"• {f.name} ({f.size / 1024:.1f} KB)")
+        st.markdown(f"**📋 Seçilen: {len(uploaded_files)} dosya ({total_size / (1024*1024):.2f} MB)**")
         
-        if st.button(f"📥 {len(uploaded_files)} Dosyayı Yükle ve İndexle", type="primary", key="upload_btn"):
+        with st.expander("📂 Dosya Detayları", expanded=False):
+            for f in uploaded_files:
+                ext = Path(f.name).suffix.lower()
+                if ext == ".pdf":
+                    icon = "📕"
+                elif ext in [".docx", ".doc"]:
+                    icon = "📘"
+                elif ext in [".pptx", ".ppt"]:
+                    icon = "📙"
+                elif ext in [".xlsx", ".xls"]:
+                    icon = "📗"
+                else:
+                    icon = "📄"
+                st.text(f"{icon} {f.name} ({f.size / 1024:.1f} KB)")
+        
+        if st.button(f"🚀 {len(uploaded_files)} Dosyayı Yükle ve İndeksle", type="primary", key="upload_btn", use_container_width=True):
             progress_bar = st.progress(0)
-            status_text = st.empty()
+            status_container = st.empty()
+            detail_container = st.empty()
+            result_container = st.container()
             
             success_count = 0
             error_count = 0
             total_chunks = 0
+            errors = []
+            successes = []
+            
+            total_files = len(uploaded_files)
             
             for i, uploaded_file in enumerate(uploaded_files):
-                status_text.text(f"⏳ İşleniyor: {uploaded_file.name} ({i+1}/{len(uploaded_files)})")
-                progress_bar.progress((i + 1) / len(uploaded_files))
+                file_size_mb = uploaded_file.size / (1024 * 1024)
                 
+                with status_container:
+                    st.info(f"⏳ İşleniyor: **{uploaded_file.name}** ({i+1}/{total_files})")
+                
+                with detail_container:
+                    if file_size_mb > 5:
+                        st.caption(f"📦 Büyük dosya ({file_size_mb:.1f} MB) - işlem uzun sürebilir...")
+                    else:
+                        st.caption(f"📦 {file_size_mb:.2f} MB")
+                
+                progress_bar.progress((i) / total_files, text=f"Yükleniyor... {i+1}/{total_files}")
+                
+                start_time = time.time()
                 result = upload_document(uploaded_file)
+                elapsed = time.time() - start_time
                 
                 if result and result.get("success"):
                     success_count += 1
-                    total_chunks += result.get('chunks_created', 0)
+                    chunks = result.get('chunks_created', 0)
+                    total_chunks += chunks
+                    successes.append(f"✅ {uploaded_file.name}: {chunks} parça ({elapsed:.1f}s)")
                 else:
                     error_count += 1
+                    error_msg = result.get('error', 'Bilinmeyen hata') if result else 'Yanıt alınamadı'
+                    errors.append(f"{uploaded_file.name}: {error_msg[:100]}")
+                
+                progress_bar.progress((i + 1) / total_files, text=f"Tamamlandı: {i+1}/{total_files}")
             
             progress_bar.empty()
-            status_text.empty()
+            status_container.empty()
+            detail_container.empty()
             
-            if success_count > 0:
-                st.success(f"✅ {success_count} dosya başarıyla yüklendi! ({total_chunks} parça oluşturuldu)")
-            if error_count > 0:
-                st.warning(f"⚠️ {error_count} dosya yüklenemedi")
-            if success_count > 0:
-                st.balloons()
+            with result_container:
+                if success_count > 0:
+                    st.success(f"✅ **{success_count}/{total_files}** dosya başarıyla yüklendi! ({total_chunks} parça oluşturuldu)")
+                    if success_count == total_files:
+                        st.balloons()
+                    with st.expander("📋 Başarılı Yüklemeler", expanded=False):
+                        for s in successes:
+                            st.write(s)
+                
+                if error_count > 0:
+                    st.warning(f"⚠️ **{error_count}** dosya yüklenemedi")
+                    with st.expander("❌ Hata Detayları", expanded=True):
+                        for err in errors:
+                            st.error(err)
+                            
+            st.rerun()
     
     st.markdown("---")
     
     # Döküman listesi
     st.markdown("### 📋 Yüklenen Dökümanlar")
     
+    # Yenile butonu
+    refresh_col1, refresh_col2 = st.columns([6, 1])
+    with refresh_col2:
+        if st.button("🔄", key="refresh_docs", help="Listeyi yenile"):
+            st.rerun()
+    
     docs = get_documents()
     
     if docs and docs.get("documents"):
         for doc in docs["documents"]:
-            col1, col2, col3 = st.columns([4, 1, 1])
+            filename = doc.get('filename', 'Bilinmeyen')
+            ext = Path(filename).suffix.lower() if filename else ""
             
-            with col1:
-                st.markdown(f"📄 **{doc.get('filename', 'Bilinmeyen')}**")
-            with col2:
-                size_kb = doc.get('size', 0) / 1024
-                st.text(f"{size_kb:.1f} KB")
-            with col3:
-                if st.button("🗑️", key=f"deldoc_{doc.get('document_id')}"):
-                    delete_document(doc.get("document_id"))
-                    st.rerun()
+            # Dosya ikonu
+            if ext == ".pdf":
+                icon = "📕"
+            elif ext in [".docx", ".doc"]:
+                icon = "📘"
+            elif ext in [".pptx", ".ppt"]:
+                icon = "📙"
+            elif ext in [".xlsx", ".xls"]:
+                icon = "📗"
+            elif ext in [".txt", ".md"]:
+                icon = "📄"
+            else:
+                icon = "📁"
+            
+            with st.container(border=True):
+                col1, col2, col3, col4 = st.columns([5, 2, 2, 1])
+                
+                with col1:
+                    st.markdown(f"{icon} **{filename}**")
+                with col2:
+                    size_bytes = doc.get('size', 0)
+                    if size_bytes > 1024 * 1024:
+                        st.caption(f"📦 {size_bytes / (1024*1024):.1f} MB")
+                    else:
+                        st.caption(f"📦 {size_bytes / 1024:.1f} KB")
+                with col3:
+                    uploaded_at = doc.get('uploaded_at', '')
+                    if uploaded_at:
+                        date_str = uploaded_at[:10] if len(uploaded_at) >= 10 else uploaded_at
+                        st.caption(f"📅 {date_str}")
+                with col4:
+                    if st.button("🗑️", key=f"deldoc_{doc.get('document_id')}", help="Dökümanı sil"):
+                        delete_document(doc.get("document_id"))
+                        st.toast(f"✅ {filename} silindi")
+                        st.rerun()
     else:
-        st.info("📭 Henüz döküman yüklenmemiş")
+        st.info("📭 Henüz döküman yüklenmemiş. Yukarıdan dosya seçerek yükleme yapabilirsiniz.")
 
 
 # ============ SEARCH PAGE - ADVANCED ============
@@ -4133,13 +4280,1053 @@ if st.session_state.show_keyboard_shortcuts:
     show_shortcuts_modal()
 
 
-# ============ TEMPLATE TO USE ============
+# ============ LEARNING PAGE ============
 
-# Şablon kullanımı için chat'e yönlendir
-if "template_to_use" in st.session_state and st.session_state.template_to_use:
-    if st.session_state.current_page == "chat":
-        st.info(f"📋 Şablon hazır: {st.session_state.template_to_use[:50]}...")
-        # Template'i input olarak göster - kullanıcı düzenleyip gönderebilir
+elif st.session_state.current_page == "learning":
+    # API functions - Connection pooling kullanarak hızlı
+    _learning_session = get_http_session()  # Global HTTP session kullan
+    
+    def learning_api_get(endpoint: str, params: dict = None) -> dict:
+        try:
+            response = _learning_session.get(f"{API_BASE_URL}{endpoint}", params=params, timeout=3)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def learning_api_post(endpoint: str, data: dict = None) -> dict:
+        try:
+            response = _learning_session.post(f"{API_BASE_URL}{endpoint}", json=data, timeout=8)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def learning_api_delete(endpoint: str) -> dict:
+        try:
+            response = _learning_session.delete(f"{API_BASE_URL}{endpoint}", timeout=3)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def learning_api_request(endpoint: str, method: str = "GET", data: dict = None) -> dict:
+        """Generic API request helper for PUT, PATCH, etc."""
+        try:
+            if method.upper() == "PUT":
+                response = _learning_session.put(f"{API_BASE_URL}{endpoint}", json=data, timeout=8)
+            elif method.upper() == "PATCH":
+                response = _learning_session.patch(f"{API_BASE_URL}{endpoint}", json=data, timeout=8)
+            elif method.upper() == "POST":
+                response = _learning_session.post(f"{API_BASE_URL}{endpoint}", json=data, timeout=8)
+            elif method.upper() == "DELETE":
+                response = _learning_session.delete(f"{API_BASE_URL}{endpoint}", timeout=3)
+            else:
+                response = _learning_session.get(f"{API_BASE_URL}{endpoint}", params=data, timeout=3)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            error_detail = e.response.json() if e.response else {"detail": str(e)}
+            return {"error": str(e), **error_detail}
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def learning_api_stream(endpoint: str, data: dict = None):
+        """Streaming API çağrısı - SSE desteği."""
+        try:
+            response = _learning_session.post(
+                f"{API_BASE_URL}{endpoint}",
+                json=data,
+                stream=True,
+                timeout=300,
+                headers={"Accept": "text/event-stream"}
+            )
+            response.raise_for_status()
+            
+            for line in response.iter_lines(decode_unicode=True):
+                if line:
+                    if line.startswith("data: "):
+                        try:
+                            event_data = json.loads(line[6:])
+                            yield event_data
+                        except json.JSONDecodeError:
+                            yield {"type": "chunk", "content": line[6:]}
+                    elif line.strip():
+                        yield {"type": "chunk", "content": line}
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+    
+    # Session state for learning
+    if "learning_view" not in st.session_state:
+        st.session_state.learning_view = "list"  # list, workspace, generating, reading
+    if "current_workspace_id" not in st.session_state:
+        st.session_state.current_workspace_id = None
+    if "workspace_tab" not in st.session_state:
+        st.session_state.workspace_tab = 0
+    # Döküman oluşturma için ek state'ler
+    if "generating_document_id" not in st.session_state:
+        st.session_state.generating_document_id = None
+    if "pending_doc_config" not in st.session_state:
+        st.session_state.pending_doc_config = None
+    if "reading_document_id" not in st.session_state:
+        st.session_state.reading_document_id = None
+    if "generated_content" not in st.session_state:
+        st.session_state.generated_content = ""
+    
+    # =============== DÖKÜMAN OLUŞTURMA SAYFASI ===============
+    if st.session_state.learning_view == "generating":
+        doc_config = st.session_state.pending_doc_config or {}
+        
+        # Geri butonu
+        col_back, col_title = st.columns([1, 5])
+        with col_back:
+            if st.button("⬅️ Geri", key="back_from_gen"):
+                st.session_state.learning_view = "workspace"
+                st.session_state.generating_document_id = None
+                st.session_state.pending_doc_config = None
+                st.rerun()
+        
+        with col_title:
+            st.markdown("## 🔄 Döküman Oluşturuluyor...")
+        
+        st.markdown("---")
+        
+        # Döküman bilgileri
+        with st.container(border=True):
+            info_col1, info_col2 = st.columns(2)
+            with info_col1:
+                st.markdown(f"**📖 Başlık:** {doc_config.get('title', 'Döküman')}")
+                st.markdown(f"**📌 Konu:** {doc_config.get('topic', '-')}")
+            with info_col2:
+                st.markdown(f"**📄 Sayfa Sayısı:** {doc_config.get('page_count', 5)}")
+                st.markdown(f"**✍️ Stil:** {doc_config.get('style', 'detailed')}")
+            
+            # Web arama durumu
+            web_mode = doc_config.get('web_search', 'auto')
+            web_icon = {"off": "🔒", "auto": "🤖", "on": "🌐"}.get(web_mode, "❓")
+            web_label = {"off": "Kapalı", "auto": "Otomatik", "on": "Açık"}.get(web_mode, "Bilinmiyor")
+            st.markdown(f"**{web_icon} Web Araması:** {web_label}")
+        
+        st.markdown("---")
+        
+        # Thinking/Reasoning süreci gösterimi
+        st.markdown("### 🧠 AI Düşünme Süreci")
+        
+        thinking_container = st.container()
+        progress_bar = st.progress(0, text="Başlatılıyor...")
+        status_text = st.empty()
+        
+        # Log container
+        with st.expander("📋 Detaylı İşlem Logları", expanded=True):
+            log_container = st.empty()
+        
+        # İçerik önizleme
+        st.markdown("### 📝 Oluşturulan İçerik")
+        content_container = st.empty()
+        
+        # Oluşturma işlemi
+        logs = []
+        full_content = ""
+        document_id = st.session_state.generating_document_id
+        
+        try:
+            if not document_id:
+                # 1. Önce döküman kaydı oluştur
+                logs.append(f"⏱️ [{datetime.now().strftime('%H:%M:%S')}] Döküman kaydı oluşturuluyor...")
+                with log_container:
+                    st.code("\n".join(logs), language="text")
+                
+                progress_bar.progress(5, text="Döküman kaydı oluşturuluyor...")
+                
+                create_result = learning_api_post(
+                    f"/api/learning/workspaces/{st.session_state.current_workspace_id}/documents",
+                    doc_config
+                )
+                
+                if create_result.get("error"):
+                    st.error(f"❌ Döküman oluşturulamadı: {create_result.get('error')}")
+                    if st.button("🔄 Tekrar Dene"):
+                        st.rerun()
+                    st.stop()
+                
+                document_id = create_result.get("document", {}).get("id")
+                st.session_state.generating_document_id = document_id
+                
+                logs.append(f"✅ [{datetime.now().strftime('%H:%M:%S')}] Döküman kaydı oluşturuldu: {document_id[:8]}...")
+                with log_container:
+                    st.code("\n".join(logs), language="text")
+            
+            # 2. İçerik oluşturmayı başlat (background task)
+            logs.append(f"🚀 [{datetime.now().strftime('%H:%M:%S')}] AI içerik üretimi başlatılıyor...")
+            with log_container:
+                st.code("\n".join(logs), language="text")
+            
+            progress_bar.progress(10, text="AI düşünüyor...")
+            
+            # Web search modunu doc_config'den al
+            web_search_mode = doc_config.get("web_search", "auto")
+            
+            # Backend'e üretimi başlat komutu gönder
+            start_result = learning_api_post(
+                f"/api/learning/documents/{document_id}/generate",
+                {
+                    "custom_instructions": doc_config.get("custom_instructions", ""),
+                    "web_search": web_search_mode
+                }
+            )
+            
+            if start_result.get("error"):
+                st.error(f"❌ Üretim başlatılamadı: {start_result.get('error')}")
+                if st.button("🔄 Tekrar Dene", key="retry_start"):
+                    st.rerun()
+                st.stop()
+            
+            logs.append(f"✅ [{datetime.now().strftime('%H:%M:%S')}] Arka plan görevi başlatıldı")
+            with log_container:
+                st.code("\n".join(logs), language="text")
+            
+            # 3. Polling ile durum takibi
+            import time
+            poll_count = 0
+            last_log_count = 0
+            
+            # İptal butonu için placeholder
+            cancel_col1, cancel_col2 = st.columns([3, 1])
+            with cancel_col2:
+                cancel_button = st.button("❌ İptal Et", key="cancel_generation", type="secondary")
+            
+            if cancel_button:
+                cancel_result = learning_api_post(f"/api/learning/documents/{document_id}/cancel", {})
+                if cancel_result.get("success"):
+                    st.warning("⏸️ Üretim iptal edildi")
+                    st.session_state.generating_document_id = None
+                    st.session_state.learning_view = "workspace"
+                    time.sleep(1)
+                    st.rerun()
+            
+            polling_placeholder = st.empty()
+            
+            while True:
+                poll_count += 1
+                
+                # Döküman durumunu kontrol et
+                doc_result = learning_api_get(f"/api/learning/documents/{document_id}")
+                doc_data = doc_result.get("document", {})
+                
+                status = doc_data.get("status", "generating")
+                gen_logs = doc_data.get("generation_log", [])
+                content = doc_data.get("content", "")
+                
+                # Yeni logları ekle
+                if len(gen_logs) > last_log_count:
+                    for log_entry in gen_logs[last_log_count:]:
+                        logs.append(f"📋 {log_entry}")
+                    last_log_count = len(gen_logs)
+                    with log_container:
+                        st.code("\n".join(logs[-25:]), language="text")
+                
+                # Progress güncelle
+                dots = "." * ((poll_count % 3) + 1)
+                if status == "generating":
+                    progress_val = min(15 + (poll_count * 2), 85)
+                    progress_bar.progress(progress_val, text=f"🧠 AI çalışıyor{dots} ({poll_count * 3}s)")
+                    with status_text:
+                        st.info(f"⏳ Döküman oluşturuluyor... ({len(gen_logs)} aşama tamamlandı)")
+                    
+                    # İçerik varsa göster
+                    if content:
+                        with content_container:
+                            st.markdown(content[:5000] + ("..." if len(content) > 5000 else ""))
+                
+                elif status == "completed":
+                    logs.append(f"🎉 [{datetime.now().strftime('%H:%M:%S')}] Döküman başarıyla tamamlandı!")
+                    with log_container:
+                        st.code("\n".join(logs), language="text")
+                    
+                    progress_bar.progress(100, text="Tamamlandı!")
+                    with status_text:
+                        st.success("✅ Döküman başarıyla oluşturuldu!")
+                    
+                    # İçeriği kaydet
+                    st.session_state.generated_content = content
+                    st.session_state.reading_document_id = document_id
+                    
+                    # Okuma sayfasına yönlendir
+                    st.session_state.learning_view = "reading"
+                    st.session_state.generating_document_id = None
+                    st.session_state.pending_doc_config = None
+                    time.sleep(1)
+                    st.rerun()
+                
+                elif status == "failed":
+                    error_msg = gen_logs[-1] if gen_logs else "Bilinmeyen hata"
+                    logs.append(f"❌ [{datetime.now().strftime('%H:%M:%S')}] HATA: {error_msg}")
+                    with log_container:
+                        st.code("\n".join(logs), language="text")
+                    
+                    with status_text:
+                        st.error(f"❌ Döküman oluşturma başarısız: {error_msg}")
+                    
+                    col_r1, col_r2 = st.columns(2)
+                    with col_r1:
+                        if st.button("🔄 Tekrar Dene", key="retry_failed"):
+                            # Restart endpoint'ini çağır
+                            restart_result = learning_api_post(f"/api/learning/documents/{document_id}/restart", {
+                                "custom_instructions": doc_config.get("custom_instructions", ""),
+                                "web_search": doc_config.get("web_search", "auto")
+                            })
+                            if restart_result.get("success"):
+                                st.rerun()
+                    with col_r2:
+                        if st.button("⬅️ Geri Dön", key="back_failed"):
+                            st.session_state.generating_document_id = None
+                            st.session_state.learning_view = "workspace"
+                            st.rerun()
+                    break
+                
+                elif status == "cancelled":
+                    logs.append(f"⏸️ [{datetime.now().strftime('%H:%M:%S')}] Üretim iptal edildi")
+                    with log_container:
+                        st.code("\n".join(logs), language="text")
+                    
+                    with status_text:
+                        st.warning("⏸️ Döküman üretimi iptal edildi")
+                    
+                    col_c1, col_c2 = st.columns(2)
+                    with col_c1:
+                        if st.button("🔄 Yeniden Başlat", key="restart_cancelled"):
+                            restart_result = learning_api_post(f"/api/learning/documents/{document_id}/restart", {
+                                "custom_instructions": doc_config.get("custom_instructions", ""),
+                                "web_search": doc_config.get("web_search", "auto")
+                            })
+                            if restart_result.get("success"):
+                                st.rerun()
+                    with col_c2:
+                        if st.button("⬅️ Geri Dön", key="back_cancelled"):
+                            st.session_state.generating_document_id = None
+                            st.session_state.learning_view = "workspace"
+                            st.rerun()
+                    break
+                
+                # 3 saniye bekle
+                time.sleep(3)
+                
+                # Maksimum 20 dakika bekle (400 poll)
+                if poll_count > 400:
+                    logs.append(f"⏰ [{datetime.now().strftime('%H:%M:%S')}] Zaman aşımı!")
+                    with log_container:
+                        st.code("\n".join(logs), language="text")
+                    with status_text:
+                        st.warning("⏰ Döküman oluşturma çok uzun sürdü. Lütfen daha sonra kontrol edin.")
+                    break
+        
+        except Exception as e:
+            logs.append(f"💥 [{datetime.now().strftime('%H:%M:%S')}] Kritik hata: {str(e)}")
+            with log_container:
+                st.code("\n".join(logs), language="text")
+            st.error(f"Bir hata oluştu: {str(e)}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Tekrar Dene", key="retry_error"):
+                    st.session_state.generating_document_id = None
+                    st.rerun()
+            with col2:
+                if st.button("⬅️ Geri Dön", key="back_error"):
+                    st.session_state.learning_view = "workspace"
+                    st.rerun()
+    
+    # =============== DÖKÜMAN OKUMA SAYFASI ===============
+    elif st.session_state.learning_view == "reading":
+        doc_id = st.session_state.reading_document_id
+        
+        # Döküman bilgilerini al
+        doc_data = learning_api_get(f"/api/learning/documents/{doc_id}")
+        doc = doc_data.get("document", {})
+        
+        # Header
+        col_back, col_title, col_actions = st.columns([1, 4, 2])
+        
+        with col_back:
+            if st.button("⬅️ Geri", key="back_from_read"):
+                st.session_state.learning_view = "workspace"
+                st.session_state.reading_document_id = None
+                st.session_state.generated_content = ""
+                st.rerun()
+        
+        with col_title:
+            st.markdown(f"## 📖 {doc.get('title', 'Döküman')}")
+        
+        with col_actions:
+            st.caption(f"📄 {doc.get('page_count', 0)} sayfa")
+        
+        st.markdown("---")
+        
+        # Döküman meta bilgileri
+        with st.container(border=True):
+            meta_col1, meta_col2, meta_col3 = st.columns(3)
+            with meta_col1:
+                st.markdown(f"**📌 Konu:** {doc.get('topic', '-')}")
+            with meta_col2:
+                st.markdown(f"**✍️ Stil:** {doc.get('style', '-')}")
+            with meta_col3:
+                status_icon = "✅" if doc.get('status') == 'completed' else "⏳"
+                st.markdown(f"**Durum:** {status_icon} {doc.get('status', '-')}")
+        
+        st.markdown("---")
+        
+        # İçerik
+        content = doc.get("content") or st.session_state.generated_content or "İçerik henüz oluşturulmamış."
+        
+        # İçerik gösterimi - Markdown formatında
+        st.markdown("### 📚 İçerik")
+        
+        with st.container(border=True):
+            st.markdown(content)
+        
+        # Referanslar varsa göster
+        references = doc.get("references", [])
+        if references:
+            st.markdown("---")
+            st.markdown("### 📖 Kaynakça")
+            with st.container(border=True):
+                for i, ref in enumerate(references, 1):
+                    if isinstance(ref, dict):
+                        st.markdown(f"{i}. {ref.get('source', 'Kaynak')} - Satır {ref.get('line', '?')}")
+                    else:
+                        st.markdown(f"{i}. {ref}")
+        
+        st.markdown("---")
+        
+        # ====== DÖKÜMAN DÜZENLEME BÖLÜMÜ ======
+        if "edit_document_mode" not in st.session_state:
+            st.session_state.edit_document_mode = False
+        
+        if st.session_state.edit_document_mode:
+            st.markdown("### ✏️ Dökümanı Düzenle")
+            with st.container(border=True):
+                edit_col1, edit_col2 = st.columns(2)
+                with edit_col1:
+                    new_title = st.text_input("📖 Başlık", value=doc.get('title', ''), key="edit_title")
+                    new_topic = st.text_area("📌 Konu", value=doc.get('topic', ''), height=80, key="edit_topic")
+                with edit_col2:
+                    new_page_count = st.number_input("📄 Sayfa Sayısı", min_value=1, max_value=40, value=doc.get('page_count', 5), key="edit_pages")
+                    style_options = ["detailed", "summary", "academic", "casual", "exam_prep"]
+                    current_style = doc.get('style', 'detailed')
+                    style_idx = style_options.index(current_style) if current_style in style_options else 0
+                    new_style = st.selectbox("✍️ Stil", options=style_options, index=style_idx, key="edit_style")
+                
+                st.markdown("---")
+                btn_col1, btn_col2, btn_col3 = st.columns(3)
+                
+                with btn_col1:
+                    if st.button("💾 Kaydet", use_container_width=True, type="primary", key="save_edit_btn"):
+                        # Sadece değişiklikleri kaydet
+                        update_data = {}
+                        if new_title != doc.get('title'):
+                            update_data['title'] = new_title
+                        if new_topic != doc.get('topic'):
+                            update_data['topic'] = new_topic
+                        if new_page_count != doc.get('page_count'):
+                            update_data['page_count'] = new_page_count
+                        if new_style != doc.get('style'):
+                            update_data['style'] = new_style
+                        
+                        if update_data:
+                            result = learning_api_request(f"/api/learning/documents/{doc_id}", method="PUT", data=update_data)
+                            if result.get("success"):
+                                st.success(f"✅ {result.get('message', 'Kaydedildi')}")
+                                st.session_state.edit_document_mode = False
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Hata: {result.get('detail', result.get('error', 'Bilinmeyen hata'))}")
+                        else:
+                            st.info("ℹ️ Değişiklik yapılmadı")
+                            st.session_state.edit_document_mode = False
+                            st.rerun()
+                
+                with btn_col2:
+                    if st.button("🔄 Kaydet & Yeniden Oluştur", use_container_width=True, key="save_restart_btn"):
+                        # Düzenle ve yeniden başlat
+                        update_data = {
+                            'title': new_title,
+                            'topic': new_topic,
+                            'page_count': new_page_count,
+                            'style': new_style
+                        }
+                        result = learning_api_post(f"/api/learning/documents/{doc_id}/edit-and-restart", data=update_data)
+                        if result.get("success"):
+                            st.success("✅ Düzenlendi ve üretim başlatıldı!")
+                            st.session_state.edit_document_mode = False
+                            st.session_state.learning_view = "generating"
+                            st.session_state.generating_document_id = doc_id
+                            st.session_state.pending_doc_config = {
+                                "title": new_title,
+                                "topic": new_topic,
+                                "page_count": new_page_count,
+                                "style": new_style,
+                                "web_search": "auto"
+                            }
+                            time.sleep(0.3)
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Hata: {result.get('detail', result.get('error', 'Bilinmeyen hata'))}")
+                
+                with btn_col3:
+                    if st.button("❌ İptal", use_container_width=True, key="cancel_edit_btn"):
+                        st.session_state.edit_document_mode = False
+                        st.rerun()
+        
+        # Alt aksiyonlar
+        col_a1, col_a2, col_a3, col_a4, col_a5 = st.columns(5)
+        with col_a1:
+            # 📥 Markdown İndirme
+            doc_title_safe = re.sub(r'[^\w\s-]', '', doc.get('title', 'dokuman')).strip().replace(' ', '_')
+            st.download_button(
+                label="📥 Markdown İndir",
+                data=content,
+                file_name=f"{doc_title_safe}.md",
+                mime="text/markdown",
+                use_container_width=True,
+                key="download_md_btn"
+            )
+        
+        with col_a2:
+            # 📄 TXT İndirme
+            txt_content = content.replace('## ', '\n\n=== ').replace('### ', '\n--- ').replace('**', '').replace('*', '')
+            st.download_button(
+                label="📄 TXT İndir",
+                data=txt_content,
+                file_name=f"{doc_title_safe}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                key="download_txt_btn"
+            )
+        
+        with col_a3:
+            if st.button("✏️ Düzenle", use_container_width=True, key="edit_doc_btn"):
+                st.session_state.edit_document_mode = True
+                st.rerun()
+        
+        with col_a4:
+            if st.button("🔄 Yeniden Oluştur", use_container_width=True, key="regenerate_btn"):
+                # Restart endpoint'ini çağır
+                result = learning_api_post(f"/api/learning/documents/{doc_id}/restart", data={})
+                if result.get("success"):
+                    st.session_state.learning_view = "generating"
+                    st.session_state.generating_document_id = doc_id
+                    st.session_state.pending_doc_config = {
+                        "title": doc.get("title", "Döküman"),
+                        "topic": doc.get("topic", ""),
+                        "page_count": doc.get("page_count", 5),
+                        "style": doc.get("style", "detailed"),
+                        "custom_instructions": "",
+                        "web_search": "auto"
+                    }
+                    st.rerun()
+                else:
+                    st.error(f"Hata: {result.get('message', 'Bilinmeyen hata')}")
+        
+        with col_a5:
+            if st.button("🗑️ Sil", use_container_width=True, type="secondary", key="delete_doc_btn"):
+                st.session_state.confirm_delete_doc = True
+                st.rerun()
+        
+        # Silme onayı
+        if st.session_state.get("confirm_delete_doc", False):
+            st.warning("⚠️ Bu dökümanı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.")
+            del_col1, del_col2 = st.columns(2)
+            with del_col1:
+                if st.button("✅ Evet, Sil", use_container_width=True, type="primary", key="confirm_del_yes"):
+                    result = learning_api_delete(f"/api/learning/documents/{doc_id}")
+                    if result.get("success"):
+                        st.success("✅ Döküman silindi!")
+                        st.session_state.confirm_delete_doc = False
+                        st.session_state.learning_view = "workspace"
+                        st.session_state.reading_document_id = None
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Hata: {result.get('error', 'Silinemedi')}")
+            with del_col2:
+                if st.button("❌ İptal", use_container_width=True, key="confirm_del_no"):
+                    st.session_state.confirm_delete_doc = False
+                    st.rerun()
+    
+    # =============== WORKSPACE LİSTE GÖRÜNÜMÜ ===============
+    elif st.session_state.learning_view == "list":
+        st.markdown("## 📚 AI ile Öğren")
+        st.markdown("*Kişiselleştirilmiş öğrenme platformu - Çalışma dökümanları, testler ve AI destekli öğrenme*")
+        st.markdown("---")
+        
+        # Ana sekmeler
+        main_tabs = st.tabs(["🏠 Çalışma Ortamlarım", "➕ Yeni Oluştur"])
+        
+        with main_tabs[0]:
+            # Workspace listesi
+            data = learning_api_get("/api/learning/workspaces")
+            
+            if "error" in data:
+                st.warning(f"⚠️ Backend bağlantısı kurulamadı. Learning API henüz hazır olmayabilir.")
+                st.info("💡 Bu özellik için backend'in çalışıyor olması gerekir.")
+            else:
+                workspaces = data.get("workspaces", [])
+                
+                if not workspaces:
+                    st.info("📭 Henüz çalışma ortamı yok. Yeni bir tane oluşturun!")
+                else:
+                    # Grid görünümü
+                    cols = st.columns(3)
+                    for idx, ws in enumerate(workspaces):
+                        with cols[idx % 3]:
+                            with st.container(border=True):
+                                st.markdown(f"### 📖 {ws.get('name', 'İsimsiz')}")
+                                
+                                if ws.get('topic'):
+                                    st.caption(f"📌 {ws.get('topic')}")
+                                
+                                if ws.get('description'):
+                                    desc = ws.get('description', '')
+                                    st.markdown(f"_{desc[:100]}..._" if len(desc) > 100 else f"_{desc}_")
+                                
+                                # İstatistikler
+                                doc_count = len(ws.get('documents', []))
+                                test_count = len(ws.get('tests', []))
+                                chat_count = len(ws.get('chat_history', []))
+                                st.caption(f"📄 {doc_count} döküman • 📝 {test_count} test • 💬 {chat_count} mesaj")
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("🚀 Aç", key=f"open_ws_{ws.get('id')}", use_container_width=True):
+                                        st.session_state.current_workspace_id = ws.get('id')
+                                        st.session_state.learning_view = "workspace"
+                                        st.session_state.workspace_tab = 0
+                                        st.rerun()
+                                with col2:
+                                    if st.button("🗑️", key=f"del_ws_{ws.get('id')}", use_container_width=True):
+                                        learning_api_delete(f"/api/learning/workspaces/{ws.get('id')}")
+                                        st.rerun()
+        
+        with main_tabs[1]:
+            # Yeni çalışma ortamı oluştur
+            st.markdown("### ➕ Yeni Çalışma Ortamı")
+            
+            with st.form("create_workspace_form"):
+                name = st.text_input("📝 Çalışma Ortamı Adı *", placeholder="Örn: Makine Öğrenmesi Çalışması")
+                topic = st.text_input("📌 Konu", placeholder="Örn: Supervised Learning, Neural Networks")
+                description = st.text_area("📄 Açıklama", placeholder="Bu çalışma ortamının amacı...")
+                
+                submitted = st.form_submit_button("✅ Oluştur", type="primary", use_container_width=True)
+                
+                if submitted:
+                    if not name:
+                        st.error("Lütfen bir isim girin!")
+                    else:
+                        result = learning_api_post("/api/learning/workspaces", {
+                            "name": name,
+                            "topic": topic,
+                            "description": description
+                        })
+                        
+                        if result.get("success"):
+                            st.toast("✅ Çalışma ortamı oluşturuldu!")
+                            st.session_state.current_workspace_id = result.get("workspace", {}).get("id")
+                            st.session_state.learning_view = "workspace"
+                            st.rerun()
+                        else:
+                            st.error(f"Hata: {result.get('error', 'Bilinmeyen hata')}")
+    
+    # =============== WORKSPACE DETAY GÖRÜNÜMÜ (AYRI ARAYÜZ) ===============
+    elif st.session_state.learning_view == "workspace" and st.session_state.current_workspace_id:
+        ws_data = learning_api_get(f"/api/learning/workspaces/{st.session_state.current_workspace_id}")
+        
+        if "error" in ws_data or not ws_data.get("workspace"):
+            st.error("Çalışma ortamı bulunamadı!")
+            if st.button("⬅️ Geri Dön"):
+                st.session_state.learning_view = "list"
+                st.session_state.current_workspace_id = None
+                st.rerun()
+        else:
+            workspace = ws_data["workspace"]
+            
+            # Üst bar - Workspace başlığı ve geri butonu
+            header_col1, header_col2 = st.columns([5, 1])
+            with header_col1:
+                st.markdown(f"## 📖 {workspace.get('name', 'Çalışma Ortamı')}")
+                if workspace.get('topic'):
+                    st.caption(f"📌 Konu: {workspace.get('topic')}")
+            with header_col2:
+                if st.button("⬅️ Geri", use_container_width=True, type="secondary"):
+                    st.session_state.learning_view = "list"
+                    st.session_state.current_workspace_id = None
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            # Ana sekmeler - Çalışma Ortamı İçeriği
+            ws_tabs = st.tabs(["📚 Kaynaklar", "📄 Dökümanlar", "📝 Testler", "💬 Chat"])
+            
+            # ===== KAYNAKLAR SEKMESİ =====
+            with ws_tabs[0]:
+                st.markdown("### 📚 Kaynak Yönetimi")
+                st.info("RAG sistemindeki dökümanları bu çalışma ortamı için aktif/deaktif edebilirsiniz.")
+                
+                # Tüm yüklü dökümanları getir
+                sources_data = learning_api_get(f"/api/learning/workspaces/{st.session_state.current_workspace_id}/sources")
+                
+                if "error" in sources_data:
+                    st.warning("Kaynaklar yüklenirken hata oluştu.")
+                else:
+                    sources = sources_data.get("sources", [])
+                    active_count = sources_data.get("active_count", 0)
+                    
+                    # İstatistik
+                    col_stat1, col_stat2, col_stat3 = st.columns(3)
+                    with col_stat1:
+                        st.metric("📁 Toplam Kaynak", len(sources))
+                    with col_stat2:
+                        st.metric("✅ Aktif Kaynak", active_count)
+                    with col_stat3:
+                        st.metric("❌ Deaktif Kaynak", len(sources) - active_count)
+                    
+                    st.markdown("---")
+                    
+                    if not sources:
+                        st.caption("Henüz kaynak yüklenmemiş. Dökümanlar sayfasından dosya yükleyebilirsiniz.")
+                    else:
+                        # Toplu işlem butonları
+                        btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 2])
+                        with btn_col1:
+                            if st.button("✅ Tümünü Aktif Yap", use_container_width=True, key="bulk_activate_btn"):
+                                result = learning_api_post(
+                                    f"/api/learning/workspaces/{st.session_state.current_workspace_id}/sources/bulk-toggle",
+                                    {"active": True}
+                                )
+                                if result.get('success'):
+                                    st.toast(f"✅ {result.get('toggled_count', 0)} kaynak aktif edildi")
+                                st.rerun()
+                        with btn_col2:
+                            if st.button("❌ Tümünü Deaktif Yap", use_container_width=True, key="bulk_deactivate_btn"):
+                                result = learning_api_post(
+                                    f"/api/learning/workspaces/{st.session_state.current_workspace_id}/sources/bulk-toggle",
+                                    {"active": False}
+                                )
+                                if result.get('success'):
+                                    st.toast(f"❌ {result.get('toggled_count', 0)} kaynak deaktif edildi")
+                                st.rerun()
+                        
+                        st.markdown("#### 📄 Yüklenen Dökümanlar")
+                        
+                        # Kaynak listesi
+                        for source in sources:
+                            with st.container(border=True):
+                                src_col1, src_col2, src_col3 = st.columns([4, 1, 1])
+                                
+                                with src_col1:
+                                    # Dosya ikonu
+                                    file_type = source.get('type', 'FILE').upper()
+                                    if file_type == 'PDF':
+                                        icon = "📕"
+                                    elif file_type in ['DOCX', 'DOC']:
+                                        icon = "📘"
+                                    elif file_type in ['PPTX', 'PPT']:
+                                        icon = "📙"
+                                    elif file_type in ['XLSX', 'XLS']:
+                                        icon = "📗"
+                                    elif file_type == 'TXT':
+                                        icon = "📄"
+                                    else:
+                                        icon = "📁"
+                                    
+                                    st.markdown(f"{icon} **{source.get('name', 'Kaynak')}**")
+                                    
+                                    # Dosya boyutu
+                                    size_bytes = source.get('size', 0)
+                                    if size_bytes > 1024 * 1024:
+                                        size_str = f"{size_bytes / (1024*1024):.1f} MB"
+                                    else:
+                                        size_str = f"{size_bytes / 1024:.1f} KB"
+                                    
+                                    st.caption(f"📏 {size_str}")
+                                
+                                with src_col2:
+                                    st.caption(file_type)
+                                
+                                with src_col3:
+                                    is_active = source.get('active', False)
+                                    new_state = st.toggle(
+                                        "Aktif" if is_active else "Deaktif",
+                                        value=is_active,
+                                        key=f"src_toggle_{source.get('id')}"
+                                    )
+                                    if new_state != is_active:
+                                        learning_api_post(
+                                            f"/api/learning/workspaces/{st.session_state.current_workspace_id}/sources/toggle",
+                                            {"source_id": source.get('id'), "active": new_state}
+                                        )
+                                        st.rerun()
+            
+            # ===== DÖKÜMANLAR SEKMESİ =====
+            with ws_tabs[1]:
+                st.markdown("### 📄 Çalışma Dökümanları")
+                st.caption("AI tarafından oluşturulan çalışma dökümanları")
+                
+                with st.expander("➕ Yeni Döküman Oluştur", expanded=True):
+                    doc_title = st.text_input("Başlık *", placeholder="Örn: ML Temelleri", key="doc_title_ws")
+                    doc_topic = st.text_input("Konu *", placeholder="Örn: Supervised Learning", key="doc_topic_ws")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        doc_pages = st.slider("Sayfa Sayısı", 1, 40, 5, key="doc_pages_ws")
+                    with col2:
+                        doc_style = st.selectbox(
+                            "Yazım Stili",
+                            ["detailed", "academic", "casual", "summary", "exam_prep"],
+                            format_func=lambda x: {
+                                "detailed": "📖 Detaylı",
+                                "academic": "🎓 Akademik",
+                                "casual": "💬 Günlük",
+                                "summary": "📋 Özet",
+                                "exam_prep": "📝 Sınav Hazırlık"
+                            }.get(x, x),
+                            key="doc_style_ws"
+                        )
+                    
+                    # 🌐 Web Arama Seçeneği
+                    st.markdown("---")
+                    st.markdown("**🌐 Web Araması**")
+                    web_search_option = st.radio(
+                        "Web'den ek bilgi al",
+                        ["off", "auto", "on"],
+                        format_func=lambda x: {
+                            "off": "🔒 Kapalı - Sadece yüklü kaynaklardan",
+                            "auto": "🤖 Otomatik - AI karar versin",
+                            "on": "🌐 Açık - Web'i de tara"
+                        }.get(x, x),
+                        horizontal=True,
+                        index=1,  # Default: auto
+                        key="doc_web_search_ws"
+                    )
+                    if web_search_option == "auto":
+                        st.caption("💡 AI, yüklü kaynaklarda yeterli bilgi bulamazsa web'de arama yapar.")
+                    elif web_search_option == "on":
+                        st.caption("🌐 Hem yüklü kaynaklar hem de web kaynakları kullanılacak.")
+                    else:
+                        st.caption("🔒 Sadece yüklediğiniz dökümanlardan bilgi alınacak.")
+                    
+                    st.markdown("---")
+                    
+                    doc_instructions = st.text_area(
+                        "Özel Talimatlar",
+                        placeholder="Örn: Kod örnekleri ekle, tablolarla açıkla...",
+                        key="doc_instructions_ws"
+                    )
+                    
+                    if st.button("🚀 Dökümanı Oluştur", type="primary", use_container_width=True, key="create_doc_btn_ws"):
+                        if doc_title and doc_topic:
+                            # Döküman konfigürasyonunu kaydet ve oluşturma sayfasına yönlendir
+                            st.session_state.pending_doc_config = {
+                                "title": doc_title,
+                                "topic": doc_topic,
+                                "page_count": doc_pages,
+                                "style": doc_style,
+                                "custom_instructions": doc_instructions,
+                                "web_search": web_search_option  # off, auto, on
+                            }
+                            st.session_state.generating_document_id = None
+                            st.session_state.learning_view = "generating"
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Başlık ve konu gereklidir!")
+                
+                st.markdown("---")
+                
+                # Mevcut dökümanlar
+                st.markdown("#### 📚 Oluşturulan Dökümanlar")
+                documents = ws_data.get("documents", [])
+                if documents:
+                    for doc in documents:
+                        with st.container(border=True):
+                            doc_col1, doc_col2, doc_col3 = st.columns([4, 1, 1])
+                            with doc_col1:
+                                status_icon = "✅" if doc.get('status') == 'completed' else "⏳"
+                                st.markdown(f"{status_icon} **{doc.get('title', 'Döküman')}**")
+                                st.caption(f"📄 {doc.get('page_count', 0)} sayfa • {doc.get('style', 'N/A')} • {doc.get('topic', '')}")
+                            with doc_col2:
+                                if doc.get('status') == 'completed':
+                                    if st.button("👁️ Oku", key=f"view_doc_{doc.get('id')}", use_container_width=True):
+                                        # Okuma sayfasına yönlendir
+                                        st.session_state.reading_document_id = doc.get('id')
+                                        st.session_state.learning_view = "reading"
+                                        st.rerun()
+                                else:
+                                    if st.button("🚀 Oluştur", key=f"gen_doc_{doc.get('id')}", use_container_width=True):
+                                        # Oluşturma sayfasına yönlendir
+                                        st.session_state.pending_doc_config = {
+                                            "title": doc.get("title", "Döküman"),
+                                            "topic": doc.get("topic", ""),
+                                            "page_count": doc.get("page_count", 5),
+                                            "style": doc.get("style", "detailed"),
+                                            "custom_instructions": ""
+                                        }
+                                        st.session_state.generating_document_id = doc.get('id')
+                                        st.session_state.learning_view = "generating"
+                                        st.rerun()
+                            with doc_col3:
+                                if st.button("🗑️", key=f"del_doc_{doc.get('id')}", help="Dökümanı sil"):
+                                    learning_api_delete(f"/api/learning/documents/{doc.get('id')}")
+                                    st.rerun()
+                else:
+                    st.info("📭 Henüz döküman oluşturulmamış. Yukarıdan yeni bir tane oluşturun!")
+            
+            # ===== TESTLER SEKMESİ =====
+            with ws_tabs[2]:
+                st.markdown("### 📝 Testler")
+                st.caption("Öğrenmenizi test edin ve pekiştirin")
+                
+                with st.expander("➕ Yeni Test Oluştur", expanded=False):
+                    test_title = st.text_input("Test Başlığı *", placeholder="Örn: ML Quiz 1", key="test_title_ws")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        test_count = st.slider("Soru Sayısı", 5, 50, 10, key="test_count_ws")
+                        test_type = st.selectbox(
+                            "Soru Türü",
+                            ["mixed", "multiple_choice", "true_false", "fill_blank", "short_answer"],
+                            format_func=lambda x: {
+                                "mixed": "🎲 Karışık",
+                                "multiple_choice": "📋 Çoktan Seçmeli",
+                                "true_false": "✅ Doğru/Yanlış",
+                                "fill_blank": "📝 Boşluk Doldurma",
+                                "short_answer": "💬 Kısa Cevap"
+                            }.get(x, x),
+                            key="test_type_ws"
+                        )
+                    with col2:
+                        test_difficulty = st.selectbox(
+                            "Zorluk",
+                            ["mixed", "easy", "medium", "hard"],
+                            format_func=lambda x: {
+                                "mixed": "🎲 Karışık",
+                                "easy": "🟢 Kolay",
+                                "medium": "🟡 Orta",
+                                "hard": "🔴 Zor"
+                            }.get(x, x),
+                            key="test_difficulty_ws"
+                        )
+                    
+                    if st.button("🚀 Testi Oluştur", type="primary", use_container_width=True, key="create_test_btn_ws"):
+                        if test_title:
+                            with st.spinner("Test oluşturuluyor..."):
+                                result = learning_api_post(
+                                    f"/api/learning/workspaces/{st.session_state.current_workspace_id}/tests",
+                                    {
+                                        "title": test_title,
+                                        "test_type": test_type,
+                                        "question_count": test_count,
+                                        "difficulty": test_difficulty
+                                    }
+                                )
+                                if result.get("success"):
+                                    st.toast("✅ Test oluşturuldu!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"Hata: {result.get('error', 'Bilinmeyen hata')}")
+                        else:
+                            st.warning("Test başlığı gereklidir!")
+                
+                st.markdown("---")
+                
+                # Mevcut testler
+                tests = ws_data.get("tests", [])
+                if tests:
+                    for test in tests:
+                        with st.container(border=True):
+                            test_col1, test_col2, test_col3 = st.columns([3, 1, 1])
+                            
+                            with test_col1:
+                                status = test.get("status", "pending")
+                                if status == "completed":
+                                    status_icon = "✅"
+                                elif status == "in_progress":
+                                    status_icon = "⏳"
+                                else:
+                                    status_icon = "📝"
+                                
+                                st.markdown(f"{status_icon} **{test.get('title', 'Test')}**")
+                                st.caption(f"📋 {test.get('question_count', 0)} soru • {test.get('difficulty', 'N/A')}")
+                            
+                            with test_col2:
+                                if status == "completed":
+                                    score = test.get('score', 0)
+                                    if score >= 80:
+                                        st.success(f"🏆 %{score:.0f}")
+                                    elif score >= 60:
+                                        st.warning(f"📊 %{score:.0f}")
+                                    else:
+                                        st.error(f"📉 %{score:.0f}")
+                            
+                            with test_col3:
+                                if status == "pending":
+                                    if st.button("🚀 Başlat", key=f"start_test_{test.get('id')}", use_container_width=True):
+                                        st.info("Test başlatılıyor...")
+                                elif status == "in_progress":
+                                    if st.button("📝 Devam", key=f"cont_test_{test.get('id')}", use_container_width=True):
+                                        st.info("Teste devam ediliyor...")
+                                else:
+                                    if st.button("👁️ Görüntüle", key=f"view_test_{test.get('id')}", use_container_width=True):
+                                        st.info("Test sonuçları gösteriliyor...")
+                else:
+                    st.info("📭 Henüz test oluşturulmamış. Yukarıdan yeni bir tane oluşturun!")
+            
+            # ===== CHAT SEKMESİ =====
+            with ws_tabs[3]:
+                st.markdown("### 💬 Çalışma Asistanı")
+                
+                # Aktif kaynak sayısını göster
+                active_sources = workspace.get("active_sources", [])
+                if active_sources:
+                    st.success(f"✅ {len(active_sources)} aktif kaynak ile çalışıyor")
+                else:
+                    st.warning("⚠️ Aktif kaynak yok. Kaynaklar sekmesinden kaynak ekleyin.")
+                
+                st.caption("Bu çalışma ortamının aktif kaynaklarına dayalı sorular sorun.")
+                
+                st.markdown("---")
+                
+                # Chat geçmişi container
+                chat_container = st.container(height=400)
+                
+                with chat_container:
+                    chat_history = workspace.get("chat_history", [])
+                    
+                    if not chat_history:
+                        st.info("💬 Henüz mesaj yok. Aşağıdan bir soru sorarak başlayın!")
+                    else:
+                        for msg in chat_history:
+                            role = msg.get("role", "user")
+                            content = msg.get("content", "")
+                            sources_used = msg.get("sources", [])
+                            
+                            with st.chat_message(role):
+                                st.markdown(content)
+                                if sources_used and role == "assistant":
+                                    st.caption(f"📚 Kaynaklar: {', '.join(sources_used)}")
+                
+                # Chat input
+                user_input = st.chat_input("Sorunuzu yazın...", key="learning_chat_input_ws")
+                
+                if user_input:
+                    with st.spinner("Yanıt hazırlanıyor..."):
+                        result = learning_api_post(
+                            f"/api/learning/workspaces/{st.session_state.current_workspace_id}/chat",
+                            {"message": user_input}
+                        )
+                        if result.get("success"):
+                            st.rerun()
+                        else:
+                            st.error(f"Hata: {result.get('error', 'Bilinmeyen hata')}")
 
 
 # ============ FOOTER ============
@@ -4148,7 +5335,7 @@ st.markdown("---")
 st.markdown(
     """
     <div style="text-align: center; color: #888; font-size: 0.8rem; padding: 1rem;">
-        Enterprise AI Assistant v1.1.0 | 🌐 Web Search • 📚 RAG • 🤖 Multi-Agent | Endüstri Standartlarında AI
+        Enterprise AI Assistant v2.0.0 | 🌐 Web Search • 📚 RAG • 🤖 Multi-Agent • 📚 AI ile Öğren | Endüstri Standartlarında AI
     </div>
     """,
     unsafe_allow_html=True,

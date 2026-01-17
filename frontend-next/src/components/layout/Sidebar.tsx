@@ -21,11 +21,21 @@ import {
   AlertCircle,
   Loader2,
   Database,
-  Cpu,
   Pin,
   Tag,
   FolderOpen,
-  X
+  X,
+  WifiOff,
+  Server,
+  Brain,
+  HardDrive,
+  Activity,
+  Clock,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Zap,
+  Shield
 } from 'lucide-react';
 import { useStore, Page } from '@/store/useStore';
 import { cn } from '@/lib/utils';
@@ -66,6 +76,10 @@ export function Sidebar() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [newTag, setNewTag] = useState('');
   const [showTagInput, setShowTagInput] = useState(false);
+  const [systemExpanded, setSystemExpanded] = useState(false);
+  const [lastHealthCheck, setLastHealthCheck] = useState<Date | null>(null);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Get all unique categories and tags from sessions
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -106,25 +120,86 @@ export function Sidebar() {
     }
   };
 
-  // Health check
-  useEffect(() => {
-    const fetchHealth = async () => {
-      setHealthLoading(true);
-      try {
-        const response = await checkHealth();
-        if (response.success && response.data) {
-          setHealth(response.data);
-        }
-      } catch {
+  // Health check with retry tracking
+  const fetchHealth = async (isManual = false) => {
+    if (isManual) setIsRefreshing(true);
+    setHealthLoading(true);
+    try {
+      const response = await checkHealth();
+      if (response.success && response.data) {
+        setHealth(response.data);
+        setConnectionAttempts(0); // Reset on success
+      } else {
         setHealth(null);
+        setConnectionAttempts(prev => prev + 1);
       }
-      setHealthLoading(false);
-    };
-    
+    } catch {
+      setHealth(null);
+      setConnectionAttempts(prev => prev + 1);
+    }
+    setHealthLoading(false);
+    setLastHealthCheck(new Date());
+    if (isManual) setIsRefreshing(false);
+  };
+
+  useEffect(() => {
     fetchHealth();
-    const interval = setInterval(fetchHealth, 30000); // Every 30 seconds
+    const interval = setInterval(() => fetchHealth(), 15000); // Every 15 seconds
     return () => clearInterval(interval);
   }, []);
+
+  // Derive system issues from health data
+  const systemIssues = useMemo(() => {
+    const issues: { severity: 'error' | 'warning' | 'info'; message: string; detail?: string }[] = [];
+    
+    if (!health) {
+      issues.push({
+        severity: 'error',
+        message: language === 'tr' ? 'API bağlantısı yok' : 'No API connection',
+        detail: language === 'tr' ? 'Backend sunucusu çalışmıyor olabilir' : 'Backend server may not be running'
+      });
+      return issues;
+    }
+    
+    // Check LLM status
+    if (health.components?.llm !== 'healthy') {
+      issues.push({
+        severity: 'error',
+        message: language === 'tr' ? 'LLM yanıt vermiyor' : 'LLM not responding',
+        detail: language === 'tr' ? 'Ollama servisi çalışmıyor olabilir. Chat yanıtları alınamaz.' : 'Ollama service may not be running. Chat responses unavailable.'
+      });
+    }
+    
+    // Check Vector Store
+    if (health.components?.vector_store !== 'healthy') {
+      issues.push({
+        severity: 'warning',
+        message: language === 'tr' ? 'VectorDB sorunu' : 'VectorDB issue',
+        detail: language === 'tr' ? 'Belge araması çalışmayabilir' : 'Document search may not work'
+      });
+    }
+    
+    // Check document count
+    const docCount = health.components?.document_count;
+    if (typeof docCount === 'number' && docCount === 0) {
+      issues.push({
+        severity: 'info',
+        message: language === 'tr' ? 'Belge yüklenmemiş' : 'No documents loaded',
+        detail: language === 'tr' ? 'RAG için belge yükleyin' : 'Upload documents for RAG'
+      });
+    }
+    
+    // Connection retry warning
+    if (connectionAttempts > 2) {
+      issues.push({
+        severity: 'warning',
+        message: language === 'tr' ? 'Bağlantı kararsız' : 'Unstable connection',
+        detail: language === 'tr' ? `${connectionAttempts} başarısız deneme` : `${connectionAttempts} failed attempts`
+      });
+    }
+    
+    return issues;
+  }, [health, language, connectionAttempts]);
 
   const getLabel = (item: typeof menuItems[0]) => {
     switch (language) {
@@ -251,47 +326,287 @@ export function Sidebar() {
 
       {/* Collapse Toggle */}
       <div className="p-3 border-t border-border">
-        {/* System Status */}
+        {/* Enhanced System Status Panel */}
         {!sidebarCollapsed && (
-          <div className="mb-3 p-2 rounded-lg bg-muted/50">
-            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-              <Cpu className="w-3 h-3" />
-              {t.system[language]}
-            </p>
-            {healthLoading ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                {t.connecting[language]}
+          <div className={cn(
+            "mb-3 rounded-lg overflow-hidden transition-all duration-300",
+            systemIssues.length > 0 && systemIssues[0].severity === 'error' 
+              ? "bg-red-500/10 border border-red-500/30" 
+              : systemIssues.length > 0 && systemIssues[0].severity === 'warning'
+              ? "bg-yellow-500/10 border border-yellow-500/30"
+              : "bg-green-500/10 border border-green-500/30"
+          )}>
+            {/* Header - Clickable */}
+            <button
+              onClick={() => setSystemExpanded(!systemExpanded)}
+              className="w-full p-2 flex items-center justify-between hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                {healthLoading || isRefreshing ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-primary-500" />
+                ) : health ? (
+                  systemIssues.length === 0 ? (
+                    <div className="relative">
+                      <Shield className="w-4 h-4 text-green-500" />
+                      <Activity className="w-2 h-2 text-green-400 absolute -top-0.5 -right-0.5 animate-pulse" />
+                    </div>
+                  ) : systemIssues[0].severity === 'error' ? (
+                    <div className="relative">
+                      <XCircle className="w-4 h-4 text-red-500" />
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping" />
+                    </div>
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-yellow-500" />
+                  )
+                ) : (
+                  <WifiOff className="w-4 h-4 text-red-500" />
+                )}
+                <span className="text-xs font-medium">
+                  {t.system[language]}
+                </span>
               </div>
-            ) : health ? (
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  {health.components?.llm === 'healthy' || health.ollama ? (
-                    <CheckCircle2 className="w-3 h-3 text-green-500" />
-                  ) : health.components?.llm === 'degraded' ? (
-                    <AlertCircle className="w-3 h-3 text-yellow-500" />
-                  ) : (
-                    <XCircle className="w-3 h-3 text-red-500" />
-                  )}
-                  <span className="text-xs">LLM</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {health.components?.vector_store === 'healthy' || health.chromadb ? (
-                    <CheckCircle2 className="w-3 h-3 text-green-500" />
-                  ) : (
-                    <XCircle className="w-3 h-3 text-red-500" />
-                  )}
-                  <span className="text-xs flex items-center gap-1">
-                    <Database className="w-3 h-3" /> VectorDB
+              <div className="flex items-center gap-1">
+                {/* Issue Count Badge */}
+                {systemIssues.length > 0 && (
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded-full text-[10px] font-bold",
+                    systemIssues[0].severity === 'error' 
+                      ? "bg-red-500 text-white" 
+                      : "bg-yellow-500 text-black"
+                  )}>
+                    {systemIssues.length}
                   </span>
-                </div>
+                )}
+                {systemExpanded ? (
+                  <ChevronUp className="w-3 h-3 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 text-muted-foreground" />
+                )}
               </div>
-            ) : (
-              <div className="flex items-center gap-2 text-xs text-yellow-500">
-                <AlertCircle className="w-3 h-3" />
-                Offline
+            </button>
+
+            {/* Collapsed Quick Status */}
+            {!systemExpanded && (
+              <div className="px-2 pb-2">
+                <div className="flex items-center gap-2 text-[10px]">
+                  {/* Quick status icons */}
+                  <div className="flex items-center gap-1" title="API">
+                    <Server className="w-3 h-3" />
+                    {health ? (
+                      <CheckCircle2 className="w-2.5 h-2.5 text-green-500" />
+                    ) : (
+                      <XCircle className="w-2.5 h-2.5 text-red-500" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1" title="LLM (Ollama)">
+                    <Brain className="w-3 h-3" />
+                    {health?.components?.llm === 'healthy' ? (
+                      <CheckCircle2 className="w-2.5 h-2.5 text-green-500" />
+                    ) : (
+                      <XCircle className="w-2.5 h-2.5 text-red-500" />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1" title="VectorDB">
+                    <HardDrive className="w-3 h-3" />
+                    {health?.components?.vector_store === 'healthy' ? (
+                      <CheckCircle2 className="w-2.5 h-2.5 text-green-500" />
+                    ) : (
+                      <XCircle className="w-2.5 h-2.5 text-red-500" />
+                    )}
+                  </div>
+                  <div className="ml-auto text-muted-foreground flex items-center gap-0.5">
+                    <Clock className="w-2.5 h-2.5" />
+                    {lastHealthCheck ? (
+                      <span>{Math.round((Date.now() - lastHealthCheck.getTime()) / 1000)}s</span>
+                    ) : '-'}
+                  </div>
+                </div>
               </div>
             )}
+
+            {/* Expanded Details */}
+            <AnimatePresence>
+              {systemExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-2 pb-2 space-y-2">
+                    {/* Services Status */}
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        {language === 'tr' ? 'Servisler' : 'Services'}
+                      </p>
+                      
+                      {/* API Status */}
+                      <div className="flex items-center justify-between p-1.5 rounded bg-black/5 dark:bg-white/5">
+                        <div className="flex items-center gap-2">
+                          <Server className="w-3 h-3" />
+                          <span className="text-xs">API Backend</span>
+                        </div>
+                        {health ? (
+                          <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+                            <Zap className="w-2.5 h-2.5" />
+                            {language === 'tr' ? 'Aktif' : 'Active'}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-red-500">Offline</span>
+                        )}
+                      </div>
+
+                      {/* LLM Status */}
+                      <div className="flex items-center justify-between p-1.5 rounded bg-black/5 dark:bg-white/5">
+                        <div className="flex items-center gap-2">
+                          <Brain className="w-3 h-3" />
+                          <span className="text-xs">LLM (Ollama)</span>
+                        </div>
+                        {health?.components?.llm === 'healthy' ? (
+                          <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+                            <Zap className="w-2.5 h-2.5" />
+                            {language === 'tr' ? 'Hazır' : 'Ready'}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-red-500">
+                            {language === 'tr' ? 'Hata' : 'Error'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Vector DB Status */}
+                      <div className="flex items-center justify-between p-1.5 rounded bg-black/5 dark:bg-white/5">
+                        <div className="flex items-center gap-2">
+                          <Database className="w-3 h-3" />
+                          <span className="text-xs">VectorDB</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {typeof health?.components?.document_count === 'number' && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {health.components.document_count} {language === 'tr' ? 'belge' : 'docs'}
+                            </span>
+                          )}
+                          {health?.components?.vector_store === 'healthy' ? (
+                            <CheckCircle2 className="w-3 h-3 text-green-500" />
+                          ) : (
+                            <XCircle className="w-3 h-3 text-red-500" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Issues Section */}
+                    {systemIssues.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          {language === 'tr' ? 'Sorunlar' : 'Issues'}
+                        </p>
+                        {systemIssues.map((issue, idx) => (
+                          <div
+                            key={idx}
+                            className={cn(
+                              "p-1.5 rounded text-xs",
+                              issue.severity === 'error' ? "bg-red-500/20 text-red-700 dark:text-red-300" :
+                              issue.severity === 'warning' ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300" :
+                              "bg-blue-500/20 text-blue-700 dark:text-blue-300"
+                            )}
+                          >
+                            <div className="font-medium flex items-center gap-1">
+                              {issue.severity === 'error' && <XCircle className="w-3 h-3" />}
+                              {issue.severity === 'warning' && <AlertCircle className="w-3 h-3" />}
+                              {issue.severity === 'info' && <AlertCircle className="w-3 h-3" />}
+                              {issue.message}
+                            </div>
+                            {issue.detail && (
+                              <p className="text-[10px] opacity-80 mt-0.5 ml-4">{issue.detail}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* All Clear Message */}
+                    {systemIssues.length === 0 && health && (
+                      <div className="p-2 rounded bg-green-500/20 text-green-700 dark:text-green-300 text-xs text-center">
+                        <CheckCircle2 className="w-4 h-4 mx-auto mb-1" />
+                        <p className="font-medium">
+                          {language === 'tr' ? 'Tüm sistemler çalışıyor' : 'All systems operational'}
+                        </p>
+                        <p className="text-[10px] opacity-80">
+                          {language === 'tr' ? 'Chat için hazır' : 'Ready to chat'}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Refresh Button */}
+                    <button
+                      onClick={() => fetchHealth(true)}
+                      disabled={isRefreshing}
+                      className={cn(
+                        "w-full flex items-center justify-center gap-1 p-1.5 rounded text-xs transition-colors",
+                        "bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10",
+                        isRefreshing && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
+                      {language === 'tr' ? 'Yenile' : 'Refresh'}
+                    </button>
+
+                    {/* Last Check Time */}
+                    {lastHealthCheck && (
+                      <p className="text-[10px] text-center text-muted-foreground">
+                        {language === 'tr' ? 'Son kontrol: ' : 'Last check: '}
+                        {lastHealthCheck.toLocaleTimeString()}
+                      </p>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* Collapsed sidebar - mini status indicator */}
+        {sidebarCollapsed && (
+          <div className="mb-3 flex justify-center">
+            <div 
+              className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer group relative",
+                health && systemIssues.length === 0 
+                  ? "bg-green-500/20" 
+                  : health && systemIssues[0]?.severity === 'warning'
+                  ? "bg-yellow-500/20"
+                  : "bg-red-500/20"
+              )}
+              onClick={() => setSystemExpanded(!systemExpanded)}
+            >
+              {healthLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+              ) : health ? (
+                systemIssues.length === 0 ? (
+                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                ) : (
+                  <AlertCircle className={cn(
+                    "w-4 h-4",
+                    systemIssues[0]?.severity === 'error' ? "text-red-500" : "text-yellow-500"
+                  )} />
+                )
+              ) : (
+                <WifiOff className="w-4 h-4 text-red-500" />
+              )}
+              
+              {/* Tooltip */}
+              <div className="absolute left-full ml-2 px-2 py-1 bg-popover text-popover-foreground text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+                {health ? (
+                  systemIssues.length === 0 
+                    ? (language === 'tr' ? 'Sistem stabil' : 'System stable')
+                    : `${systemIssues.length} ${language === 'tr' ? 'sorun' : 'issue(s)'}`
+                ) : (
+                  language === 'tr' ? 'Bağlantı yok' : 'No connection'
+                )}
+              </div>
+            </div>
           </div>
         )}
         

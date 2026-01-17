@@ -238,6 +238,7 @@ export function LearningPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bulkToggling, setBulkToggling] = useState(false);
   
   // Form state - Create workspace
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
@@ -508,13 +509,22 @@ export function LearningPage() {
   };
 
   const handleBulkToggleSources = async (active: boolean) => {
-    if (!currentWorkspaceId) return;
-    await apiPost(`/api/learning/workspaces/${currentWorkspaceId}/sources/bulk-toggle`, { active });
-    // Reload sources
-    const sourcesResponse = await apiGet(`/api/learning/workspaces/${currentWorkspaceId}/sources`);
-    if (!sourcesResponse.error) {
-      setSources(sourcesResponse.sources || []);
-      setActiveSourceCount(sourcesResponse.active_count || 0);
+    if (!currentWorkspaceId || bulkToggling) return;
+    setBulkToggling(true);
+    try {
+      const response = await apiPost(`/api/learning/workspaces/${currentWorkspaceId}/sources/bulk-toggle`, { active });
+      console.log('Bulk toggle response:', response);
+      // Reload sources
+      const sourcesResponse = await apiGet(`/api/learning/workspaces/${currentWorkspaceId}/sources`);
+      console.log('Sources reload response:', sourcesResponse);
+      if (!sourcesResponse.error) {
+        setSources(sourcesResponse.sources || []);
+        setActiveSourceCount(sourcesResponse.active_count || 0);
+      }
+    } catch (err) {
+      console.error('Bulk toggle error:', err);
+    } finally {
+      setBulkToggling(false);
     }
   };
 
@@ -1405,16 +1415,26 @@ export function LearningPage() {
         <div className="flex gap-3">
           <button
             onClick={() => handleBulkToggleSources(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors"
+            disabled={bulkToggling}
+            className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <ToggleRight className="w-4 h-4" />
+            {bulkToggling ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ToggleRight className="w-4 h-4" />
+            )}
             ✅ {t.activateAll[language]}
           </button>
           <button
             onClick={() => handleBulkToggleSources(false)}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors"
+            disabled={bulkToggling}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <ToggleLeft className="w-4 h-4" />
+            {bulkToggling ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ToggleLeft className="w-4 h-4" />
+            )}
             ❌ {t.deactivateAll[language]}
           </button>
         </div>

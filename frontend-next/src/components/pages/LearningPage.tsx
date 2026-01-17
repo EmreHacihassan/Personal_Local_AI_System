@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   GraduationCap,
@@ -9,7 +8,6 @@ import {
   Target,
   Clock,
   Flame,
-  ChevronRight,
   Play,
   CheckCircle2,
   Lock,
@@ -100,7 +98,6 @@ const achievements = [
 
 export function LearningPage() {
   const { language } = useStore();
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
 
   const stats = {
     streak: 7,
@@ -252,7 +249,12 @@ export function LearningPage() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.1 * index }}
-                  onClick={() => !course.locked && setSelectedCourse(course)}
+                  onClick={() => {
+                    if (!course.locked) {
+                      // TODO: Open course detail view
+                      console.log('Opening course:', course.id);
+                    }
+                  }}
                   disabled={course.locked}
                   className={cn(
                     "w-full text-left bg-card border border-border rounded-2xl p-5 transition-all group",

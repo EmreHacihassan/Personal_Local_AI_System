@@ -11,8 +11,7 @@ import {
   GraduationCap,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
-  Menu
+  Sparkles
 } from 'lucide-react';
 import { useStore, Page } from '@/store/useStore';
 import { cn } from '@/lib/utils';

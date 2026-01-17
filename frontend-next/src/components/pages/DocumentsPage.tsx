@@ -7,11 +7,9 @@ import {
   Upload, 
   Trash2, 
   Search, 
-  FileType,
   File,
   FileImage,
   FileCode,
-  MoreVertical,
   Download,
   Eye,
   Loader2,
@@ -23,6 +21,15 @@ import { useStore } from '@/store/useStore';
 import { uploadDocument, getDocuments, deleteDocument } from '@/lib/api';
 import { cn, formatFileSize, formatDate } from '@/lib/utils';
 import { useEffect } from 'react';
+
+interface DocumentResponse {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  uploaded_at: string;
+  chunks?: number;
+}
 
 const fileIcons: Record<string, React.ElementType> = {
   pdf: FileText,
@@ -43,33 +50,29 @@ const fileIcons: Record<string, React.ElementType> = {
 export function DocumentsPage() {
   const { documents, setDocuments, addDocument, removeDocument, language } = useStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [dragOver, setDragOver] = useState(false);
 
   // Load documents on mount
   useEffect(() => {
+    const loadDocuments = async () => {
+      const response = await getDocuments();
+      if (response.success && response.data) {
+        setDocuments(response.data.documents.map((d: DocumentResponse) => ({
+          id: d.id,
+          name: d.name,
+          size: d.size,
+          type: d.type,
+          uploadedAt: new Date(d.uploaded_at),
+          chunks: d.chunks,
+        })));
+      }
+    };
     loadDocuments();
-  }, []);
-
-  const loadDocuments = async () => {
-    const response = await getDocuments();
-    if (response.success && response.data) {
-      setDocuments(response.data.documents.map((d: any) => ({
-        id: d.id,
-        name: d.name,
-        size: d.size,
-        type: d.type,
-        uploadedAt: new Date(d.uploaded_at),
-        chunks: d.chunks,
-      })));
-    }
-  };
+  }, [setDocuments]);
 
   const handleUpload = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-
-    setUploading(true);
 
     for (const file of Array.from(files)) {
       const tempId = `temp-${Date.now()}-${file.name}`;
@@ -103,8 +106,9 @@ export function DocumentsPage() {
         // Clean up progress after delay
         setTimeout(() => {
           setUploadProgress((prev) => {
-            const { [tempId]: _, ...rest } = prev;
-            return rest;
+            const newProgress = { ...prev };
+            delete newProgress[tempId];
+            return newProgress;
           });
         }, 1000);
       } catch (error) {
@@ -112,8 +116,6 @@ export function DocumentsPage() {
         setUploadProgress((prev) => ({ ...prev, [tempId]: -1 })); // -1 indicates error
       }
     }
-
-    setUploading(false);
   }, [addDocument]);
 
   const handleDelete = async (docId: string) => {

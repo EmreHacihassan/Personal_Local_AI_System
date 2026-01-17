@@ -8,7 +8,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   sources?: Source[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Source {
@@ -105,7 +105,7 @@ interface AppState {
 
 export const useStore = create<AppState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       // Theme
       theme: 'light',
       setTheme: (theme) => {

@@ -9,15 +9,21 @@ import {
   Search,
   Calendar,
   Clock,
-  ChevronRight,
-  MoreVertical
+  ChevronRight
 } from 'lucide-react';
 import { useStore, Session } from '@/store/useStore';
 import { getSessions, deleteSession } from '@/lib/api';
-import { cn, formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
+
+interface SessionResponse {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export function HistoryPage() {
-  const { sessions, setCurrentPage, language } = useStore();
+  const { setCurrentPage, language } = useStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [localSessions, setLocalSessions] = useState<Session[]>([]);
@@ -30,7 +36,7 @@ export function HistoryPage() {
     setLoading(true);
     const response = await getSessions();
     if (response.success && response.data) {
-      setLocalSessions(response.data.sessions.map((s: any) => ({
+      setLocalSessions(response.data.sessions.map((s: SessionResponse) => ({
         id: s.id,
         title: s.title,
         messages: [],
@@ -48,8 +54,10 @@ export function HistoryPage() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleOpenSession = (sessionId: string) => {
-    // Navigate to chat with this session
+    // TODO: Navigate to chat with this session
+    // In the future, implement session loading here with sessionId
     setCurrentPage('chat');
   };
 

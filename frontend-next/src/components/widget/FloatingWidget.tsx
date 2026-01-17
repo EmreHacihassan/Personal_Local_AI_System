@@ -8,7 +8,7 @@ import {
   Minimize2, 
   Maximize2,
   Send,
-  Image,
+  ImageIcon,
   Globe,
   Mic,
   Paperclip,
@@ -348,7 +348,7 @@ export function FloatingWidget() {
                           Web
                         </button>
                         <button className="p-1.5 rounded-lg bg-muted text-muted-foreground hover:bg-accent transition-colors">
-                          <Image className="w-4 h-4" />
+                          <ImageIcon className="w-4 h-4" />
                         </button>
                         <button className="p-1.5 rounded-lg bg-muted text-muted-foreground hover:bg-accent transition-colors">
                           <Paperclip className="w-4 h-4" />

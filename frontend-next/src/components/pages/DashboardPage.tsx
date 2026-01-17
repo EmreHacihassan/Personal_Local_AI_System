@@ -11,7 +11,6 @@ import {
   Clock,
   Database,
   Cpu,
-  HardDrive,
   Activity,
   CheckCircle2,
   XCircle,
@@ -19,7 +18,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
-import { getDashboardData, getStats, checkHealth } from '@/lib/api';
+import { getStats, checkHealth, SystemStats, HealthStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface StatCardProps {
@@ -93,9 +92,8 @@ function ServiceStatus({ name, status, latency }: ServiceStatusProps) {
 export function DashboardPage() {
   const { language, documents, messages } = useStore();
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<any>(null);
-  const [health, setHealth] = useState<any>(null);
-  const [dashboard, setDashboard] = useState<any>(null);
+  const [stats, setStats] = useState<SystemStats | null>(null);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
 
   useEffect(() => {
     loadData();
@@ -104,15 +102,13 @@ export function DashboardPage() {
   const loadData = async () => {
     setLoading(true);
     
-    const [statsRes, healthRes, dashboardRes] = await Promise.all([
+    const [statsRes, healthRes] = await Promise.all([
       getStats(),
       checkHealth(),
-      getDashboardData(),
     ]);
 
-    if (statsRes.success) setStats(statsRes.data);
-    if (healthRes.success) setHealth(healthRes.data);
-    if (dashboardRes.success) setDashboard(dashboardRes.data);
+    if (statsRes.success && statsRes.data) setStats(statsRes.data);
+    if (healthRes.success && healthRes.data) setHealth(healthRes.data);
 
     setLoading(false);
   };

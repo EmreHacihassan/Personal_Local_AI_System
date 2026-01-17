@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Settings, 
@@ -9,16 +8,13 @@ import {
   Globe, 
   Bell, 
   Palette,
-  Monitor,
   Volume2,
   VolumeX,
   Type,
   Zap,
   Shield,
-  Database,
   Wifi,
-  Check,
-  ChevronRight
+  Check
 } from 'lucide-react';
 import { useStore, Theme } from '@/store/useStore';
 import { cn } from '@/lib/utils';

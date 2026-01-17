@@ -4,6 +4,7 @@ import './globals.css';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { Toaster } from '@/components/ui/Toaster';
 import { WidgetWrapper } from '@/components/widget/WidgetWrapper';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -28,7 +29,9 @@ export default function RootLayout({
     <html lang="tr" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider>
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
           <Toaster />
           <WidgetWrapper />
         </ThemeProvider>

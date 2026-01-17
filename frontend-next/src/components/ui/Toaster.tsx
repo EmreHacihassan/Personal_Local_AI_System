@@ -80,18 +80,19 @@ export function Toaster() {
 
   // Global toast event listener
   useEffect(() => {
-    const handleToast = (e: CustomEvent<Omit<Toast, 'id'>>) => {
+    const handleToast = (e: Event) => {
+      const customEvent = e as CustomEvent<Omit<Toast, 'id'>>;
       const id = Math.random().toString(36).substr(2, 9);
-      const toast = { ...e.detail, id };
+      const toast = { ...customEvent.detail, id };
       setToasts((prev) => [...prev, toast]);
 
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, e.detail.duration || 5000);
+      }, customEvent.detail.duration || 5000);
     };
 
-    window.addEventListener('toast' as any, handleToast);
-    return () => window.removeEventListener('toast' as any, handleToast);
+    window.addEventListener('toast', handleToast);
+    return () => window.removeEventListener('toast', handleToast);
   }, []);
 
   const removeToast = (id: string) => {

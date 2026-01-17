@@ -7,7 +7,6 @@ import {
   Globe, 
   Sparkles, 
   Paperclip, 
-  Image as ImageIcon,
   Loader2,
   Copy,
   ThumbsUp,
@@ -22,7 +21,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
-import { useStore, Message, Source } from '@/store/useStore';
+import { useStore, Message } from '@/store/useStore';
 import { sendChatMessage } from '@/lib/api';
 import { cn, generateId, formatDate } from '@/lib/utils';
 
@@ -381,7 +380,7 @@ function MessageBubble({ message }: { message: Message }) {
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  code({ node, inline, className, children, ...props }: any) {
+                  code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
                     const match = /language-(\w+)/.exec(className || '');
                     return !inline && match ? (
                       <SyntaxHighlighter

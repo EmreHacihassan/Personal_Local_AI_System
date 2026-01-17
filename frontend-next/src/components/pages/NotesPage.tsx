@@ -7,7 +7,6 @@ import {
   Plus,
   Search,
   Folder,
-  FolderPlus,
   Trash2,
   Edit3,
   Save,

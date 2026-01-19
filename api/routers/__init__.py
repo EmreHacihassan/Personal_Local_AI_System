@@ -14,6 +14,7 @@ from .plugins import router as plugins_router
 from .admin import router as admin_router
 from .advanced_rag import router as advanced_rag_router
 from .voice_router import voice_router  # Voice & Multimodal (LOCAL)
+from .screen_router import router as screen_router  # Screen Capture (LOCAL)
 
 __all__ = [
     "health_router",
@@ -24,4 +25,5 @@ __all__ = [
     "admin_router",
     "advanced_rag_router",
     "voice_router",
+    "screen_router",
 ]

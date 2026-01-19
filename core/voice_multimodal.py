@@ -588,7 +588,7 @@ def create_multimodal_pipeline(
         Configured MultimodalPipeline with local providers
     """
     # All providers are LOCAL - data never leaves your computer
-    stt = WhisperLocalSTT(model_size="base")
+    stt = WhisperLocalSTT(model_size="tiny")  # tiny for faster startup
     tts = Pyttsx3TTS()
     vision = LLaVAVision()
     
@@ -623,6 +623,150 @@ async def quick_speak(text: str, output_path: str):
     
     with open(output_path, "wb") as f:
         f.write(result.audio_data)
+
+
+# ============ HEALTH CHECK ============
+
+class VoiceSystemHealth:
+    """Voice system health checker."""
+    
+    @staticmethod
+    def check_tts() -> Dict[str, Any]:
+        """Check TTS availability."""
+        result = {
+            "available": False,
+            "provider": "pyttsx3",
+            "error": None,
+        }
+        
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            voices = engine.getProperty("voices")
+            engine.stop()
+            
+            result["available"] = True
+            result["voices_count"] = len(voices) if voices else 0
+        except Exception as e:
+            result["error"] = str(e)
+        
+        return result
+    
+    @staticmethod
+    def check_stt() -> Dict[str, Any]:
+        """Check STT availability."""
+        result = {
+            "available": False,
+            "provider": None,
+            "error": None,
+        }
+        
+        # Try faster-whisper first
+        try:
+            from faster_whisper import WhisperModel
+            result["available"] = True
+            result["provider"] = "faster-whisper"
+            return result
+        except ImportError:
+            pass
+        
+        # Try openai-whisper
+        try:
+            import whisper
+            result["available"] = True
+            result["provider"] = "openai-whisper"
+            return result
+        except ImportError:
+            result["error"] = "Neither faster-whisper nor openai-whisper installed"
+        
+        return result
+    
+    @staticmethod
+    def check_vision() -> Dict[str, Any]:
+        """Check vision availability."""
+        result = {
+            "available": False,
+            "provider": "llava",
+            "ollama_running": False,
+            "model_available": False,
+            "error": None,
+        }
+        
+        try:
+            import requests
+            
+            # Check Ollama
+            try:
+                response = requests.get("http://localhost:11434/api/tags", timeout=5)
+                if response.status_code == 200:
+                    result["ollama_running"] = True
+                    
+                    # Check for vision model
+                    models = response.json().get("models", [])
+                    model_names = [m.get("name", "").split(":")[0] for m in models]
+                    
+                    if "llava" in model_names:
+                        result["model_available"] = True
+                        result["available"] = True
+                    else:
+                        result["error"] = f"llava model not found. Available: {model_names}"
+            except requests.exceptions.ConnectionError:
+                result["error"] = "Ollama not running on localhost:11434"
+                
+        except ImportError:
+            result["error"] = "requests package not installed"
+        
+        return result
+    
+    @staticmethod
+    def full_check() -> Dict[str, Any]:
+        """Full system health check."""
+        return {
+            "tts": VoiceSystemHealth.check_tts(),
+            "stt": VoiceSystemHealth.check_stt(),
+            "vision": VoiceSystemHealth.check_vision(),
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+# ============ SINGLETON INSTANCES ============
+
+_tts_instance: Optional[Pyttsx3TTS] = None
+_stt_instance: Optional[WhisperLocalSTT] = None
+_vision_instance: Optional[LLaVAVision] = None
+_pipeline_instance: Optional[MultimodalPipeline] = None
+
+
+def get_tts() -> Pyttsx3TTS:
+    """Get singleton TTS instance."""
+    global _tts_instance
+    if _tts_instance is None:
+        _tts_instance = Pyttsx3TTS()
+    return _tts_instance
+
+
+def get_stt(model_size: str = "tiny") -> WhisperLocalSTT:
+    """Get singleton STT instance."""
+    global _stt_instance
+    if _stt_instance is None:
+        _stt_instance = WhisperLocalSTT(model_size=model_size)
+    return _stt_instance
+
+
+def get_vision() -> LLaVAVision:
+    """Get singleton vision instance."""
+    global _vision_instance
+    if _vision_instance is None:
+        _vision_instance = LLaVAVision()
+    return _vision_instance
+
+
+def get_pipeline(llm_client: Optional[Any] = None) -> MultimodalPipeline:
+    """Get singleton pipeline instance."""
+    global _pipeline_instance
+    if _pipeline_instance is None:
+        _pipeline_instance = create_multimodal_pipeline(llm_client)
+    return _pipeline_instance
 
 
 # ============ EXPORTS ============
@@ -660,4 +804,11 @@ __all__ = [
     "create_multimodal_pipeline",
     "quick_transcribe",
     "quick_speak",
+    # Singletons
+    "get_tts",
+    "get_stt",
+    "get_vision",
+    "get_pipeline",
+    # Health
+    "VoiceSystemHealth",
 ]

@@ -87,7 +87,7 @@ neo4j>=5.15.0  # Optional: for production graph storage
 
 # ============ NEW: VOICE/MULTIMODAL ============
 # Speech-to-Text
-# faster-whisper>=0.10.0  # Optional: local Whisper
+faster-whisper>=0.10.0  # Local Whisper STT (recommended)
 # openai-whisper>=20231117  # Optional: original Whisper
 
 # Text-to-Speech
@@ -96,6 +96,13 @@ pyttsx3>=2.90  # Local TTS (DEFAULT - fully offline)
 
 # Vision
 # llava support via Ollama, no extra deps
+
+# ============ NEW: SCREEN CAPTURE ============
+mss>=9.0.0  # Cross-platform screen capture
+Pillow>=10.0.0  # Image processing
+
+# ============ NEW: FILE LOCKING ============
+filelock>=3.13.0  # Cross-platform file locking for ChromaDB
 
 # ============ OPTIONAL CLOUD PROVIDERS ============
 # anthropic>=0.18.0  # Claude API

@@ -1,16 +1,23 @@
 # =============================================================================
 # Enterprise AI Assistant - .gitignore
 # Endüstri Standartlarında Kurumsal AI Çözümü
+# Comprehensive .gitignore for Python + Node.js + AI Project
 # =============================================================================
 
 # =============================================================================
-# PYTHON
+# PYTHON - Core
 # =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+*.pyo
+*.pyd
+
+# =============================================================================
+# PYTHON - Build & Distribution
+# =============================================================================
 build/
 develop-eggs/
 dist/
@@ -23,9 +30,17 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
+
+# =============================================================================
+# PYTHON - Installers
+# =============================================================================
+pip-log.txt
+pip-delete-this-directory.txt
 
 # =============================================================================
 # VIRTUAL ENVIRONMENT
@@ -34,15 +49,38 @@ venv/
 env/
 .venv/
 ENV/
+env.bak/
+venv.bak/
+.python-version
+pyvenv.cfg
+Pipfile.lock
 
 # =============================================================================
-# IDE / EDITOR
+# IDE / EDITOR - JetBrains
 # =============================================================================
 .idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+atlassian-ide-plugin.xml
+
+# =============================================================================
+# IDE / EDITOR - VS Code
+# =============================================================================
 .vscode/
+*.code-workspace
+.history/
+
+# =============================================================================
+# IDE / EDITOR - Vim/Emacs
+# =============================================================================
 *.swp
 *.swo
 *~
+\#*\#
+.#*
+*.orig
 .project
 .pydevproject
 .settings/
@@ -53,24 +91,46 @@ ENV/
 # ENVIRONMENT & SECRETS
 # =============================================================================
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
 *.pem
 *.key
+*.crt
+*.p12
+*.pfx
 secrets/
+credentials/
+.secrets/
+*.secret
+config.local.json
+local_settings.py
 
 # =============================================================================
 # LOGS
 # =============================================================================
-logs/*.log
+logs/
 *.log
-logs/app.log
+*.log.*
+log/
+*.logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+startup_log.txt
 
 # =============================================================================
 # DATABASE & CACHE
 # =============================================================================
 *.db
+*.sqlite
 *.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
 data/chroma_db/
 data/cache/
 data/sessions/*.json
@@ -78,57 +138,183 @@ data/uploads/*
 !data/uploads/.gitkeep
 data/exports/
 *.joblib
+*.pickle
+*.pkl
+*.h5
+*.hdf5
+redis-data/
+mongo-data/
+postgres-data/
 
 # =============================================================================
-# PYTEST
+# AI/ML MODELS & DATA
+# =============================================================================
+*.onnx
+*.pt
+*.pth
+*.bin
+*.gguf
+*.safetensors
+models/
+model_cache/
+.ollama/
+.cache/huggingface/
+transformers_cache/
+
+# =============================================================================
+# VECTOR DATABASES
+# =============================================================================
+chroma_db/
+chromadb/
+faiss_index/
+*.faiss
+pinecone_data/
+qdrant_data/
+weaviate_data/
+milvus_data/
+
+# =============================================================================
+# PYTEST & TESTING
 # =============================================================================
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage_html/
 .tox/
 .nox/
 coverage.xml
 *.cover
+*.coverage
 .hypothesis/
+.benchmarks/
+nosetests.xml
+test-results/
+junit.xml
+
+# =============================================================================
+# MYPY & TYPE CHECKING
+# =============================================================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
 
 # =============================================================================
 # JUPYTER
 # =============================================================================
 .ipynb_checkpoints/
 *.ipynb
+!examples/*.ipynb
+profile_default/
+ipython_config.py
+.jupyter/
 
 # =============================================================================
-# OS FILES
+# OS FILES - Windows
+# =============================================================================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# =============================================================================
+# OS FILES - macOS
 # =============================================================================
 .DS_Store
-Thumbs.db
-Desktop.ini
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
 
 # =============================================================================
-# BUILD / DIST
+# OS FILES - Linux
+# =============================================================================
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# BUILD / DIST / PACKAGING
 # =============================================================================
 dist/
 build/
+out/
+target/
 *.manifest
 *.spec
+*.app
+*.exe
+*.dll
+*.dylib
 
 # =============================================================================
 # BLOBS & LARGE FILES
 # =============================================================================
 blobs/
+*.blob
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.iso
 
 # =============================================================================
-# NODE.JS / NPM
+# NODE.JS / NPM / YARN / PNPM
 # =============================================================================
 node_modules/
+.npm/
+.yarn/
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 package-lock.json
 yarn.lock
+pnpm-lock.yaml
+.eslintcache
+.stylelintcache
+
+# =============================================================================
+# NEXT.JS
+# =============================================================================
 .next/
 out/
+.vercel
+.turbo
+next-env.d.ts
+
+# =============================================================================
+# REACT / VUE / ANGULAR
+# =============================================================================
+.angular/
+.vue/
+.nuxt/
+.output/
+.svelte-kit/
 
 # =============================================================================
 # ELECTRON
@@ -136,11 +322,99 @@ out/
 electron-app/node_modules/
 electron-app/dist/
 electron-app/out/
+electron-app/build/
+electron-app/*.log
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+*.pid
+docker-compose.override.yml
+.docker/
+
+# =============================================================================
+# KUBERNETES
+# =============================================================================
+kubeconfig
+*.kubeconfig
+
+# =============================================================================
+# TERRAFORM
+# =============================================================================
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+
+# =============================================================================
+# DOCUMENTATION BUILD
+# =============================================================================
+docs/_build/
+site/
+.docusaurus/
+.mkdocs/
+
+# =============================================================================
+# COVERAGE REPORTS
+# =============================================================================
+coverage/
+coverage_html/
+.nyc_output/
+lcov.info
+*.lcov
 
 # =============================================================================
 # MISCELLANEOUS
 # =============================================================================
 *.bak
+*.backup
 *.tmp
 *.temp
+*.swp
 .cache/
+.parcel-cache/
+.sass-cache/
+*.pid
+*.seed
+*.pid.lock
+.grunt
+bower_components/
+.lock-wscript
+*.tsbuildinfo
+.eslintcache
+*.tgz
+
+# =============================================================================
+# PROJECT SPECIFIC
+# =============================================================================
+# Startup logs (regenerated each run)
+startup_log.txt
+
+# Local test files
+test_*.py
+!tests/test_*.py
+
+# PyInstaller spec files (auto-generated)
+*.spec
+
+# Keep important data directories but ignore contents
+!data/.gitkeep
+!data/uploads/.gitkeep
+!logs/.gitkeep
+
+# Data backups (local only)
+data/backups/
+data/chroma_backups/
+
+# Ollama manifests (local cache)
+manifests/
+
+# Frontend dependencies
+frontend/node_modules/
+frontend-next/node_modules/
+frontend-next/.next/
+
+# Coverage reports
+coverage_html/
+.coverage

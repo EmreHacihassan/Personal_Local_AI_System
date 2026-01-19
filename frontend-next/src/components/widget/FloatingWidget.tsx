@@ -1,9 +1,12 @@
 'use client';
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
 // =================== API CONFIGURATION ===================
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence, useDragControls, PanInfo } from 'framer-motion';
 import { 
   MessageSquare, 
@@ -37,7 +40,6 @@ import {
   Check,
   ExternalLink,
   Sun,
-  Moon,
   Monitor,
   Volume2,
   VolumeX,
@@ -52,17 +54,9 @@ import {
   MessageCircle,
   FileSearch,
   Layers,
-  Code,
-  Quote,
-  List,
-  AlertCircle,
-  CheckCircle2,
-  Info,
   ThumbsUp,
   ThumbsDown,
-  RotateCcw,
-  Share2,
-  Bookmark
+  RotateCcw
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';

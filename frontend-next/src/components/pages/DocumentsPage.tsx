@@ -80,8 +80,8 @@ export function DocumentsPage() {
   const checkSyncStatus = useCallback(async () => {
     try {
       const response = await apiCall<{ sync_status: SyncStatus }>('/api/rag/sync-status');
-      if (response.success && response.data?.sync_status) {
-        setSyncStatus(response.data.sync_status);
+      if (response.sync_status) {
+        setSyncStatus(response.sync_status);
       }
     } catch (error) {
       console.error('Failed to check sync status:', error);
@@ -92,25 +92,23 @@ export function DocumentsPage() {
   const handleAutoSync = useCallback(async () => {
     setIsSyncing(true);
     try {
-      const response = await apiCall<{ reindexed: number; message: string }>('/api/rag/auto-sync', {
+      await apiCall<{ reindexed: number; message: string }>('/api/rag/auto-sync', {
         method: 'POST'
       });
-      if (response.success) {
-        // Reload documents after sync
-        const docsResponse = await getDocuments();
-        if (docsResponse.success && docsResponse.data) {
-          setDocuments(docsResponse.data.documents.map((d: DocumentResponse) => ({
-            id: d.document_id || d.id || '',
-            name: d.filename || d.name || 'Unknown',
-            size: d.size || 0,
-            type: d.type || (d.filename || d.name || '').split('.').pop() || 'file',
-            uploadedAt: new Date(d.uploaded_at || d.uploadedAt || new Date()),
-            chunks: d.chunks || d.chunks_created || 0,
-          })));
-        }
-        // Recheck sync status
-        await checkSyncStatus();
+      // Reload documents after sync
+      const docsResponse = await getDocuments();
+      if (docsResponse.success && docsResponse.data) {
+        setDocuments(docsResponse.data.documents.map((d: DocumentResponse) => ({
+          id: d.document_id || d.id || '',
+          name: d.filename || d.name || 'Unknown',
+          size: d.size || 0,
+          type: d.type || (d.filename || d.name || '').split('.').pop() || 'file',
+          uploadedAt: new Date(d.uploaded_at || d.uploadedAt || new Date()),
+          chunks: d.chunks || d.chunks_created || 0,
+        })));
       }
+      // Recheck sync status
+      await checkSyncStatus();
     } catch (error) {
       console.error('Auto sync failed:', error);
     } finally {

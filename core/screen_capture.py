@@ -361,26 +361,33 @@ class LocalVisionAnalyzer:
         self._model_available = False
         self._lock = threading.Lock()
     
-    def _ensure_client(self) -> bool:
-        """Ollama client'ı hazırla."""
+    def _ensure_client(self, auto_pull: bool = False) -> bool:
+        """
+        Ollama client'ı hazırla.
+        
+        Args:
+            auto_pull: True ise eksik modeli otomatik indir (uzun sürer)
+        """
         if not HAS_OLLAMA:
             logger.error("ollama package not installed")
             return False
         
         try:
-            # Test connection
+            # Test connection with timeout
             response = ollama.list()
             
             # Check if vision model is available
             models = [m.get("name", "").split(":")[0] for m in response.get("models", [])]
             self._model_available = self.config.vision_model in models
             
-            if not self._model_available:
+            if not self._model_available and auto_pull:
                 logger.warning(f"Vision model '{self.config.vision_model}' not found. Available: {models}")
-                # Try to pull
+                # Try to pull (only if explicitly requested)
                 logger.info(f"Pulling {self.config.vision_model}...")
                 ollama.pull(self.config.vision_model)
                 self._model_available = True
+            elif not self._model_available:
+                logger.debug(f"Vision model '{self.config.vision_model}' not available (auto_pull=False)")
             
             return True
             
@@ -430,9 +437,9 @@ class LocalVisionAnalyzer:
                 error=f"Image conversion failed: {e}",
             )
         
-        # Ensure client
+        # Ensure client (with auto_pull for actual analysis)
         with self._lock:
-            if not self._ensure_client():
+            if not self._ensure_client(auto_pull=True):
                 return AnalysisResult(
                     success=False,
                     response="",
@@ -487,9 +494,9 @@ class LocalVisionAnalyzer:
             )
     
     def is_available(self) -> bool:
-        """Vision modeli mevcut mu?"""
+        """Vision modeli mevcut mu? (Hızlı kontrol, pull yapmaz)"""
         with self._lock:
-            return self._ensure_client() and self._model_available
+            return self._ensure_client(auto_pull=False) and self._model_available
 
 
 # =============================================================================

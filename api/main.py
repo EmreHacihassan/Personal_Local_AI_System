@@ -4598,6 +4598,7 @@ from api.routers import (
     plugins_router,
     admin_router,
     advanced_rag_router,
+    voice_router,  # 🎤🔊🖼️ Voice & Multimodal (100% LOCAL)
 )
 
 # Router'ları kaydet
@@ -4609,6 +4610,7 @@ app.include_router(rag_router)
 app.include_router(plugins_router)
 app.include_router(admin_router)
 app.include_router(advanced_rag_router)
+app.include_router(voice_router)  # 🎤🔊🖼️ Voice & Multimodal
 
 
 # ============ RUN SERVER ============

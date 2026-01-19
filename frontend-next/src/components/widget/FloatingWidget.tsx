@@ -1,5 +1,8 @@
 'use client';
 
+// =================== API CONFIGURATION ===================
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls, PanInfo } from 'framer-motion';
 import { 
@@ -91,10 +94,11 @@ function renderMarkdown(content: string): string {
     .replace(/\n/g, '<br>');
 }
 
-// =================== TEXT TO SPEECH ===================
-function speakText(text: string, lang: string = 'tr-TR') {
+// Note: API_BASE is defined below in CONSTANTS section
+
+// =================== TEXT TO SPEECH (Browser fallback) ===================
+function speakTextBrowser(text: string, lang: string = 'tr-TR') {
   if ('speechSynthesis' in window) {
-    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
     
     const utterance = new SpeechSynthesisUtterance(text);
@@ -109,9 +113,125 @@ function speakText(text: string, lang: string = 'tr-TR') {
   return false;
 }
 
+// =================== TEXT TO SPEECH (Local API - Pyttsx3) ===================
+// Audio element for API TTS playback (declared early for stopSpeaking)
+let ttsAudio: HTMLAudioElement | null = null;
+
+async function speakTextAPI(text: string, lang: string = 'tr'): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/api/voice/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: text,
+        language: lang,
+        rate: 150,
+        volume: 1.0
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success && data.audio_base64) {
+      // Base64'ü audio'ya çevir ve çal
+      const audioData = atob(data.audio_base64);
+      const audioArray = new Uint8Array(audioData.length);
+      for (let i = 0; i < audioData.length; i++) {
+        audioArray[i] = audioData.charCodeAt(i);
+      }
+      
+      const blob = new Blob([audioArray], { type: 'audio/wav' });
+      const audioUrl = URL.createObjectURL(blob);
+      ttsAudio = new Audio(audioUrl);
+      ttsAudio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        ttsAudio = null;
+      };
+      ttsAudio.play();
+      
+      return true;
+    }
+    
+    // Fallback to browser TTS
+    return speakTextBrowser(text, lang);
+  } catch (error) {
+    console.warn('API TTS failed, falling back to browser:', error);
+    return speakTextBrowser(text, lang);
+  }
+}
+
+// Combined speak function - tries API first, falls back to browser
+async function speakText(text: string, lang: string = 'tr-TR') {
+  // Try API TTS first (Pyttsx3 - higher quality, local)
+  const success = await speakTextAPI(text, lang);
+  if (success) {
+    return;
+  }
+  // Fallback to browser TTS
+  return speakTextBrowser(text, lang);
+}
+
 function stopSpeaking() {
+  // Stop browser TTS
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
+  }
+  // Stop API TTS audio
+  if (ttsAudio) {
+    ttsAudio.pause();
+    ttsAudio.currentTime = 0;
+    ttsAudio = null;
+  }
+}
+
+// =================== SPEECH TO TEXT (Local API - Whisper) ===================
+async function transcribeAudio(audioBlob: Blob): Promise<string | null> {
+  try {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'recording.wav');
+    formData.append('model_size', 'base');
+    
+    const response = await fetch(`${API_BASE}/api/voice/stt`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const data = await response.json();
+    
+    if (data.success && data.text) {
+      return data.text;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('STT API error:', error);
+    return null;
+  }
+}
+
+// =================== VISION ANALYSIS (Local API - LLaVA) ===================
+async function analyzeImage(imageBase64: string, prompt: string = 'Bu görseli detaylı açıkla.'): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/voice/vision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_base64: imageBase64,
+        prompt: prompt,
+        model: 'llava'
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (data.success && data.description) {
+      return data.description;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Vision API error:', error);
+    return null;
   }
 }
 
@@ -154,8 +274,7 @@ interface SystemStats {
 
 type WidgetPage = 'home' | 'chat' | 'documents' | 'history' | 'search' | 'settings' | 'analytics' | 'rag';
 
-// =================== CONSTANTS ===================
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+// =================== WIDGET PAGE DEFINITIONS ===================
 
 const WIDGET_PAGES: { id: WidgetPage; icon: React.ElementType; label: { tr: string; en: string }; color: string }[] = [
   { id: 'home', icon: Home, label: { tr: 'Ana Sayfa', en: 'Home' }, color: 'from-violet-500 to-purple-600' },
@@ -1158,15 +1277,35 @@ export function FloatingWidget() {
                           </button>
                           <button 
                             onClick={() => {
-                              // Image upload functionality
+                              // Image upload functionality with Vision AI analysis
                               const imageInput = document.createElement('input');
                               imageInput.type = 'file';
                               imageInput.accept = 'image/*';
-                              imageInput.onchange = (e) => {
+                              imageInput.onchange = async (e) => {
                                 const file = (e.target as HTMLInputElement).files?.[0];
                                 if (file) {
-                                  // Handle image - for now just add a message about it
-                                  setInput(prev => prev + (prev ? ' ' : '') + `[📷 ${file.name}]`);
+                                  // Convert to base64
+                                  const reader = new FileReader();
+                                  reader.onload = async (event) => {
+                                    const base64 = (event.target?.result as string)?.split(',')[1];
+                                    if (base64) {
+                                      // Add loading message
+                                      setInput(prev => prev + (prev ? ' ' : '') + `[🔄 ${file.name} analiz ediliyor...]`);
+                                      
+                                      // Analyze with Vision API
+                                      const description = await analyzeImage(
+                                        base64, 
+                                        language === 'tr' ? 'Bu görseli detaylı açıkla.' : 'Describe this image in detail.'
+                                      );
+                                      
+                                      if (description) {
+                                        setInput(prev => prev.replace(`[🔄 ${file.name} analiz ediliyor...]`, `[📷 ${file.name}]\n\n🖼️ Görsel Analizi:\n${description}`));
+                                      } else {
+                                        setInput(prev => prev.replace(`[🔄 ${file.name} analiz ediliyor...]`, `[📷 ${file.name}]`));
+                                      }
+                                    }
+                                  };
+                                  reader.readAsDataURL(file);
                                 }
                               };
                               imageInput.click();
@@ -1184,37 +1323,86 @@ export function FloatingWidget() {
                             <Paperclip className="w-3.5 h-3.5" />
                           </button>
                           <button 
-                            onClick={() => {
-                              if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-                                alert(language === 'tr' ? 'Tarayıcınız ses tanımayı desteklemiyor' : 'Your browser does not support speech recognition');
-                                return;
-                              }
+                            onClick={async () => {
+                              // Use Local Whisper STT API with MediaRecorder
+                              // Falls back to browser SpeechRecognition if API fails
                               
                               if (isListening) {
-                                // Stop listening
+                                // Stop recording
                                 setIsListening(false);
                                 return;
                               }
                               
-                              // Start listening
-                              const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-                              const recognition = new SpeechRecognition();
-                              recognition.lang = language === 'tr' ? 'tr-TR' : 'en-US';
-                              recognition.continuous = false;
-                              recognition.interimResults = true;
-                              
-                              recognition.onstart = () => setIsListening(true);
-                              recognition.onend = () => setIsListening(false);
-                              recognition.onerror = () => setIsListening(false);
-                              
-                              recognition.onresult = (event: any) => {
-                                const transcript = Array.from(event.results)
-                                  .map((result: any) => result[0].transcript)
-                                  .join('');
-                                setInput(prev => prev + (prev ? ' ' : '') + transcript);
-                              };
-                              
-                              recognition.start();
+                              try {
+                                // Request microphone access
+                                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                                const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                                const audioChunks: Blob[] = [];
+                                
+                                setIsListening(true);
+                                
+                                mediaRecorder.ondataavailable = (event) => {
+                                  audioChunks.push(event.data);
+                                };
+                                
+                                mediaRecorder.onstop = async () => {
+                                  // Stop all tracks
+                                  stream.getTracks().forEach(track => track.stop());
+                                  
+                                  const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                                  
+                                  // Try Whisper Local STT API first
+                                  const transcript = await transcribeAudio(audioBlob);
+                                  
+                                  if (transcript) {
+                                    setInput(prev => prev + (prev ? ' ' : '') + transcript);
+                                  } else {
+                                    // Fallback: Show error message
+                                    console.warn('Whisper STT failed, transcription unavailable');
+                                  }
+                                  
+                                  setIsListening(false);
+                                };
+                                
+                                mediaRecorder.start();
+                                
+                                // Auto-stop after 10 seconds
+                                setTimeout(() => {
+                                  if (mediaRecorder.state === 'recording') {
+                                    mediaRecorder.stop();
+                                  }
+                                }, 10000);
+                                
+                                // Store mediaRecorder reference for manual stop
+                                (window as any).__mediaRecorder = mediaRecorder;
+                                
+                              } catch (error) {
+                                console.error('Microphone access error:', error);
+                                
+                                // Fallback to browser SpeechRecognition
+                                if (('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window)) {
+                                  const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+                                  const recognition = new SpeechRecognition();
+                                  recognition.lang = language === 'tr' ? 'tr-TR' : 'en-US';
+                                  recognition.continuous = false;
+                                  recognition.interimResults = true;
+                                  
+                                  recognition.onstart = () => setIsListening(true);
+                                  recognition.onend = () => setIsListening(false);
+                                  recognition.onerror = () => setIsListening(false);
+                                  
+                                  recognition.onresult = (event: any) => {
+                                    const transcript = Array.from(event.results)
+                                      .map((result: any) => result[0].transcript)
+                                      .join('');
+                                    setInput(prev => prev + (prev ? ' ' : '') + transcript);
+                                  };
+                                  
+                                  recognition.start();
+                                } else {
+                                  alert(language === 'tr' ? 'Mikrofon erişimi sağlanamadı' : 'Microphone access failed');
+                                }
+                              }
                             }}
                             className={cn(
                               "p-1.5 rounded-full transition-all",

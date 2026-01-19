@@ -1,0 +1,107 @@
+{
+  "timestamp": "2026-01-19T22:35:29.015717",
+  "duration_seconds": 15.622287,
+  "total_tests": 159,
+  "passed": 157,
+  "failed": 0,
+  "success_rate": 98.74213836477988,
+  "categories": {
+    "Core Modules": {
+      "total": 55,
+      "passed": 55,
+      "failed": 0,
+      "warnings": 0
+    },
+    "API Endpoints": {
+      "total": 15,
+      "passed": 15,
+      "failed": 0,
+      "warnings": 0
+    },
+    "AI Agents": {
+      "total": 11,
+      "passed": 11,
+      "failed": 0,
+      "warnings": 0
+    },
+    "RAG System": {
+      "total": 22,
+      "passed": 22,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Voice/Multimodal": {
+      "total": 5,
+      "passed": 4,
+      "failed": 0,
+      "warnings": 1
+    },
+    "Screen Capture": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Frontend": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Electron App": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Databases": {
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Tools": {
+      "total": 13,
+      "passed": 13,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Plugins": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Performance": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "warnings": 0
+    },
+    "Security": {
+      "total": 3,
+      "passed": 2,
+      "failed": 0,
+      "warnings": 1
+    },
+    "Integration": {
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "warnings": 0
+    }
+  },
+  "failed_tests": [],
+  "warnings": [
+    {
+      "name": "LLaVA Vision Model",
+      "category": "Voice/Multimodal",
+      "message": "LLaVA not installed"
+    },
+    {
+      "name": "Environment File Security",
+      "category": "Security",
+      "message": "Possible secrets: 1"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "name": "enterprise-ai-assistant",
+  "version": "1.0.0",
+  "description": "Enterprise AI Assistant - Kurumsal Yapay Zeka Asistanı",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis",
+    "pack": "electron-builder --dir",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "author": "Enterprise AI Team",
+  "license": "MIT",
+  "homepage": "https://github.com/yourusername/enterprise-ai-assistant",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/enterprise-ai-assistant.git"
+  },
+  "keywords": [
+    "electron",
+    "ai",
+    "assistant",
+    "chatbot",
+    "enterprise"
+  ],
+  "dependencies": {
+    "electron-log": "^5.0.3",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.7"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^26.4.0",
+    "electron-icon-maker": "^0.0.5"
+  },
+  "build": {
+    "appId": "com.enterprise.ai-assistant",
+    "productName": "Enterprise AI Assistant",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "styles.css",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Portable.${ext}"
+    }
+  }
+}

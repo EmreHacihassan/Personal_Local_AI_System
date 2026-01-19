@@ -564,10 +564,13 @@ def test_voice_multimodal():
         try:
             import ollama
             models = ollama.list()
-            model_names = [m.get("name", "").split(":")[0] for m in models.get("models", [])]
-            has_llava = "llava" in model_names
+            model_names = [m.get("model", "").split(":")[0] for m in models.get("models", [])]
+            # Also check 'name' field as fallback
+            if not any(model_names):
+                model_names = [m.get("name", "").split(":")[0] for m in models.get("models", [])]
+            has_llava = "llava" in model_names or any("llava" in n.lower() for n in model_names)
             if has_llava:
-                return TestStatus.PASSED, "LLaVA model found", {}
+                return TestStatus.PASSED, "LLaVA model ready (100% LOCAL)", {}
             else:
                 return TestStatus.WARNING, "LLaVA not installed", {"available": model_names}
         except Exception as e:

@@ -12,7 +12,7 @@ ollama>=0.1.0
 langchain>=0.1.0
 langchain-community>=0.0.10
 langchain-core>=0.1.0
-openai>=1.12.0  # For cloud fallback
+# openai>=1.12.0  # For cloud fallback - DISABLED for privacy
 
 # ============ RAG & VECTORS ============
 chromadb>=0.4.22
@@ -91,8 +91,8 @@ neo4j>=5.15.0  # Optional: for production graph storage
 # openai-whisper>=20231117  # Optional: original Whisper
 
 # Text-to-Speech
-pyttsx3>=2.90  # Local TTS
-edge-tts>=6.1.9  # Microsoft Edge TTS (free, high quality)
+pyttsx3>=2.90  # Local TTS (DEFAULT - fully offline)
+# edge-tts>=6.1.9  # Microsoft Edge TTS - DISABLED for privacy (sends data to Microsoft)
 
 # Vision
 # llava support via Ollama, no extra deps

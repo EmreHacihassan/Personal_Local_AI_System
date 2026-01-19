@@ -255,43 +255,8 @@ class WhisperLocalSTT(SpeechToText):
             os.unlink(temp_path)
 
 
-class WhisperAPISTT(SpeechToText):
-    """
-    OpenAI Whisper API STT.
-    """
-    
-    def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-    
-    @property
-    def provider(self) -> STTProvider:
-        return STTProvider.WHISPER_API
-    
-    async def transcribe(self, audio: AudioSegment) -> TranscriptionResult:
-        try:
-            from openai import OpenAI
-            
-            client = OpenAI(api_key=self.api_key)
-            
-            # Create file-like object
-            audio_file = io.BytesIO(audio.data)
-            audio_file.name = f"audio.{audio.format.value}"
-            
-            response = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                response_format="verbose_json"
-            )
-            
-            return TranscriptionResult(
-                text=response.text,
-                language=response.language,
-                segments=[s.model_dump() for s in response.segments] if hasattr(response, 'segments') else [],
-                duration_ms=response.duration * 1000 if hasattr(response, 'duration') else 0
-            )
-            
-        except ImportError:
-            raise RuntimeError("openai package not installed")
+# WhisperAPISTT REMOVED - Privacy: Data would be sent to OpenAI servers
+# Use WhisperLocalSTT instead for fully offline speech-to-text
 
 
 # ============ TEXT-TO-SPEECH ============
@@ -359,91 +324,12 @@ class Pyttsx3TTS(TextToSpeech):
             raise RuntimeError("pyttsx3 package not installed")
 
 
-class EdgeTTS(TextToSpeech):
-    """
-    Microsoft Edge TTS (free, high quality).
-    """
-    
-    def __init__(self, default_voice: str = "en-US-AriaNeural"):
-        self.default_voice = default_voice
-    
-    @property
-    def provider(self) -> TTSProvider:
-        return TTSProvider.EDGE_TTS
-    
-    async def synthesize(self, text: str, voice: Optional[str] = None) -> TTSResult:
-        try:
-            import edge_tts
-            
-            voice = voice or self.default_voice
-            
-            # Generate speech
-            communicate = edge_tts.Communicate(text, voice)
-            
-            audio_data = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-            
-            return TTSResult(
-                audio_data=audio_data,
-                format=AudioFormat.MP3,
-                sample_rate=24000
-            )
-            
-        except ImportError:
-            raise RuntimeError("edge-tts package not installed")
-    
-    async def list_voices(self) -> List[Dict[str, str]]:
-        """List available voices"""
-        try:
-            import edge_tts
-            voices = await edge_tts.list_voices()
-            return voices
-        except ImportError:
-            return []
+# EdgeTTS REMOVED - Privacy: Data is sent to Microsoft servers
+# Use Pyttsx3TTS instead for fully offline text-to-speech
 
 
-class OpenAITTS(TextToSpeech):
-    """
-    OpenAI TTS API.
-    """
-    
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        model: str = "tts-1",
-        default_voice: str = "alloy"
-    ):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model
-        self.default_voice = default_voice
-    
-    @property
-    def provider(self) -> TTSProvider:
-        return TTSProvider.OPENAI_TTS
-    
-    async def synthesize(self, text: str, voice: Optional[str] = None) -> TTSResult:
-        try:
-            from openai import OpenAI
-            
-            client = OpenAI(api_key=self.api_key)
-            voice = voice or self.default_voice
-            
-            response = client.audio.speech.create(
-                model=self.model,
-                voice=voice,
-                input=text
-            )
-            
-            return TTSResult(
-                audio_data=response.content,
-                format=AudioFormat.MP3,
-                sample_rate=24000
-            )
-            
-        except ImportError:
-            raise RuntimeError("openai package not installed")
+# OpenAITTS REMOVED - Privacy: Data is sent to OpenAI servers
+# Use Pyttsx3TTS instead for fully offline text-to-speech
 
 
 # ============ VISION ============
@@ -513,67 +399,8 @@ class LLaVAVision(VisionAnalyzer):
                     raise RuntimeError(f"LLaVA request failed: {response.status}")
 
 
-class GPT4Vision(VisionAnalyzer):
-    """
-    OpenAI GPT-4 Vision.
-    """
-    
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        model: str = "gpt-4o"
-    ):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model
-    
-    @property
-    def provider(self) -> VisionProvider:
-        return VisionProvider.GPT4_VISION
-    
-    async def analyze(
-        self,
-        image: ImageInput,
-        prompt: Optional[str] = None
-    ) -> VisionResult:
-        try:
-            from openai import OpenAI
-            
-            client = OpenAI(api_key=self.api_key)
-            prompt = prompt or "Describe this image in detail."
-            
-            # Build image content
-            if image.url:
-                image_content = {"type": "image_url", "image_url": {"url": image.url}}
-            else:
-                base64_data = image.get_base64()
-                image_content = {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/{image.format.value};base64,{base64_data}"
-                    }
-                }
-            
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            image_content
-                        ]
-                    }
-                ],
-                max_tokens=500
-            )
-            
-            return VisionResult(
-                description=response.choices[0].message.content,
-                confidence=0.95
-            )
-            
-        except ImportError:
-            raise RuntimeError("openai package not installed")
+# GPT4Vision REMOVED - Privacy: Data is sent to OpenAI servers
+# Use LLaVAVision instead for fully offline image analysis via Ollama
 
 
 # ============ MULTIMODAL PIPELINE ============
@@ -747,29 +574,23 @@ class StreamingTTS:
 # ============ CONVENIENCE FUNCTIONS ============
 
 def create_multimodal_pipeline(
-    use_local: bool = True,
-    openai_api_key: Optional[str] = None,
     llm_client: Optional[Any] = None
 ) -> MultimodalPipeline:
     """
-    Create a multimodal pipeline with default providers.
+    Create a multimodal pipeline with LOCAL-ONLY providers.
+    
+    All processing happens on your machine - no data leaves your computer.
     
     Args:
-        use_local: Whether to use local models
-        openai_api_key: OpenAI API key for cloud providers
         llm_client: Optional LLM client for response generation
         
     Returns:
-        Configured MultimodalPipeline
+        Configured MultimodalPipeline with local providers
     """
-    if use_local:
-        stt = WhisperLocalSTT(model_size="base")
-        tts = Pyttsx3TTS()
-        vision = LLaVAVision()
-    else:
-        stt = WhisperAPISTT(api_key=openai_api_key)
-        tts = OpenAITTS(api_key=openai_api_key)
-        vision = GPT4Vision(api_key=openai_api_key)
+    # All providers are LOCAL - data never leaves your computer
+    stt = WhisperLocalSTT(model_size="base")
+    tts = Pyttsx3TTS()
+    vision = LLaVAVision()
     
     return MultimodalPipeline(
         stt=stt,
@@ -796,8 +617,8 @@ async def quick_transcribe(audio_path: str) -> str:
 
 
 async def quick_speak(text: str, output_path: str):
-    """Quick text-to-speech to file"""
-    tts = EdgeTTS()
+    """Quick text-to-speech to file (LOCAL - no data leaves your computer)"""
+    tts = Pyttsx3TTS()  # Fully offline TTS
     result = await tts.synthesize(text)
     
     with open(output_path, "wb") as f:
@@ -822,19 +643,15 @@ __all__ = [
     "VisionResult",
     "MultimodalInput",
     "MultimodalResult",
-    # STT
+    # STT (LOCAL ONLY)
     "SpeechToText",
     "WhisperLocalSTT",
-    "WhisperAPISTT",
-    # TTS
+    # TTS (LOCAL ONLY)
     "TextToSpeech",
     "Pyttsx3TTS",
-    "EdgeTTS",
-    "OpenAITTS",
-    # Vision
+    # Vision (LOCAL ONLY)
     "VisionAnalyzer",
     "LLaVAVision",
-    "GPT4Vision",
     # Pipeline
     "MultimodalPipeline",
     "StreamingSTT",

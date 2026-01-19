@@ -343,13 +343,13 @@ def __getattr__(name):
         except ImportError:
             return None
     
-    # 12. Voice/Multimodal
-    if name in ("MultimodalPipeline", "create_multimodal_pipeline", "WhisperLocalSTT", "EdgeTTS", "LLaVAVision"):
+    # 12. Voice/Multimodal (LOCAL ONLY - Privacy first)
+    if name in ("MultimodalPipeline", "create_multimodal_pipeline", "WhisperLocalSTT", "Pyttsx3TTS", "LLaVAVision"):
         try:
-            from .voice_multimodal import MultimodalPipeline, create_multimodal_pipeline, WhisperLocalSTT, EdgeTTS, LLaVAVision
+            from .voice_multimodal import MultimodalPipeline, create_multimodal_pipeline, WhisperLocalSTT, Pyttsx3TTS, LLaVAVision
             mapping = {
                 "MultimodalPipeline": MultimodalPipeline, "create_multimodal_pipeline": create_multimodal_pipeline,
-                "WhisperLocalSTT": WhisperLocalSTT, "EdgeTTS": EdgeTTS, "LLaVAVision": LLaVAVision
+                "WhisperLocalSTT": WhisperLocalSTT, "Pyttsx3TTS": Pyttsx3TTS, "LLaVAVision": LLaVAVision
             }
             return mapping[name]
         except ImportError:
@@ -641,7 +641,7 @@ __all__ = [
     "MultimodalPipeline",
     "create_multimodal_pipeline",
     "WhisperLocalSTT",
-    "EdgeTTS",
+    "Pyttsx3TTS",  # Local TTS - no data leaves your computer
     "LLaVAVision",
     "EnterpriseAIOrchestrator",
     "create_orchestrator",

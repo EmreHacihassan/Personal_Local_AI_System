@@ -658,20 +658,94 @@ class TieredMemoryManager:
         - Decay importance of old memories
         """
         logger.info("Starting memory consolidation...")
+        consolidated_count = 0
+        decayed_count = 0
         
         # 1. Decay importance of archival memories
         for entry_id, entry in self._archival_cache.items():
             age_days = (datetime.now() - entry.created_at).days
             if age_days > 30:
+                old_importance = entry.importance
                 entry.importance *= 0.95  # Gradual decay
+                decayed_count += 1
+                logger.debug(f"Decayed memory {entry_id}: {old_importance:.2f} -> {entry.importance:.2f}")
         
-        # 2. Summarize and merge if summarizer available
-        if summarizer:
-            # Group similar entries
-            # In production, use embeddings for similarity
-            pass
+        # 2. Find and merge similar entries
+        if len(self._archival_cache) > 10:
+            entries = list(self._archival_cache.values())
+            merged_ids = set()
+            
+            for i, entry1 in enumerate(entries):
+                if entry1.id in merged_ids:
+                    continue
+                
+                similar_entries = []
+                for j, entry2 in enumerate(entries[i+1:], i+1):
+                    if entry2.id in merged_ids:
+                        continue
+                    
+                    # Calculate similarity using simple word overlap
+                    similarity = self._calculate_text_similarity(
+                        entry1.content, entry2.content
+                    )
+                    
+                    if similarity > 0.7:  # High similarity threshold
+                        similar_entries.append(entry2)
+                        merged_ids.add(entry2.id)
+                
+                # Merge similar entries into one
+                if similar_entries and summarizer:
+                    all_contents = [entry1.content] + [e.content for e in similar_entries]
+                    combined = "\n---\n".join(all_contents)
+                    
+                    try:
+                        # Summarize combined content
+                        summary = summarizer(combined)
+                        
+                        # Update entry1 with merged content
+                        entry1.content = summary
+                        entry1.importance = max(entry1.importance, *[e.importance for e in similar_entries])
+                        entry1.tags = list(set(entry1.tags + [tag for e in similar_entries for tag in e.tags]))
+                        
+                        # Remove merged entries from cache
+                        for e in similar_entries:
+                            if e.id in self._archival_cache:
+                                del self._archival_cache[e.id]
+                                await self.storage.delete_memory(e.id)
+                        
+                        consolidated_count += len(similar_entries)
+                        logger.info(f"Merged {len(similar_entries) + 1} similar memories into one")
+                    except Exception as e:
+                        logger.warning(f"Summarization failed: {e}")
         
-        logger.info("Memory consolidation complete")
+        # 3. Remove very low importance memories (cleanup)
+        to_remove = []
+        for entry_id, entry in self._archival_cache.items():
+            if entry.importance < 0.1:  # Very low importance
+                to_remove.append(entry_id)
+        
+        for entry_id in to_remove:
+            del self._archival_cache[entry_id]
+            await self.storage.delete_memory(entry_id)
+            logger.debug(f"Removed low-importance memory: {entry_id}")
+        
+        logger.info(f"Memory consolidation complete: {consolidated_count} merged, {decayed_count} decayed, {len(to_remove)} removed")
+    
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """
+        Calculate text similarity using word overlap (Jaccard similarity).
+        For production, use embedding-based similarity.
+        """
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        
+        return intersection / union if union > 0 else 0.0
     
     # ============ UTILITIES ============
     

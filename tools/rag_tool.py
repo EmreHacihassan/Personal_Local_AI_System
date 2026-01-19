@@ -10,7 +10,8 @@ from typing import Dict, Any, Optional, List
 from .base_tool import BaseTool, ToolResult
 
 import sys
-sys.path.append('..')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rag.retriever import retriever
 from core.vector_store import vector_store

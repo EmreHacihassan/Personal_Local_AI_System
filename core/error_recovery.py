@@ -537,12 +537,50 @@ def _resource_recovery(ctx: ErrorContext) -> bool:
     return True
 
 
+def _chromadb_recovery(ctx: ErrorContext) -> bool:
+    """
+    ChromaDB hatası kurtarma.
+    
+    ResilientChromaDB kullanarak otomatik kurtarma.
+    """
+    try:
+        from .chromadb_resilient import resilient_chromadb
+        return resilient_chromadb.ensure_healthy()
+    except Exception as e:
+        logging.error(f"ChromaDB recovery failed: {e}")
+        return False
+
+
+def _llm_recovery(ctx: ErrorContext) -> bool:
+    """
+    LLM hatası kurtarma.
+    
+    Backup modele geçiş dener.
+    """
+    try:
+        from .llm_manager import llm_manager
+        # Backup modele geç
+        if hasattr(llm_manager, '_switch_to_backup'):
+            llm_manager._switch_to_backup()
+            return True
+        return False
+    except Exception as e:
+        logging.error(f"LLM recovery failed: {e}")
+        return False
+
+
 # Varsayılan recovery action'ları kaydet
 error_recovery_manager.register_recovery_action(
     ErrorCategory.NETWORK, _network_recovery
 )
 error_recovery_manager.register_recovery_action(
     ErrorCategory.RESOURCE, _resource_recovery
+)
+error_recovery_manager.register_recovery_action(
+    ErrorCategory.INTERNAL, _chromadb_recovery  # ChromaDB hataları için
+)
+error_recovery_manager.register_recovery_action(
+    ErrorCategory.EXTERNAL_SERVICE, _llm_recovery  # LLM hataları için
 )
 
 

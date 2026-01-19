@@ -16,6 +16,7 @@ import {
   FileText,
   ExternalLink,
   ChevronDown,
+  ChevronRight,
   Star,
   Edit,
   X,
@@ -32,7 +33,8 @@ import {
   FileCode,
   ChevronUp,
   HelpCircle,
-  Search
+  Search,
+  Keyboard
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -119,9 +121,7 @@ export function ChatPage() {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     isStreaming,
     setIsStreaming,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     streamingContent,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setStreamingContent,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     appendStreamingContent,
@@ -188,11 +188,16 @@ export function ChatPage() {
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    const handleClickOutside = () => {
-      setShowModeSelector(false);
-      setShowComplexitySelector(false);
-      setShowLengthSelector(false);
-      setShowWebSearchSelector(false);
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      // Check if click is inside any dropdown container
+      const isInsideDropdown = target.closest('[data-dropdown-container]');
+      if (!isInsideDropdown) {
+        setShowModeSelector(false);
+        setShowComplexitySelector(false);
+        setShowLengthSelector(false);
+        setShowWebSearchSelector(false);
+      }
     };
     
     document.addEventListener('click', handleClickOutside);
@@ -250,14 +255,35 @@ export function ChatPage() {
     try {
       // Map our new modes to API expected values
       const apiWebSearch = webSearchMode === 'on' ? true : webSearchMode === 'off' ? false : undefined;
-      const apiResponseMode = responseMode === 'auto' ? 'normal' : 
-                              responseMode === 'analytical' || responseMode === 'technical' ? 'detailed' : 'normal';
+      
+      // Response mode mapping: auto/creative/analytical/technical/friendly/academic -> normal/detailed
+      const apiResponseMode = (responseMode === 'analytical' || responseMode === 'technical' || responseMode === 'academic') 
+                              ? 'detailed' : 'normal';
+      
+      // Complexity mapping: simple/normal/comprehensive/research -> simple/moderate/advanced/comprehensive
       const apiComplexity = complexityLevel === 'research' ? 'comprehensive' : 
                            complexityLevel === 'comprehensive' ? 'advanced' : 
                            complexityLevel === 'simple' ? 'simple' : 'moderate';
+      
+      // Length mapping: auto/short/medium/long/very_long -> short/normal/detailed/comprehensive
       const apiLength = responseLength === 'very_long' ? 'comprehensive' : 
                        responseLength === 'long' ? 'detailed' : 
-                       responseLength === 'short' ? 'short' : 'normal';
+                       responseLength === 'short' ? 'short' : 
+                       responseLength === 'medium' ? 'normal' : 'normal';
+      
+      // Debug logging
+      console.log('🔧 Chat Settings:', {
+        webSearchMode,
+        responseMode,
+        complexityLevel,
+        responseLength,
+        '→ API Params': {
+          web_search: apiWebSearch,
+          response_mode: apiResponseMode,
+          complexity_level: apiComplexity,
+          response_length: apiLength,
+        }
+      });
       
       let fullContent = '';
       let metadata: Record<string, unknown> = {};
@@ -397,16 +423,17 @@ export function ChatPage() {
     setIsTyping(true);
 
     try {
-      // Map our new modes to API expected values
+      // Map our new modes to API expected values (same as handleSend)
       const apiWebSearch = webSearchMode === 'on' ? true : webSearchMode === 'off' ? false : undefined;
-      const apiResponseMode = responseMode === 'auto' ? 'normal' : 
-                              responseMode === 'analytical' || responseMode === 'technical' ? 'detailed' : 'normal';
+      const apiResponseMode = (responseMode === 'analytical' || responseMode === 'technical' || responseMode === 'academic') 
+                              ? 'detailed' : 'normal';
       const apiComplexity = complexityLevel === 'research' ? 'comprehensive' : 
                            complexityLevel === 'comprehensive' ? 'advanced' : 
                            complexityLevel === 'simple' ? 'simple' : 'moderate';
       const apiLength = responseLength === 'very_long' ? 'comprehensive' : 
                        responseLength === 'long' ? 'detailed' : 
-                       responseLength === 'short' ? 'short' : 'normal';
+                       responseLength === 'short' ? 'short' : 
+                       responseLength === 'medium' ? 'normal' : 'normal';
       
       const response = await sendChatMessage({
         message: userMessage.content,
@@ -466,245 +493,283 @@ export function ChatPage() {
   const currentQuestions = sampleQuestions[language] || sampleQuestions.tr;
   const currentComplexity = complexityLevels.find(c => c.id === complexityLevel);
   const currentLength = responseLengths.find(l => l.id === responseLength);
+  const currentMode = responseModes.find(m => m.id === responseMode);
+  const currentWebSearch = webSearchModes.find(w => w.id === webSearchMode);
+
+  // Control bar labels
+  const controlLabels = {
+    webSearch: { tr: 'Web Arama', en: 'Web Search', de: 'Websuche' },
+    aiStyle: { tr: 'AI Stili', en: 'AI Style', de: 'KI-Stil' },
+    complexity: { tr: 'Detay', en: 'Detail', de: 'Detail' },
+    length: { tr: 'Uzunluk', en: 'Length', de: 'Länge' },
+  };
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card/50 backdrop-blur-sm">
+      {/* Header with Controls on Right */}
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/50 backdrop-blur-sm">
+        {/* Left: Title */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 text-white">
-            <Sparkles className="w-5 h-5" />
+          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 text-white">
+            <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">{t.title[language]}</h1>
-            <p className="text-xs text-muted-foreground">{t.subtitle[language]}</p>
+            <h1 className="text-base font-semibold">{t.title[language]}</h1>
+            <p className="text-[10px] text-muted-foreground hidden sm:block">{t.subtitle[language]}</p>
           </div>
         </div>
 
-        {/* Smart Control Bar */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {/* Web Search Mode Selector */}
-          <div className="relative">
+        {/* Right: Controls */}
+        <div className="flex items-center gap-1.5">
+          {/* Web Search */}
+          <div className="relative" data-dropdown-container>
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
+                console.log('Web Search button clicked! Current state:', showWebSearchSelector);
                 setShowWebSearchSelector(!showWebSearchSelector);
+                setShowModeSelector(false);
                 setShowComplexitySelector(false);
+                setShowLengthSelector(false);
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
+                webSearchMode === 'on'
+                  ? "bg-blue-500 text-white"
+                  : webSearchMode === 'off'
+                  ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                  : "bg-blue-500/10 text-blue-600 border border-blue-500/20"
+              )}
+              title={controlLabels.webSearch[language]}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{currentWebSearch?.[language]?.replace(/^[^\s]+\s/, '') || 'Auto'}</span>
+              <ChevronDown className="w-3 h-3 opacity-60" />
+            </button>
+
+            {/* Simple dropdown without AnimatePresence for testing */}
+            {showWebSearchSelector && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-[9999] overflow-visible"
+                style={{ zIndex: 9999 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-1.5">
+                  {webSearchModes.map((mode) => (
+                    <div
+                      key={mode.id}
+                      onClick={() => {
+                        console.log('Setting web search mode:', mode.id);
+                        setWebSearchMode(mode.id as typeof webSearchMode);
+                        setShowWebSearchSelector(false);
+                      }}
+                      className={cn(
+                        "w-full px-2.5 py-2.5 text-left text-xs rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer select-none",
+                        webSearchMode === mode.id && "bg-blue-500/10 text-blue-600"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>{mode.icon}</span>
+                        <span className="font-medium">{mode[language]?.replace(/^[^\s]+\s/, '')}</span>
+                        {webSearchMode === mode.id && <Check className="w-3 h-3 ml-auto text-blue-500" />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* AI Style */}
+          <div className="relative" data-dropdown-container>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowModeSelector(!showModeSelector);
+                setShowWebSearchSelector(false);
+                setShowComplexitySelector(false);
+                setShowLengthSelector(false);
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
+                responseMode !== 'auto'
+                  ? "bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                  : "bg-muted text-foreground hover:bg-muted/80"
+              )}
+              title={controlLabels.aiStyle[language]}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden sm:inline">{currentMode?.[language]?.replace(/^[^\s]+\s/, '') || 'Auto'}</span>
+              <ChevronDown className="w-3 h-3 opacity-60" />
+            </button>
+
+            {/* Simple dropdown */}
+            {showModeSelector && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-visible"
+                style={{ zIndex: 9999 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-1.5">
+                  {responseModes.map((mode) => (
+                    <div
+                      key={mode.id}
+                      onClick={() => {
+                        console.log('Setting response mode:', mode.id);
+                        setResponseMode(mode.id as typeof responseMode);
+                        setShowModeSelector(false);
+                      }}
+                      className={cn(
+                        "w-full px-2.5 py-2.5 text-left rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer select-none",
+                        responseMode === mode.id && "bg-amber-500/10 text-amber-600"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-medium">{mode[language]}</div>
+                          <div className="text-[10px] text-muted-foreground">{mode.desc[language]}</div>
+                        </div>
+                        {responseMode === mode.id && <Check className="w-3 h-3 text-amber-500 flex-shrink-0" />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Complexity */}
+          <div className="relative" data-dropdown-container>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowComplexitySelector(!showComplexitySelector);
+                setShowWebSearchSelector(false);
                 setShowModeSelector(false);
                 setShowLengthSelector(false);
               }}
               className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-sm",
-                webSearchMode === 'on'
-                  ? "bg-blue-500/15 text-blue-600 border border-blue-500/30"
-                  : webSearchMode === 'off'
-                  ? "bg-muted text-muted-foreground hover:bg-accent"
-                  : "bg-gradient-to-r from-blue-500/10 to-cyan-500/10 text-blue-600 border border-blue-500/20"
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
+                complexityLevel !== 'normal'
+                  ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                  : "bg-muted text-foreground hover:bg-muted/80"
               )}
-              title={t.webSearch[language]}
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{webSearchModes.find(m => m.id === webSearchMode)?.[language]?.replace(/^[^\s]+\s/, '') || 'Auto'}</span>
-              <ChevronDown className="w-3 h-3 opacity-60" />
-            </button>
-
-            <AnimatePresence>
-              {showWebSearchSelector && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="absolute right-0 top-full mt-2 w-44 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
-                >
-                  <div className="p-1.5">
-                    {webSearchModes.map((mode) => (
-                      <button
-                        key={mode.id}
-                        onClick={() => {
-                          setWebSearchMode(mode.id as typeof webSearchMode);
-                          setShowWebSearchSelector(false);
-                        }}
-                        className={cn(
-                          "w-full px-3 py-2 text-left text-sm rounded-lg hover:bg-accent transition-colors flex items-center gap-2",
-                          webSearchMode === mode.id && "bg-blue-500/10 text-blue-600"
-                        )}
-                      >
-                        <span>{mode.icon}</span>
-                        <span>{mode[language]?.replace(/^[^\s]+\s/, '')}</span>
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          <div className="h-4 w-px bg-border mx-0.5" />
-
-          {/* Response Mode Selector (AI Style) */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowModeSelector(!showModeSelector);
-                setShowComplexitySelector(false);
-                setShowLengthSelector(false);
-                setShowWebSearchSelector(false);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted hover:bg-accent transition-colors text-sm"
-              title={language === 'tr' ? 'Yanıt Stili' : language === 'de' ? 'Antwortstil' : 'Response Style'}
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-500" />
-              <span className="hidden sm:inline">{responseModes.find(m => m.id === responseMode)?.[language]?.replace(/^[^\s]+\s/, '') || 'Auto'}</span>
-              <ChevronDown className="w-3 h-3 opacity-60" />
-            </button>
-
-            <AnimatePresence>
-              {showModeSelector && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="absolute right-0 top-full mt-2 w-56 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
-                >
-                  <div className="p-1.5">
-                    {responseModes.map((mode) => (
-                      <button
-                        key={mode.id}
-                        onClick={() => {
-                          setResponseMode(mode.id as typeof responseMode);
-                          setShowModeSelector(false);
-                        }}
-                        className={cn(
-                          "w-full px-3 py-2 text-left rounded-lg hover:bg-accent transition-colors",
-                          responseMode === mode.id && "bg-amber-500/10 text-amber-600"
-                        )}
-                      >
-                        <div className="text-sm font-medium">{mode[language]}</div>
-                        <div className="text-xs text-muted-foreground">{mode.desc[language]}</div>
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Complexity Level Selector */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowComplexitySelector(!showComplexitySelector);
-                setShowModeSelector(false);
-                setShowLengthSelector(false);
-                setShowWebSearchSelector(false);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted hover:bg-accent transition-colors text-sm"
-              title={t.complexity[language]}
+              title={controlLabels.complexity[language]}
             >
               <Gauge className="w-3.5 h-3.5 text-emerald-500" />
               <span className="hidden sm:inline">{currentComplexity?.[language]?.replace(/^[^\s]+\s/, '') || 'Normal'}</span>
               <ChevronDown className="w-3 h-3 opacity-60" />
             </button>
 
-            <AnimatePresence>
-              {showComplexitySelector && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="absolute right-0 top-full mt-2 w-56 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
-                >
-                  <div className="p-1.5">
-                    {complexityLevels.map((level) => (
-                      <button
-                        key={level.id}
-                        onClick={() => {
-                          setComplexityLevel(level.id as typeof complexityLevel);
-                          setShowComplexitySelector(false);
-                        }}
-                        className={cn(
-                          "w-full px-3 py-2 text-left rounded-lg hover:bg-accent transition-colors",
-                          complexityLevel === level.id && "bg-emerald-500/10 text-emerald-600"
-                        )}
-                      >
-                        <div className="text-sm font-medium">{level[language]}</div>
-                        <div className="text-xs text-muted-foreground">{level.desc[language]}</div>
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Simple dropdown */}
+            {showComplexitySelector && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-visible"
+                style={{ zIndex: 9999 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-1.5">
+                  {complexityLevels.map((level) => (
+                    <div
+                      key={level.id}
+                      onClick={() => {
+                        console.log('Setting complexity level:', level.id);
+                        setComplexityLevel(level.id as typeof complexityLevel);
+                        setShowComplexitySelector(false);
+                      }}
+                      className={cn(
+                        "w-full px-2.5 py-2.5 text-left rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer select-none",
+                        complexityLevel === level.id && "bg-emerald-500/10 text-emerald-600"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-medium">{level[language]}</div>
+                          <div className="text-[10px] text-muted-foreground">{level.desc[language]}</div>
+                        </div>
+                        {complexityLevel === level.id && <Check className="w-3 h-3 text-emerald-500 flex-shrink-0" />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Response Length Selector */}
-          <div className="relative">
+          {/* Length */}
+          <div className="relative" data-dropdown-container>
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
                 setShowLengthSelector(!showLengthSelector);
+                setShowWebSearchSelector(false);
                 setShowModeSelector(false);
                 setShowComplexitySelector(false);
-                setShowWebSearchSelector(false);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted hover:bg-accent transition-colors text-sm"
-              title={t.length[language]}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
+                responseLength !== 'auto'
+                  ? "bg-purple-500/10 text-purple-600 border border-purple-500/20"
+                  : "bg-muted text-foreground hover:bg-muted/80"
+              )}
+              title={controlLabels.length[language]}
             >
               <Layers className="w-3.5 h-3.5 text-purple-500" />
               <span className="hidden sm:inline">{currentLength?.[language]?.replace(/^[^\s]+\s/, '') || 'Auto'}</span>
               <ChevronDown className="w-3 h-3 opacity-60" />
             </button>
 
-            <AnimatePresence>
-              {showLengthSelector && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="absolute right-0 top-full mt-2 w-44 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
-                >
-                  <div className="p-1.5">
-                    {responseLengths.map((length) => (
-                      <button
-                        key={length.id}
-                        onClick={() => {
-                          setResponseLength(length.id as typeof responseLength);
-                          setShowLengthSelector(false);
-                        }}
-                        className={cn(
-                          "w-full px-3 py-2 text-left text-sm rounded-lg hover:bg-accent transition-colors flex items-center gap-2",
-                          responseLength === length.id && "bg-purple-500/10 text-purple-600"
-                        )}
-                      >
-                        {length[language]}
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Simple dropdown */}
+            {showLengthSelector && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-visible"
+                style={{ zIndex: 9999 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-1.5">
+                  {responseLengths.map((length) => (
+                    <div
+                      key={length.id}
+                      onClick={() => {
+                        console.log('Setting response length:', length.id);
+                        setResponseLength(length.id as typeof responseLength);
+                        setShowLengthSelector(false);
+                      }}
+                      className={cn(
+                        "w-full px-2.5 py-2.5 text-left text-xs rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer select-none",
+                        responseLength === length.id && "bg-purple-500/10 text-purple-600"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{length[language]}</span>
+                        {responseLength === length.id && <Check className="w-3 h-3 ml-auto text-purple-500" />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="h-4 w-px bg-border mx-0.5" />
+          {/* Divider */}
+          {messages.length > 0 && <div className="h-5 w-px bg-border mx-1" />}
 
-          {/* Clear Chat Button */}
+          {/* Clear Chat */}
           {messages.length > 0 && (
             <button
               onClick={() => {
-                if (confirm(language === 'tr' ? 'Tüm mesajları silmek istediğinize emin misiniz?' : language === 'de' ? 'Möchten Sie alle Nachrichten löschen?' : 'Are you sure you want to clear all messages?')) {
+                if (confirm(language === 'tr' ? 'Tüm mesajları silmek istediğinize emin misiniz?' : 'Are you sure you want to clear all messages?')) {
                   clearMessages();
                 }
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors text-sm"
-              title={language === 'tr' ? 'Sohbeti Temizle' : language === 'de' ? 'Chat löschen' : 'Clear Chat'}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors text-xs"
+              title={language === 'tr' ? 'Sohbeti Temizle' : 'Clear Chat'}
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">
-                {language === 'tr' ? 'Temizle' : language === 'de' ? 'Löschen' : 'Clear'}
-              </span>
             </button>
           )}
         </div>
       </header>
-
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-4xl mx-auto space-y-6">
@@ -713,35 +778,169 @@ export function ChatPage() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-center py-12"
+              className="text-center py-8"
             >
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 text-white mb-6">
-                <Sparkles className="w-10 h-10" />
+              {/* Hero Section */}
+              <div className="relative mb-8">
+                {/* Animated Background Rings */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.1, 0.3] }}
+                    transition={{ duration: 3, repeat: Infinity }}
+                    className="absolute w-32 h-32 rounded-full bg-gradient-to-br from-primary-500/20 to-violet-500/20"
+                  />
+                  <motion.div
+                    animate={{ scale: [1, 1.3, 1], opacity: [0.2, 0.05, 0.2] }}
+                    transition={{ duration: 4, repeat: Infinity, delay: 0.5 }}
+                    className="absolute w-48 h-48 rounded-full bg-gradient-to-br from-primary-500/10 to-violet-500/10"
+                  />
+                </div>
+                
+                {/* Main Icon */}
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                  className="relative inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-gradient-to-br from-primary-500 via-violet-500 to-purple-600 text-white shadow-2xl shadow-primary-500/30"
+                >
+                  <Sparkles className="w-12 h-12" />
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+                    className="absolute inset-0 rounded-3xl border-2 border-dashed border-white/20"
+                  />
+                </motion.div>
               </div>
-              <h2 className="text-2xl font-bold mb-2">{t.hello[language]}</h2>
-              <p className="text-muted-foreground mb-8">{t.chooseExample[language]}</p>
+
+              {/* Title & Subtitle */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <h2 className="text-3xl font-bold bg-gradient-to-r from-foreground via-primary-600 to-foreground bg-clip-text text-transparent mb-3">
+                  {t.hello[language]}
+                </h2>
+                <p className="text-lg text-muted-foreground max-w-md mx-auto">
+                  {t.chooseExample[language]}
+                </p>
+              </motion.div>
+
+              {/* Current Settings Display */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="flex flex-wrap justify-center gap-2 mt-6 mb-8"
+              >
+                {/* Web Search Status */}
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.4 }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
+                    webSearchMode === 'on'
+                      ? "bg-blue-500/15 text-blue-600 border border-blue-500/30"
+                      : webSearchMode === 'auto'
+                      ? "bg-blue-500/10 text-blue-600 border border-blue-500/20"
+                      : "bg-muted/50 text-muted-foreground border border-border"
+                  )}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  {language === 'tr' ? 'Web' : 'Web'}: {currentWebSearch?.[language]?.replace(/^[^\s]+\s/, '')}
+                  {webSearchMode !== 'off' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                </motion.span>
+
+                {/* AI Style Status */}
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.5 }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
+                    responseMode !== 'auto'
+                      ? "bg-amber-500/15 text-amber-600 border border-amber-500/30"
+                      : "bg-muted/50 text-muted-foreground border border-border"
+                  )}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  {language === 'tr' ? 'Stil' : 'Style'}: {currentMode?.[language]?.replace(/^[^\s]+\s/, '')}
+                </motion.span>
+
+                {/* Complexity Status */}
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.6 }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
+                    complexityLevel !== 'normal'
+                      ? "bg-emerald-500/15 text-emerald-600 border border-emerald-500/30"
+                      : "bg-muted/50 text-muted-foreground border border-border"
+                  )}
+                >
+                  <Gauge className="w-3.5 h-3.5" />
+                  {language === 'tr' ? 'Detay' : 'Detail'}: {currentComplexity?.[language]?.replace(/^[^\s]+\s/, '')}
+                </motion.span>
+
+                {/* Length Status */}
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.7 }}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
+                    responseLength !== 'auto'
+                      ? "bg-purple-500/15 text-purple-600 border border-purple-500/30"
+                      : "bg-muted/50 text-muted-foreground border border-border"
+                  )}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  {language === 'tr' ? 'Uzunluk' : 'Length'}: {currentLength?.[language]?.replace(/^[^\s]+\s/, '')}
+                </motion.span>
+              </motion.div>
 
               {/* Sample Questions Grid */}
-              <div className="grid grid-cols-2 gap-3 max-w-2xl mx-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
                 {currentQuestions.map((q, i) => (
                   <motion.button
                     key={i}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.1 }}
+                    transition={{ delay: 0.5 + i * 0.1 }}
+                    whileHover={{ scale: 1.02, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => handleSampleQuestion(q.text)}
-                    className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border hover:border-primary-500/50 hover:shadow-lg transition-all text-left group"
+                    className="flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-br from-card to-card/50 border border-border hover:border-primary-500/50 hover:shadow-xl hover:shadow-primary-500/5 transition-all text-left group relative overflow-hidden"
                   >
-                    <span className="text-2xl">{q.icon}</span>
-                    <div>
-                      <p className="text-sm font-medium group-hover:text-primary-600 transition-colors">
+                    {/* Background Glow on Hover */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-primary-500/5 to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    
+                    <span className="text-3xl relative z-10 group-hover:scale-110 transition-transform">{q.icon}</span>
+                    <div className="relative z-10">
+                      <p className="text-sm font-semibold text-foreground group-hover:text-primary-600 transition-colors">
                         {q.text}
                       </p>
-                      <p className="text-xs text-muted-foreground">{q.category}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{q.category}</p>
                     </div>
+                    <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground group-hover:text-primary-500 group-hover:translate-x-1 transition-all relative z-10" />
                   </motion.button>
                 ))}
               </div>
+
+              {/* Bottom Hint */}
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1 }}
+                className="text-xs text-muted-foreground mt-8 flex items-center justify-center gap-2"
+              >
+                <Keyboard className="w-3.5 h-3.5" />
+                {language === 'tr' 
+                  ? 'Yukarıdaki ayarlardan web araması, yanıt stili ve uzunluğunu değiştirebilirsiniz' 
+                  : 'Use the settings above to customize web search, response style and length'}
+              </motion.p>
             </motion.div>
           )}
 
@@ -762,29 +961,65 @@ export function ChatPage() {
             ))}
           </AnimatePresence>
 
-          {/* Typing Indicator */}
+          {/* Streaming Response - Token by Token */}
           {isTyping && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               className="flex items-start gap-3"
             >
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 text-white">
+              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 text-white flex-shrink-0">
                 <Sparkles className="w-4 h-4" />
               </div>
-              <div className="flex flex-col">
+              <div className="flex flex-col max-w-[80%]">
                 <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3">
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
+                  {streamingContent ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
+                            const match = /language-(\w+)/.exec(className || '');
+                            return !inline && match ? (
+                              <SyntaxHighlighter
+                                style={oneDark}
+                                language={match[1]}
+                                PreTag="div"
+                                className="rounded-lg !mt-2 !mb-2"
+                                {...props}
+                              >
+                                {String(children).replace(/\n$/, '')}
+                              </SyntaxHighlighter>
+                            ) : (
+                              <code className="bg-muted px-1.5 py-0.5 rounded text-sm" {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                        }}
+                      >
+                        {streamingContent}
+                      </ReactMarkdown>
+                      <span className="inline-block w-2 h-4 bg-primary-500 animate-pulse ml-1" />
+                    </div>
+                  ) : (
+                    <div className="typing-indicator">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 mt-2">
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     {elapsedTime.toFixed(1)}s
                   </span>
+                  {streamingContent && (
+                    <span className="text-xs text-muted-foreground">
+                      {streamingContent.split(/\s+/).filter(Boolean).length} {language === 'tr' ? 'kelime' : 'words'}
+                    </span>
+                  )}
                   <button
                     onClick={stopGeneration}
                     className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600"

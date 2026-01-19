@@ -402,3 +402,176 @@ def requires_plugin(plugin_name: str):
             return await fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+# ============ HOT RELOAD SYSTEM ============
+
+import importlib
+import importlib.util
+from pathlib import Path
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+class PluginReloader(FileSystemEventHandler):
+    """Plugin hot-reload için dosya izleyici."""
+    
+    def __init__(self, plugins_dir: str = "plugins"):
+        self.plugins_dir = Path(plugins_dir)
+        self.observer = None
+        self._reload_callbacks: List[Callable] = []
+    
+    def on_modified(self, event):
+        """Dosya değişikliği algılandı."""
+        if event.is_directory:
+            return
+        
+        file_path = Path(event.src_path)
+        if file_path.suffix != ".py":
+            return
+        
+        if file_path.name.startswith("_"):
+            return  # __init__.py vb. atla
+        
+        logger.info(f"Plugin file changed: {file_path.name}")
+        asyncio.create_task(self._reload_plugin(file_path))
+    
+    async def _reload_plugin(self, file_path: Path):
+        """Plugin'i yeniden yükle."""
+        try:
+            module_name = f"plugins.{file_path.stem}"
+            
+            # Mevcut plugin'i kaldır
+            old_plugin_name = None
+            for name, plugin in list(PluginRegistry._plugins.items()):
+                if hasattr(plugin, '__module__') and plugin.__module__ == module_name:
+                    await plugin.teardown()
+                    PluginRegistry.unregister(name)
+                    old_plugin_name = name
+                    break
+            
+            # Modülü yeniden yükle
+            if module_name in importlib.sys.modules:
+                module = importlib.reload(importlib.sys.modules[module_name])
+            else:
+                spec = importlib.util.spec_from_file_location(module_name, file_path)
+                module = importlib.util.module_from_spec(spec)
+                importlib.sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+            
+            # Yeni plugin'i kaydet ve aktif et
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if (isinstance(attr, type) and 
+                    issubclass(attr, PluginBase) and 
+                    attr is not PluginBase):
+                    new_plugin = attr()
+                    PluginRegistry.register(new_plugin)
+                    await new_plugin.setup()
+                    logger.info(f"Plugin reloaded: {new_plugin.name}")
+                    break
+            
+            # Callback'leri çağır
+            for callback in self._reload_callbacks:
+                try:
+                    if asyncio.iscoroutinefunction(callback):
+                        await callback(old_plugin_name)
+                    else:
+                        callback(old_plugin_name)
+                except Exception as e:
+                    logger.error(f"Reload callback error: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Plugin reload error: {e}")
+    
+    def start(self):
+        """Hot-reload izlemeyi başlat."""
+        if self.observer is not None:
+            return
+        
+        self.observer = Observer()
+        self.observer.schedule(self, str(self.plugins_dir), recursive=False)
+        self.observer.start()
+        logger.info(f"Plugin hot-reload started: {self.plugins_dir}")
+    
+    def stop(self):
+        """Hot-reload izlemeyi durdur."""
+        if self.observer is not None:
+            self.observer.stop()
+            self.observer.join()
+            self.observer = None
+            logger.info("Plugin hot-reload stopped")
+    
+    def on_reload(self, callback: Callable):
+        """Reload event callback ekle."""
+        self._reload_callbacks.append(callback)
+
+
+# ============ PLUGIN WHITELIST ============
+
+class PluginWhitelist:
+    """
+    Plugin whitelist yönetimi.
+    
+    Sadece izin verilen plugin'lerin yüklenmesini sağlar.
+    """
+    
+    _whitelist: set = set()
+    _enabled: bool = False
+    
+    @classmethod
+    def enable(cls, plugins: Optional[List[str]] = None):
+        """Whitelist'i etkinleştir."""
+        cls._enabled = True
+        if plugins:
+            cls._whitelist = set(plugins)
+        logger.info(f"Plugin whitelist enabled: {cls._whitelist or 'all blocked'}")
+    
+    @classmethod
+    def disable(cls):
+        """Whitelist'i devre dışı bırak."""
+        cls._enabled = False
+        cls._whitelist.clear()
+        logger.info("Plugin whitelist disabled")
+    
+    @classmethod
+    def add(cls, plugin_name: str):
+        """Plugin'i whitelist'e ekle."""
+        cls._whitelist.add(plugin_name)
+    
+    @classmethod
+    def remove(cls, plugin_name: str):
+        """Plugin'i whitelist'ten çıkar."""
+        cls._whitelist.discard(plugin_name)
+    
+    @classmethod
+    def is_allowed(cls, plugin_name: str) -> bool:
+        """Plugin'e izin var mı?"""
+        if not cls._enabled:
+            return True
+        return plugin_name in cls._whitelist
+    
+    @classmethod
+    def get_whitelist(cls) -> List[str]:
+        """Mevcut whitelist'i döndür."""
+        return list(cls._whitelist)
+
+
+# ============ SECURE PLUGIN REGISTRATION ============
+
+_original_register = PluginRegistry.register
+
+@classmethod
+def _secure_register(cls, plugin: PluginBase) -> bool:
+    """Whitelist kontrolü ile plugin kaydet."""
+    if not PluginWhitelist.is_allowed(plugin.name):
+        logger.warning(f"Plugin '{plugin.name}' blocked by whitelist")
+        return False
+    return _original_register.__func__(cls, plugin)
+
+# Override register metodu
+PluginRegistry.register = _secure_register
+
+
+# ============ GLOBAL RELOADER INSTANCE ============
+
+plugin_reloader = PluginReloader()

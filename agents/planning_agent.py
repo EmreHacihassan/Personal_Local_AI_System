@@ -34,7 +34,8 @@ from collections import defaultdict
 import heapq
 
 import sys
-sys.path.append('..')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.llm_manager import llm_manager
 from core.logger import get_logger

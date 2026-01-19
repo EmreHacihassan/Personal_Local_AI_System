@@ -69,8 +69,10 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
     session_id: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
-    web_search: bool = Field(default=False, description="Web araması yapılsın mı?")
-    response_mode: str = Field(default="normal", pattern="^(normal|detailed)$", description="Yanıt modu: normal veya detailed")
+    web_search: Optional[bool] = Field(default=None, description="Web araması yapılsın mı? (None=auto)")
+    response_mode: str = Field(default="normal", description="Yanıt modu: normal veya detailed")
+    complexity_level: str = Field(default="moderate", description="Karmaşıklık: simple, moderate, advanced, comprehensive")
+    response_length: str = Field(default="normal", description="Uzunluk: short, normal, detailed, comprehensive")
 
 
 class WebSearchRequest(BaseModel):
@@ -1039,6 +1041,40 @@ async def chat_stream(request: ChatRequest):
                 knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=8, strategy="fusion")
             
             # Response mode'a göre sistem promptu ayarla
+            # Complexity level'a göre derinlik ayarla
+            complexity_instruction = ""
+            if request.complexity_level == "simple":
+                complexity_instruction = """
+🔹 **BASİT MOD**
+- Kısa ve öz cevap ver
+- Teknik terimlerden kaçın
+- Sadece ana noktayı açıkla
+"""
+            elif request.complexity_level == "advanced":
+                complexity_instruction = """
+🔷 **GELİŞMİŞ MOD**
+- Detaylı teknik açıklamalar
+- Alt konuları da ele al
+- Örnekler ve karşılaştırmalar ekle
+"""
+            elif request.complexity_level == "comprehensive":
+                complexity_instruction = """
+🔬 **ARAŞTIRMA MODU**
+- Kapsamlı ve akademik düzeyde analiz
+- Birden fazla perspektiften incele
+- Kaynaklarla destekle
+- Alternatif görüşleri de sun
+"""
+            
+            # Response length'e göre uzunluk ayarla
+            length_instruction = ""
+            if request.response_length == "short":
+                length_instruction = "\n📏 **UZUNLUK: KISA** - Maksimum 100 kelime ile yanıt ver."
+            elif request.response_length == "detailed":
+                length_instruction = "\n📏 **UZUNLUK: DETAYLI** - 300-500 kelime arası kapsamlı yanıt ver."
+            elif request.response_length == "comprehensive":
+                length_instruction = "\n📏 **UZUNLUK: ÇOK DETAYLI** - 500+ kelime ile tam analiz yap."
+            
             if request.response_mode == "detailed":
                 mode_instruction = """
 📝 **DETAYLI YANIT MODU AKTİF**
@@ -1059,6 +1095,9 @@ Yanıtın şu özelliklere sahip olmalı:
 - Doğrudan konuya odaklan
 - Gerekli bilgiyi kısa ve anlaşılır şekilde ver
 """
+            
+            # Combine all instructions
+            mode_instruction = f"{mode_instruction}{complexity_instruction}{length_instruction}"
             
             # Get system prompt with history, notes, documents and RAG knowledge
             # "Devam et" komutu için özel talimat
@@ -2137,35 +2176,11 @@ class SessionMessagesResponse(BaseModel):
 async def get_sessions():
     """
     Tüm oturumları listele.
+    Dosya tabanlı session_manager kullanır - kalıcı depolama.
     """
     try:
-        session_list = []
-        for session_id, messages in sessions.items():
-            if messages:
-                first_msg_time = messages[0].get("timestamp", datetime.now().isoformat())
-                last_msg_time = messages[-1].get("timestamp", datetime.now().isoformat())
-                
-                # Generate title from first user message
-                title = "Yeni Sohbet"
-                for msg in messages:
-                    if msg.get("role") == "user":
-                        content = msg.get("content", "")
-                        title = content[:50] + "..." if len(content) > 50 else content
-                        break
-                
-                session_list.append({
-                    "id": session_id,
-                    "title": title,
-                    "created_at": first_msg_time,
-                    "updated_at": last_msg_time,
-                    "message_count": len(messages),
-                    "is_pinned": False,
-                    "tags": [],
-                    "category": None,
-                })
-        
-        # Sort by updated_at descending
-        session_list.sort(key=lambda x: x["updated_at"], reverse=True)
+        # session_manager'dan al - dosya tabanlı, kalıcı
+        session_list = session_manager.list_sessions(limit=100)
         
         return {"sessions": session_list}
         
@@ -2177,35 +2192,31 @@ async def get_sessions():
 async def get_session(session_id: str):
     """
     Belirli bir oturumu ve mesajlarını getir.
+    Dosya tabanlı session_manager kullanır.
     """
     try:
-        if session_id not in sessions:
+        # session_manager'dan session al
+        session = session_manager.get_session(session_id)
+        
+        if not session:
             raise HTTPException(status_code=404, detail="Oturum bulunamadı")
         
-        messages = sessions[session_id]
-        
-        # Generate title
-        title = "Yeni Sohbet"
-        for msg in messages:
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                title = content[:50] + "..." if len(content) > 50 else content
-                break
-        
-        first_msg_time = messages[0].get("timestamp", datetime.now().isoformat()) if messages else datetime.now().isoformat()
-        last_msg_time = messages[-1].get("timestamp", datetime.now().isoformat()) if messages else datetime.now().isoformat()
+        session_dict = session.to_dict()
         
         session_info = {
-            "id": session_id,
-            "title": title,
-            "created_at": first_msg_time,
-            "updated_at": last_msg_time,
-            "message_count": len(messages),
+            "id": session_dict["id"],
+            "title": session_dict["title"],
+            "created_at": session_dict["created_at"],
+            "updated_at": session_dict["updated_at"],
+            "message_count": len(session_dict["messages"]),
+            "is_pinned": session_dict.get("is_pinned", False),
+            "tags": session_dict.get("tags", []),
+            "category": session_dict.get("category", ""),
         }
         
         return {
             "session": session_info,
-            "messages": messages,
+            "messages": session_dict["messages"],
         }
         
     except HTTPException:
@@ -2218,12 +2229,18 @@ async def get_session(session_id: str):
 async def delete_session(session_id: str):
     """
     Bir oturumu sil.
+    Hem dosyadan hem in-memory cache'den siler.
     """
     try:
-        if session_id not in sessions:
+        # session_manager ile sil
+        deleted = session_manager.delete_session(session_id)
+        
+        if not deleted:
             raise HTTPException(status_code=404, detail="Oturum bulunamadı")
         
-        del sessions[session_id]
+        # In-memory cache'den de sil (eğer varsa)
+        if session_id in sessions:
+            del sessions[session_id]
         
         return {"message": "Oturum silindi", "session_id": session_id}
         
@@ -2234,18 +2251,16 @@ async def delete_session(session_id: str):
 
 
 # ============ NOTES API ============
-
-# In-memory notes storage (for persistence, should use database)
-notes_storage: Dict[str, Dict[str, Any]] = {}
+# File-based persistence using NotesManager (data/notes/notes.json)
 
 
 class NoteCreate(BaseModel):
     """Not oluşturma modeli."""
     title: str = Field(..., min_length=1, max_length=200)
     content: str = Field(default="")
-    folder: Optional[str] = None
-    color: Optional[str] = "default"
-    is_pinned: Optional[bool] = False
+    folder_id: Optional[str] = None
+    color: Optional[str] = "yellow"
+    pinned: Optional[bool] = False
     tags: Optional[List[str]] = []
 
 
@@ -2253,57 +2268,72 @@ class NoteUpdate(BaseModel):
     """Not güncelleme modeli."""
     title: Optional[str] = None
     content: Optional[str] = None
-    folder: Optional[str] = None
+    folder_id: Optional[str] = None
     color: Optional[str] = None
-    is_pinned: Optional[bool] = None
+    pinned: Optional[bool] = None
     tags: Optional[List[str]] = None
 
 
+class FolderCreate(BaseModel):
+    """Klasör oluşturma modeli."""
+    name: str = Field(..., min_length=1, max_length=100)
+    parent_id: Optional[str] = None
+    color: Optional[str] = "blue"
+    icon: Optional[str] = "📁"
+
+
+class FolderUpdate(BaseModel):
+    """Klasör güncelleme modeli."""
+    name: Optional[str] = None
+    parent_id: Optional[str] = None
+    color: Optional[str] = None
+    icon: Optional[str] = None
+
+
 @app.get("/api/notes", tags=["Notes"])
-async def get_notes():
+async def get_notes(
+    folder_id: Optional[str] = None,
+    include_subfolders: bool = False,
+    search_query: Optional[str] = None,
+    pinned_only: bool = False,
+):
     """
-    Tüm notları listele.
+    Tüm notları listele. Opsiyonel olarak klasöre veya arama sorgusuna göre filtrele.
     """
     try:
-        notes_list = list(notes_storage.values())
-        # Sort by updated_at descending, pinned first
-        notes_list.sort(key=lambda x: (not x.get("is_pinned", False), x.get("updated_at", "")), reverse=False)
-        notes_list.sort(key=lambda x: x.get("is_pinned", False), reverse=True)
-        
-        return {"notes": notes_list}
+        notes = notes_manager.list_notes(
+            folder_id=folder_id,
+            include_subfolders=include_subfolders,
+            search_query=search_query,
+            pinned_only=pinned_only,
+        )
+        # Convert to dicts
+        notes_list = [n.to_dict() for n in notes]
+        return {"notes": notes_list, "count": len(notes_list)}
         
     except Exception as e:
+        logger.error(f"Notes list error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/notes", tags=["Notes"])
 async def create_note(note: NoteCreate):
     """
-    Yeni not oluştur.
+    Yeni not oluştur. File-based kalıcı depolama kullanır.
     """
     try:
-        import uuid
-        
-        note_id = str(uuid.uuid4())
-        now = datetime.now().isoformat()
-        
-        note_data = {
-            "id": note_id,
-            "title": note.title,
-            "content": note.content,
-            "folder": note.folder,
-            "color": note.color,
-            "is_pinned": note.is_pinned,
-            "tags": note.tags or [],
-            "created_at": now,
-            "updated_at": now,
-        }
-        
-        notes_storage[note_id] = note_data
-        
-        return note_data
+        created_note = notes_manager.create_note(
+            title=note.title,
+            content=note.content,
+            folder_id=note.folder_id,
+            color=note.color or "yellow",
+            tags=note.tags or [],
+            pinned=note.pinned or False,
+        )
+        return created_note.to_dict()
         
     except Exception as e:
+        logger.error(f"Note create error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2313,14 +2343,15 @@ async def get_note(note_id: str):
     Belirli bir notu getir.
     """
     try:
-        if note_id not in notes_storage:
+        note = notes_manager.get_note(note_id)
+        if not note:
             raise HTTPException(status_code=404, detail="Not bulunamadı")
-        
-        return notes_storage[note_id]
+        return note.to_dict()
         
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Note get error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2330,32 +2361,25 @@ async def update_note(note_id: str, note: NoteUpdate):
     Bir notu güncelle.
     """
     try:
-        if note_id not in notes_storage:
+        updated_note = notes_manager.update_note(
+            note_id=note_id,
+            title=note.title,
+            content=note.content,
+            folder_id=note.folder_id,
+            color=note.color,
+            tags=note.tags,
+            pinned=note.pinned,
+        )
+        
+        if not updated_note:
             raise HTTPException(status_code=404, detail="Not bulunamadı")
         
-        existing = notes_storage[note_id]
-        
-        # Update only provided fields
-        if note.title is not None:
-            existing["title"] = note.title
-        if note.content is not None:
-            existing["content"] = note.content
-        if note.folder is not None:
-            existing["folder"] = note.folder
-        if note.color is not None:
-            existing["color"] = note.color
-        if note.is_pinned is not None:
-            existing["is_pinned"] = note.is_pinned
-        if note.tags is not None:
-            existing["tags"] = note.tags
-        
-        existing["updated_at"] = datetime.now().isoformat()
-        
-        return existing
+        return updated_note.to_dict()
         
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Note update error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2365,16 +2389,179 @@ async def delete_note(note_id: str):
     Bir notu sil.
     """
     try:
-        if note_id not in notes_storage:
+        success = notes_manager.delete_note(note_id)
+        if not success:
             raise HTTPException(status_code=404, detail="Not bulunamadı")
-        
-        del notes_storage[note_id]
         
         return {"message": "Not silindi", "note_id": note_id}
         
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Note delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notes/{note_id}/pin", tags=["Notes"])
+async def toggle_note_pin(note_id: str):
+    """
+    Notu sabitle/kaldır.
+    """
+    try:
+        note = notes_manager.toggle_pin(note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        return note.to_dict()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Note pin toggle error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notes/{note_id}/move", tags=["Notes"])
+async def move_note(note_id: str, folder_id: Optional[str] = None):
+    """
+    Notu başka klasöre taşı.
+    """
+    try:
+        note = notes_manager.move_note(note_id, folder_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        return note.to_dict()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Note move error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ FOLDERS API ============
+
+
+@app.get("/api/folders", tags=["Folders"])
+async def get_folders(parent_id: Optional[str] = None):
+    """
+    Klasörleri listele. parent_id=None ise root klasörleri döndürür.
+    """
+    try:
+        folders = notes_manager.list_folders(parent_id=parent_id)
+        return {"folders": [f.to_dict() for f in folders], "count": len(folders)}
+        
+    except Exception as e:
+        logger.error(f"Folders list error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/folders/all", tags=["Folders"])
+async def get_all_folders():
+    """
+    Tüm klasörleri getir (ağaç yapısı için).
+    """
+    try:
+        folders = notes_manager.get_all_folders()
+        return {"folders": [f.to_dict() for f in folders], "count": len(folders)}
+        
+    except Exception as e:
+        logger.error(f"All folders list error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/folders", tags=["Folders"])
+async def create_folder(folder: FolderCreate):
+    """
+    Yeni klasör oluştur.
+    """
+    try:
+        created_folder = notes_manager.create_folder(
+            name=folder.name,
+            parent_id=folder.parent_id,
+            color=folder.color or "blue",
+            icon=folder.icon or "📁",
+        )
+        return created_folder.to_dict()
+        
+    except Exception as e:
+        logger.error(f"Folder create error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/folders/{folder_id}", tags=["Folders"])
+async def get_folder(folder_id: str):
+    """
+    Belirli bir klasörü getir.
+    """
+    try:
+        folder = notes_manager.get_folder(folder_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="Klasör bulunamadı")
+        return folder.to_dict()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Folder get error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/folders/{folder_id}/path", tags=["Folders"])
+async def get_folder_path(folder_id: str):
+    """
+    Klasörün breadcrumb path'ini getir.
+    """
+    try:
+        path = notes_manager.get_folder_path(folder_id)
+        return {"path": [f.to_dict() for f in path]}
+        
+    except Exception as e:
+        logger.error(f"Folder path error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/folders/{folder_id}", tags=["Folders"])
+async def update_folder(folder_id: str, folder: FolderUpdate):
+    """
+    Klasörü güncelle.
+    """
+    try:
+        updated_folder = notes_manager.update_folder(
+            folder_id=folder_id,
+            name=folder.name,
+            color=folder.color,
+            icon=folder.icon,
+            parent_id=folder.parent_id,
+        )
+        
+        if not updated_folder:
+            raise HTTPException(status_code=404, detail="Klasör bulunamadı")
+        
+        return updated_folder.to_dict()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Folder update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/folders/{folder_id}", tags=["Folders"])
+async def delete_folder(folder_id: str, recursive: bool = True):
+    """
+    Klasörü sil. recursive=True ise içindeki notları ve alt klasörleri de siler.
+    """
+    try:
+        success = notes_manager.delete_folder(folder_id, recursive=recursive)
+        if not success:
+            raise HTTPException(status_code=404, detail="Klasör bulunamadı veya boş değil")
+        
+        return {"message": "Klasör silindi", "folder_id": folder_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Folder delete error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4150,7 +4337,26 @@ async def toggle_autostart(request: AutostartRequest):
 
 # ============ INCLUDE ROUTERS ============
 
+# Modüler router'ları import et
+from api.routers import (
+    health_router,
+    documents_router,
+    notes_router,
+    rag_router,
+    plugins_router,
+    admin_router,
+    advanced_rag_router,
+)
+
+# Router'ları kaydet
 app.include_router(learning_router)
+app.include_router(health_router)
+app.include_router(documents_router)
+app.include_router(notes_router)
+app.include_router(rag_router)
+app.include_router(plugins_router)
+app.include_router(admin_router)
+app.include_router(advanced_rag_router)
 
 
 # ============ RUN SERVER ============

@@ -194,29 +194,108 @@ class CrossEncoderReranker(RerankerStrategy):
     def __init__(
         self,
         model_fn: Optional[Callable[[str, str], float]] = None,
-        batch_size: int = 32
+        batch_size: int = 32,
+        use_embeddings: bool = True
     ):
         """
         Args:
             model_fn: (query, document) -> similarity score döndüren fonksiyon
             batch_size: Batch processing için boyut
+            use_embeddings: Gerçek embedding similarity kullan (varsayılan: True)
         """
         self.model_fn = model_fn
         self.batch_size = batch_size
+        self.use_embeddings = use_embeddings
+        self._embedding_manager = None
     
-    def _default_similarity(self, query: str, document: str) -> float:
+    def _get_embedding_manager(self):
+        """Lazy loading for embedding manager"""
+        if self._embedding_manager is None:
+            try:
+                from core.embedding_manager import embedding_manager
+                self._embedding_manager = embedding_manager
+            except ImportError:
+                self._embedding_manager = False  # Mark as unavailable
+        return self._embedding_manager if self._embedding_manager else None
+    
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Cosine similarity hesapla"""
+        import math
+        
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        norm1 = math.sqrt(sum(a * a for a in vec1))
+        norm2 = math.sqrt(sum(b * b for b in vec2))
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        return dot_product / (norm1 * norm2)
+    
+    def _embedding_similarity(self, query: str, document: str) -> float:
         """
-        Fallback similarity - keyword overlap
-        Gerçek uygulamada bir cross-encoder model kullanılmalı
+        Gerçek embedding-based similarity
+        Embedding manager kullanarak cosine similarity hesaplar
         """
-        query_words = set(query.lower().split())
-        doc_words = set(document.lower().split())
+        emb_manager = self._get_embedding_manager()
+        if not emb_manager:
+            return self._keyword_similarity(query, document)
+        
+        try:
+            # Embed both texts
+            embeddings = emb_manager.embed_texts([query, document])
+            query_emb = embeddings[0]
+            doc_emb = embeddings[1]
+            
+            # Cosine similarity
+            return self._cosine_similarity(query_emb, doc_emb)
+        except Exception as e:
+            logger.warning(f"Embedding similarity failed, falling back to keyword: {e}")
+            return self._keyword_similarity(query, document)
+    
+    def _keyword_similarity(self, query: str, document: str) -> float:
+        """
+        Fallback similarity - keyword overlap with TF-IDF weighting
+        """
+        import math
+        
+        query_words = query.lower().split()
+        doc_words = document.lower().split()
         
         if not query_words or not doc_words:
             return 0.0
         
-        overlap = len(query_words & doc_words)
-        return overlap / max(len(query_words), 1)
+        query_set = set(query_words)
+        doc_set = set(doc_words)
+        
+        # Jaccard similarity (better than simple overlap)
+        intersection = len(query_set & doc_set)
+        union = len(query_set | doc_set)
+        
+        if union == 0:
+            return 0.0
+        
+        jaccard = intersection / union
+        
+        # Boost for exact phrase matches
+        query_str = query.lower()
+        doc_str = document.lower()
+        
+        phrase_boost = 0.0
+        for i in range(len(query_words) - 1):
+            phrase = f"{query_words[i]} {query_words[i+1]}"
+            if phrase in doc_str:
+                phrase_boost += 0.1
+        
+        return min(jaccard + phrase_boost, 1.0)
+    
+    def _default_similarity(self, query: str, document: str) -> float:
+        """
+        Default similarity function
+        Uses embeddings if available, otherwise falls back to keyword matching
+        """
+        if self.use_embeddings:
+            return self._embedding_similarity(query, document)
+        return self._keyword_similarity(query, document)
     
     def rerank(
         self,

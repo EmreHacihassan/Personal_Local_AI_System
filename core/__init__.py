@@ -391,6 +391,89 @@ def __getattr__(name):
         except ImportError:
             return None
     
+    # ============ RESILIENCE & HEALTH MODULES ============
+    
+    # ChromaDB Resilient Wrapper
+    if name in ("ResilientChromaDB", "resilient_chromadb", "ChromaDBBackupManager", 
+                "ChromaDBIntegrityChecker", "ChromaDBHealth"):
+        try:
+            from .chromadb_resilient import (
+                ResilientChromaDB, resilient_chromadb, ChromaDBBackupManager,
+                ChromaDBIntegrityChecker, ChromaDBHealth
+            )
+            mapping = {
+                "ResilientChromaDB": ResilientChromaDB,
+                "resilient_chromadb": resilient_chromadb,
+                "ChromaDBBackupManager": ChromaDBBackupManager,
+                "ChromaDBIntegrityChecker": ChromaDBIntegrityChecker,
+                "ChromaDBHealth": ChromaDBHealth,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
+    # Startup Health Checker
+    if name in ("StartupHealthChecker", "run_startup_checks", "HealthCheckResult", 
+                "StartupReport", "CheckStatus"):
+        try:
+            from .startup_health import (
+                StartupHealthChecker, run_startup_checks, HealthCheckResult,
+                StartupReport, CheckStatus
+            )
+            mapping = {
+                "StartupHealthChecker": StartupHealthChecker,
+                "run_startup_checks": run_startup_checks,
+                "HealthCheckResult": HealthCheckResult,
+                "StartupReport": StartupReport,
+                "CheckStatus": CheckStatus,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
+    # Error Recovery
+    if name in ("ErrorRecoveryManager", "error_recovery_manager", "ErrorContext",
+                "ErrorCategory", "ErrorSeverity", "retry_with_backoff", 
+                "graceful_degradation", "with_fallback", "FallbackChain"):
+        try:
+            from .error_recovery import (
+                ErrorRecoveryManager, error_recovery_manager, ErrorContext,
+                ErrorCategory, ErrorSeverity, retry_with_backoff,
+                graceful_degradation, with_fallback, FallbackChain
+            )
+            mapping = {
+                "ErrorRecoveryManager": ErrorRecoveryManager,
+                "error_recovery_manager": error_recovery_manager,
+                "ErrorContext": ErrorContext,
+                "ErrorCategory": ErrorCategory,
+                "ErrorSeverity": ErrorSeverity,
+                "retry_with_backoff": retry_with_backoff,
+                "graceful_degradation": graceful_degradation,
+                "with_fallback": with_fallback,
+                "FallbackChain": FallbackChain,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
+    # Circuit Breaker
+    if name in ("CircuitBreaker", "CircuitBreakerRegistry", "CircuitState", 
+                "circuit_breaker_registry"):
+        try:
+            from .circuit_breaker import (
+                CircuitBreaker, CircuitBreakerRegistry, CircuitState,
+                circuit_breaker_registry
+            )
+            mapping = {
+                "CircuitBreaker": CircuitBreaker,
+                "CircuitBreakerRegistry": CircuitBreakerRegistry,
+                "CircuitState": CircuitState,
+                "circuit_breaker_registry": circuit_breaker_registry,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
     raise AttributeError(f"module 'core' has no attribute '{name}'")
 
 
@@ -573,4 +656,28 @@ __all__ = [
     "system_knowledge",
     "SYSTEM_VERSION",
     "SYSTEM_NAME",
+    # Resilience & Health Modules
+    "ResilientChromaDB",
+    "resilient_chromadb",
+    "ChromaDBBackupManager",
+    "ChromaDBIntegrityChecker",
+    "ChromaDBHealth",
+    "StartupHealthChecker",
+    "run_startup_checks",
+    "HealthCheckResult",
+    "StartupReport",
+    "CheckStatus",
+    "ErrorRecoveryManager",
+    "error_recovery_manager",
+    "ErrorContext",
+    "ErrorCategory",
+    "ErrorSeverity",
+    "retry_with_backoff",
+    "graceful_degradation",
+    "with_fallback",
+    "FallbackChain",
+    "CircuitBreaker",
+    "CircuitBreakerRegistry",
+    "CircuitState",
+    "circuit_breaker_registry",
 ]

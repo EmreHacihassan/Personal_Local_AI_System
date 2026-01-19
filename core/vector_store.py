@@ -15,6 +15,7 @@ Features:
 
 from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
+import hashlib
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 
@@ -67,6 +68,7 @@ class VectorStore:
         documents: List[str],
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids: Optional[List[str]] = None,
+        skip_duplicates: bool = True,
     ) -> List[str]:
         """
         Dökümanları vector store'a ekle.
@@ -75,6 +77,7 @@ class VectorStore:
             documents: Döküman içerikleri
             metadatas: Metadata listesi (opsiyonel)
             ids: Döküman ID'leri (opsiyonel, otomatik oluşturulur)
+            skip_duplicates: Duplicate dökümanları atla (varsayılan: True)
             
         Returns:
             Eklenen döküman ID'leri
@@ -82,29 +85,97 @@ class VectorStore:
         if not documents:
             return []
         
-        # Generate IDs if not provided
-        if ids is None:
-            import uuid
-            ids = [str(uuid.uuid4()) for _ in documents]
+        import hashlib
+        import uuid
         
-        # Generate embeddings
-        print(f"📊 {len(documents)} döküman için embedding oluşturuluyor...")
-        embeddings = embedding_manager.embed_texts(documents)
+        # Filter duplicates if enabled
+        unique_docs = []
+        unique_metadatas = []
+        unique_ids = []
+        skipped_count = 0
         
-        # Prepare metadatas
-        if metadatas is None:
-            metadatas = [{}] * len(documents)
+        for i, doc in enumerate(documents):
+            # Generate content-based hash for duplicate detection
+            content_hash = hashlib.md5(doc.strip().encode()).hexdigest()
+            doc_id = ids[i] if ids else f"doc_{content_hash[:16]}"
+            
+            if skip_duplicates:
+                # Check if document with this hash already exists
+                existing = self._check_duplicate(content_hash, doc)
+                if existing:
+                    skipped_count += 1
+                    logger.debug(f"Duplicate skipped: {content_hash[:8]}...")
+                    continue
+            
+            unique_docs.append(doc)
+            unique_metadatas.append(
+                {**(metadatas[i] if metadatas else {}), "content_hash": content_hash}
+            )
+            unique_ids.append(doc_id)
+        
+        if not unique_docs:
+            if skipped_count > 0:
+                print(f"⏭️ {skipped_count} duplicate döküman atlandı, yeni döküman yok.")
+            return []
+        
+        # Generate embeddings only for unique documents
+        print(f"📊 {len(unique_docs)} döküman için embedding oluşturuluyor...")
+        if skipped_count > 0:
+            print(f"⏭️ {skipped_count} duplicate döküman atlandı.")
+        
+        embeddings = embedding_manager.embed_texts(unique_docs)
         
         # Add to collection
         self.collection.add(
-            documents=documents,
+            documents=unique_docs,
             embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids,
+            metadatas=unique_metadatas,
+            ids=unique_ids,
         )
         
-        print(f"✅ {len(documents)} döküman eklendi")
-        return ids
+        print(f"✅ {len(unique_docs)} döküman eklendi")
+        return unique_ids
+    
+    def _check_duplicate(
+        self,
+        content_hash: str,
+        content: str,
+        similarity_threshold: float = 0.98,
+    ) -> bool:
+        """
+        Dökümanın duplicate olup olmadığını kontrol et.
+        
+        Args:
+            content_hash: İçerik hash'i
+            content: Döküman içeriği
+            similarity_threshold: Benzerlik eşiği
+            
+        Returns:
+            True if duplicate exists
+        """
+        try:
+            # First, check by exact content hash in metadata
+            existing = self.collection.get(
+                where={"content_hash": content_hash},
+                limit=1,
+            )
+            if existing and existing.get("ids"):
+                return True
+            
+            # If no exact match, check by semantic similarity (for near-duplicates)
+            if len(content) > 100:  # Only for substantial content
+                results = self.search_with_scores(
+                    query=content[:500],  # Use first 500 chars for speed
+                    n_results=1,
+                    score_threshold=similarity_threshold,
+                )
+                if results and results[0]["score"] >= similarity_threshold:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.warning(f"Duplicate check failed: {e}")
+            return False
     
     def search(
         self,

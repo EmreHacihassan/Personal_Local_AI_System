@@ -16,7 +16,8 @@ from .analyzer_agent import AnalyzerAgent
 from .assistant_agent import AssistantAgent
 
 import sys
-sys.path.append('..')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.llm_manager import llm_manager
 

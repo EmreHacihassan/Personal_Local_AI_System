@@ -736,7 +736,101 @@ class MemoryManager:
             "long_term_stats": self.long_term.get_stats(),
             "llm_enabled": self._llm_fn is not None,
         }
+    
+    def run_maintenance(self):
+        """
+        Bellek bakımı yap.
+        
+        Bu fonksiyon düzenli olarak çağrılmalı:
+        - Memory decay uygula
+        - Eski session'ları temizle
+        - Düşük önemli kayıtları sil
+        """
+        # 1. Long-term memory decay
+        self.long_term.decay_memories(days_threshold=30)
+        
+        # 2. Eski session'ları temizle (12 saatten eski)
+        stale_sessions = []
+        for session_id in list(self.short_term.keys()):
+            buffer = self.short_term[session_id]
+            if hasattr(buffer, 'messages') and buffer.messages:
+                last_msg = buffer.messages[-1]
+                if hasattr(last_msg, 'timestamp'):
+                    age = (datetime.now() - last_msg.timestamp).total_seconds()
+                    if age > 12 * 3600:  # 12 saat
+                        stale_sessions.append(session_id)
+        
+        for session_id in stale_sessions:
+            del self.short_term[session_id]
+            if session_id in self.summary:
+                del self.summary[session_id]
+        
+        return {
+            "decay_applied": True,
+            "stale_sessions_cleaned": len(stale_sessions),
+        }
+    
+    def cleanup_session(self, session_id: str):
+        """Belirli bir session'ı temizle."""
+        if session_id in self.short_term:
+            del self.short_term[session_id]
+        if session_id in self.summary:
+            del self.summary[session_id]
+    
+    def clear_all_sessions(self):
+        """Tüm session'ları temizle (long-term memory kalır)."""
+        self.short_term.clear()
+        self.summary.clear()
 
 
 # Singleton instance
 memory_manager = MemoryManager()
+
+
+# ============================================================================
+# AUTO MAINTENANCE SCHEDULER
+# ============================================================================
+
+import threading
+import atexit
+
+_maintenance_thread: Optional[threading.Thread] = None
+_stop_maintenance = threading.Event()
+
+
+def _run_periodic_maintenance(interval_hours: int = 6):
+    """Bellek bakımını periyodik olarak çalıştır."""
+    while not _stop_maintenance.wait(interval_hours * 3600):
+        try:
+            result = memory_manager.run_maintenance()
+            print(f"[Memory] Maintenance completed: {result}")
+        except Exception as e:
+            print(f"[Memory] Maintenance error: {e}")
+
+
+def start_memory_maintenance(interval_hours: int = 6):
+    """Otomatik bellek bakımını başlat."""
+    global _maintenance_thread
+    
+    if _maintenance_thread is not None and _maintenance_thread.is_alive():
+        return  # Already running
+    
+    _stop_maintenance.clear()
+    _maintenance_thread = threading.Thread(
+        target=_run_periodic_maintenance,
+        args=(interval_hours,),
+        daemon=True,
+        name="MemoryMaintenance"
+    )
+    _maintenance_thread.start()
+
+
+def stop_memory_maintenance():
+    """Otomatik bellek bakımını durdur."""
+    _stop_maintenance.set()
+    if _maintenance_thread is not None:
+        _maintenance_thread.join(timeout=5)
+
+
+# Uygulama kapanırken temizlik
+atexit.register(stop_memory_maintenance)

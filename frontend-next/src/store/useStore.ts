@@ -103,6 +103,8 @@ interface AppState {
   setCurrentSession: (id: string | null) => void;
   addSession: (session: Session) => void;
   deleteSession: (id: string) => void;
+  loadSessionMessages: (sessionId: string, messages: Message[]) => void;
+  updateCurrentSession: (sessionId: string, messages: Message[]) => void;
 
   // Documents
   documents: Document[];
@@ -225,6 +227,17 @@ export const useStore = create<AppState>()(
       })),
       deleteSession: (id: string) => set((state) => ({ 
         sessions: state.sessions.filter((s) => s.id !== id) 
+      })),
+      loadSessionMessages: (sessionId: string, messages: Message[]) => set({ 
+        currentSessionId: sessionId,
+        messages: messages 
+      }),
+      updateCurrentSession: (sessionId: string, messages: Message[]) => set((state) => ({
+        currentSessionId: sessionId,
+        messages: messages,
+        sessions: state.sessions.map((s) =>
+          s.id === sessionId ? { ...s, messages, updatedAt: new Date() } : s
+        ),
       })),
 
       // Documents

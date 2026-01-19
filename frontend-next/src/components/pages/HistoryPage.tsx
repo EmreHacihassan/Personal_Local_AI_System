@@ -20,8 +20,8 @@ import {
   Check,
   TrendingUp
 } from 'lucide-react';
-import { useStore, Session } from '@/store/useStore';
-import { getSessions, deleteSession } from '@/lib/api';
+import { useStore, Session, Message } from '@/store/useStore';
+import { getSessions, deleteSession, getSession } from '@/lib/api';
 import { formatDate, cn } from '@/lib/utils';
 
 interface SessionResponse {
@@ -45,9 +45,10 @@ const CATEGORIES = [
 ];
 
 export function HistoryPage() {
-  const { setCurrentPage, language, renameSession } = useStore();
+  const { setCurrentPage, language, renameSession, loadSessionMessages } = useStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sessionLoading, setSessionLoading] = useState<string | null>(null);
   const [localSessions, setLocalSessions] = useState<Session[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -88,10 +89,38 @@ export function HistoryPage() {
   };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleOpenSession = (sessionId: string) => {
-    // TODO: Navigate to chat with this session
-    // In the future, implement session loading here with sessionId
-    setCurrentPage('chat');
+  const handleOpenSession = async (sessionId: string) => {
+    // Session'ı API'den yükle ve chat sayfasına yönlendir
+    setSessionLoading(sessionId);
+    try {
+      const response = await getSession(sessionId);
+      if (response.success && response.data) {
+        // API'den gelen mesajları store formatına çevir
+        const messages: Message[] = response.data.messages.map((msg, index) => ({
+          id: msg.id || `msg-${index}`,
+          role: msg.role,
+          content: msg.content,
+          timestamp: new Date(msg.timestamp),
+          sources: [],
+          metadata: {},
+        }));
+        
+        // Store'a yükle
+        loadSessionMessages(sessionId, messages);
+        
+        // Chat sayfasına yönlendir
+        setCurrentPage('chat');
+      } else {
+        console.error('Session yüklenemedi:', response.error);
+        // Hata olsa bile chat'e git (boş olarak)
+        setCurrentPage('chat');
+      }
+    } catch (error) {
+      console.error('Session yükleme hatası:', error);
+      setCurrentPage('chat');
+    } finally {
+      setSessionLoading(null);
+    }
   };
 
   // Toggle pin for a session
@@ -387,7 +416,10 @@ export function HistoryPage() {
                       )}
                     >
                       <div
-                        className="flex items-center gap-4 cursor-pointer"
+                        className={cn(
+                          "flex items-center gap-4 cursor-pointer",
+                          sessionLoading === session.id && "opacity-50 pointer-events-none"
+                        )}
                         onClick={() => handleOpenSession(session.id)}
                       >
                         {/* Icon */}
@@ -395,7 +427,9 @@ export function HistoryPage() {
                           "flex items-center justify-center w-10 h-10 rounded-xl",
                           session.isPinned ? "bg-primary-500/20" : "bg-muted"
                         )}>
-                          {session.isPinned ? (
+                          {sessionLoading === session.id ? (
+                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-primary-500 border-t-transparent" />
+                          ) : session.isPinned ? (
                             <Pin className="w-5 h-5 text-primary-500" />
                           ) : (
                             <MessageSquare className="w-5 h-5 text-muted-foreground" />

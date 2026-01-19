@@ -13,7 +13,6 @@ import {
   Type,
   Zap,
   Shield,
-  Wifi,
   Check,
   Download,
   Upload,
@@ -21,12 +20,10 @@ import {
   AlertCircle,
   Trash2,
   Keyboard,
-  Layers,
   MessageSquare,
   Clock,
   ArrowDown,
   Monitor,
-  Sparkles,
   Power,
   Loader2,
   Rocket
@@ -56,7 +53,9 @@ export function SettingsPage() {
     setFontSize,
     soundEnabled,
     toggleSound,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     webSearchMode,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     setWebSearchMode,
     widgetEnabled,
     toggleWidget,
@@ -64,8 +63,6 @@ export function SettingsPage() {
     notes,
     templates,
     messages,
-    responseLength,
-    setResponseLength,
     clearMessages,
     notificationsEnabled,
     toggleNotifications,
@@ -79,8 +76,6 @@ export function SettingsPage() {
     toggleShowTimestamps,
     autoScroll,
     toggleAutoScroll,
-    responseStyle,
-    setResponseStyle,
   } = useStore();
 
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
@@ -392,82 +387,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              {/* Response Length */}
-              <div>
-                <label className="text-sm font-medium mb-3 block">
-                  <Layers className="w-4 h-4 inline mr-2" />
-                  {language === 'tr' ? 'Varsayılan Yanıt Uzunluğu' : language === 'de' ? 'Standard-Antwortlänge' : 'Default Response Length'}
-                </label>
-                <div className="grid grid-cols-5 gap-2">
-                  {(['auto', 'short', 'medium', 'long', 'very_long'] as const).map((length) => {
-                    const labels = {
-                      auto: { tr: '🔄 Otomatik', en: '🔄 Auto', de: '🔄 Automatisch', desc: { tr: 'AI belirler', en: 'AI decides', de: 'KI entscheidet' } },
-                      short: { tr: '📝 Kısa', en: '📝 Short', de: '📝 Kurz', desc: { tr: 'Özet yanıtlar', en: 'Brief answers', de: 'Kurze Antworten' } },
-                      medium: { tr: '📄 Orta', en: '📄 Medium', de: '📄 Mittel', desc: { tr: 'Dengeli uzunluk', en: 'Balanced length', de: 'Ausgewogene Länge' } },
-                      long: { tr: '📑 Uzun', en: '📑 Long', de: '📑 Lang', desc: { tr: 'Detaylı açıklama', en: 'Detailed explanation', de: 'Ausführliche Erklärung' } },
-                      very_long: { tr: '📚 Çok Uzun', en: '📚 Very Long', de: '📚 Sehr Lang', desc: { tr: 'Tam analiz', en: 'Full analysis', de: 'Vollständige Analyse' } },
-                    };
-                    const label = labels[length];
-                    return (
-                      <button
-                        key={length}
-                        onClick={() => setResponseLength(length)}
-                        className={cn(
-                          "flex flex-col items-center gap-1 p-3 rounded-xl border transition-all text-center",
-                          responseLength === length
-                            ? "border-primary-500 bg-primary-500/5 text-primary-600"
-                            : "border-border hover:bg-accent"
-                        )}
-                      >
-                        <span className="text-sm font-medium">
-                          {language === 'tr' ? label.tr : language === 'de' ? label.de : label.en}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {language === 'tr' ? label.desc.tr : language === 'de' ? label.desc.de : label.desc.en}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
-              {/* Response Style */}
-              <div>
-                <label className="text-sm font-medium mb-3 block">
-                  <Sparkles className="w-4 h-4 inline mr-2" />
-                  {language === 'tr' ? 'Yanıt Stili' : language === 'de' ? 'Antwortstil' : 'Response Style'}
-                </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {(['professional', 'friendly', 'academic', 'technical'] as const).map((style) => {
-                    const labels = {
-                      professional: { tr: '💼 Profesyonel', en: '💼 Professional', de: '💼 Professionell', desc: { tr: 'İş odaklı', en: 'Business focused', de: 'Geschäftsorientiert' } },
-                      friendly: { tr: '😊 Samimi', en: '😊 Friendly', de: '😊 Freundlich', desc: { tr: 'Sıcak ve rahat', en: 'Warm and casual', de: 'Warm und ungezwungen' } },
-                      academic: { tr: '🎓 Akademik', en: '🎓 Academic', de: '🎓 Akademisch', desc: { tr: 'Bilimsel dil', en: 'Scientific language', de: 'Wissenschaftlich' } },
-                      technical: { tr: '⚙️ Teknik', en: '⚙️ Technical', de: '⚙️ Technisch', desc: { tr: 'Teknik detaylar', en: 'Technical details', de: 'Technische Details' } },
-                    };
-                    const label = labels[style];
-                    return (
-                      <button
-                        key={style}
-                        onClick={() => setResponseStyle(style)}
-                        className={cn(
-                          "flex flex-col items-center gap-1 p-3 rounded-xl border transition-all text-center",
-                          responseStyle === style
-                            ? "border-primary-500 bg-primary-500/5 text-primary-600"
-                            : "border-border hover:bg-accent"
-                        )}
-                      >
-                        <span className="text-sm font-medium">
-                          {language === 'tr' ? label.tr : language === 'de' ? label.de : label.en}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {language === 'tr' ? label.desc.tr : language === 'de' ? label.desc.de : label.desc.en}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
             </div>
           </motion.section>
 
@@ -803,27 +723,7 @@ export function SettingsPage() {
                 </button>
               </div>
 
-              {/* Web Search Default */}
-              <div className="flex items-center justify-between p-5">
-                <div className="flex items-center gap-3">
-                  <Wifi className="w-5 h-5" />
-                  <div>
-                    <p className="font-medium">{language === 'tr' ? 'Web Arama' : language === 'de' ? 'Websuche' : 'Web Search'}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {language === 'tr' ? 'Web arama modu' : language === 'de' ? 'Websuchmodus' : 'Web search mode'}
-                    </p>
-                  </div>
-                </div>
-                <select
-                  value={webSearchMode}
-                  onChange={(e) => setWebSearchMode(e.target.value as 'auto' | 'off' | 'on')}
-                  className="px-3 py-2 bg-muted border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="auto">{language === 'tr' ? 'Otomatik' : language === 'de' ? 'Automatisch' : 'Auto'}</option>
-                  <option value="off">{language === 'tr' ? 'Kapalı' : language === 'de' ? 'Aus' : 'Off'}</option>
-                  <option value="on">{language === 'tr' ? 'Aktif' : language === 'de' ? 'Ein' : 'On'}</option>
-                </select>
-              </div>
+              {/* Web Search - Removed (available in chat page header) */}
             </div>
           </motion.section>
 

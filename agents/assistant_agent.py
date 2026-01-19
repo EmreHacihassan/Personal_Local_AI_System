@@ -10,7 +10,8 @@ from typing import Dict, Any, Optional
 from .base_agent import BaseAgent, AgentRole, AgentResponse
 
 import sys
-sys.path.append('..')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rag.retriever import retriever
 

@@ -29,10 +29,10 @@ class Settings(BaseSettings):
     
     # API settings
     API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8000
+    API_PORT: int = 8001  # Unified port - matches run.py and frontend config
     API_DEBUG: bool = True
     API_KEY: Optional[str] = None
-    ALLOWED_ORIGINS: str = "http://localhost:8501,http://localhost:3000"
+    ALLOWED_ORIGINS: str = "http://localhost:8501,http://localhost:3000,http://localhost:8001"
     
     # Frontend settings
     STREAMLIT_PORT: int = 8501

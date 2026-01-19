@@ -19,7 +19,8 @@ from functools import lru_cache
 import hashlib
 
 import sys
-sys.path.append('..')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.config import settings
 from core.vector_store import vector_store

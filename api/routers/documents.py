@@ -211,11 +211,25 @@ async def upload_document(file: UploadFile = File(...)):
 
 @router.get("")
 async def list_documents():
-    """Yüklenen dökümanları listele."""
+    """Yüklenen dökümanları listele - chunk sayıları ile birlikte."""
     upload_dir = settings.DATA_DIR / "uploads"
     
     if not upload_dir.exists():
-        return {"documents": [], "total": 0}
+        return {"documents": [], "total": 0, "total_chunks": 0}
+    
+    # Get chunk counts from ChromaDB
+    chunk_counts = {}
+    total_chunks = 0
+    try:
+        all_data = vector_store.collection.get(include=['metadatas'])
+        for meta in all_data.get('metadatas', []):
+            if meta:
+                doc_id = meta.get('document_id')
+                if doc_id:
+                    chunk_counts[doc_id] = chunk_counts.get(doc_id, 0) + 1
+                    total_chunks += 1
+    except Exception as e:
+        logger.error(f"Error getting chunk counts: {e}")
     
     documents = []
     for file_path in upload_dir.iterdir():
@@ -232,9 +246,11 @@ async def list_documents():
                 "uploaded_at": datetime.fromtimestamp(
                     file_path.stat().st_mtime
                 ).isoformat(),
+                "chunks": chunk_counts.get(doc_id, 0),
+                "indexed": chunk_counts.get(doc_id, 0) > 0,
             })
     
-    return {"documents": documents, "total": len(documents)}
+    return {"documents": documents, "total": len(documents), "total_chunks": total_chunks}
 
 
 @router.get("/{document_id}/download")
@@ -419,3 +435,235 @@ async def get_document_chunks(document_id: str, limit: int = 100):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reindex-all")
+async def reindex_all_documents():
+    """
+    Tüm mevcut dökümanları yeniden indeksle.
+    
+    ChromaDB'de chunk olmayan dosyaları tespit eder ve yeniden işler.
+    """
+    import asyncio
+    import time
+    import warnings
+    warnings.filterwarnings("ignore")
+    
+    upload_dir = settings.DATA_DIR / "uploads"
+    
+    if not upload_dir.exists():
+        return {"success": False, "message": "Upload dizini bulunamadı", "reindexed": 0}
+    
+    # Get existing chunks from ChromaDB
+    indexed_docs = set()
+    try:
+        all_data = vector_store.collection.get(include=['metadatas'])
+        for meta in all_data.get('metadatas', []):
+            if meta and meta.get('document_id'):
+                indexed_docs.add(meta.get('document_id'))
+    except Exception as e:
+        logger.error(f"Error checking existing chunks: {e}")
+    
+    results = []
+    total_chunks = 0
+    
+    for file_path in upload_dir.iterdir():
+        if not file_path.is_file():
+            continue
+            
+        parts = file_path.name.split("_", 1)
+        if len(parts) < 2:
+            continue
+            
+        doc_id = parts[0]
+        filename = parts[1]
+        
+        # Skip if already indexed
+        if doc_id in indexed_docs:
+            results.append({
+                "filename": filename,
+                "status": "skipped",
+                "message": "Zaten indekslenmiş"
+            })
+            continue
+        
+        try:
+            start_time = time.time()
+            extension = Path(filename).suffix.lower()
+            
+            # Load document
+            timeout = robust_loader.get_timeout(
+                robust_loader.SUPPORTED_EXTENSIONS.get(extension, "default"),
+                file_path.stat().st_size / (1024 * 1024)
+            )
+            
+            loop = asyncio.get_event_loop()
+            documents, error = await loop.run_in_executor(
+                None,
+                lambda: robust_loader.load_with_timeout(str(file_path), timeout=timeout)
+            )
+            
+            if error or not documents:
+                documents = [{
+                    "content": f"[Dosya: {filename}]",
+                    "metadata": {
+                        "source": str(file_path),
+                        "filename": filename,
+                        "file_type": extension
+                    }
+                }]
+            
+            # Chunk documents
+            doc_objects = [
+                Document(content=d["content"], metadata=d["metadata"])
+                for d in documents
+            ]
+            
+            chunks = document_chunker.chunk_documents(doc_objects)
+            
+            if not chunks:
+                chunks = [Chunk(content=d.content, metadata=d.metadata) for d in doc_objects]
+            
+            # Add to vector store
+            chunk_texts = [c.content for c in chunks]
+            chunk_metadatas = [
+                {**c.metadata, "document_id": doc_id, "original_filename": filename}
+                for c in chunks
+            ]
+            
+            vector_store.add_documents(
+                documents=chunk_texts,
+                metadatas=chunk_metadatas,
+            )
+            
+            processing_time = time.time() - start_time
+            total_chunks += len(chunks)
+            
+            results.append({
+                "filename": filename,
+                "status": "success",
+                "chunks_created": len(chunks),
+                "processing_time": round(processing_time, 2)
+            })
+            
+            logger.info(f"Reindexed {filename}: {len(chunks)} chunks in {processing_time:.2f}s")
+            
+        except Exception as e:
+            logger.error(f"Error reindexing {filename}: {e}")
+            results.append({
+                "filename": filename,
+                "status": "error",
+                "message": str(e)[:100]
+            })
+    
+    successful = sum(1 for r in results if r.get("status") == "success")
+    skipped = sum(1 for r in results if r.get("status") == "skipped")
+    
+    return {
+        "success": True,
+        "message": f"{successful} döküman yeniden indekslendi, {skipped} atlandı",
+        "reindexed": successful,
+        "skipped": skipped,
+        "total_chunks_created": total_chunks,
+        "results": results
+    }
+
+
+@router.post("/{document_id}/reindex")
+async def reindex_single_document(document_id: str):
+    """Tek bir dökümanı yeniden indeksle."""
+    import asyncio
+    import time
+    import warnings
+    warnings.filterwarnings("ignore")
+    
+    upload_dir = settings.DATA_DIR / "uploads"
+    
+    # Find the file
+    file_path = None
+    filename = None
+    for f in upload_dir.iterdir():
+        if f.is_file() and f.name.startswith(document_id):
+            file_path = f
+            parts = f.name.split("_", 1)
+            filename = parts[1] if len(parts) > 1 else f.name
+            break
+    
+    if not file_path:
+        raise HTTPException(status_code=404, detail="Döküman bulunamadı")
+    
+    try:
+        start_time = time.time()
+        
+        # Delete existing chunks
+        try:
+            all_data = vector_store.collection.get(include=['metadatas'])
+            ids_to_delete = []
+            for i, meta in enumerate(all_data.get('metadatas', [])):
+                if meta and meta.get('document_id') == document_id:
+                    ids_to_delete.append(all_data['ids'][i])
+            if ids_to_delete:
+                vector_store.collection.delete(ids=ids_to_delete)
+        except Exception:
+            pass
+        
+        extension = Path(filename).suffix.lower()
+        
+        # Load document
+        timeout = robust_loader.get_timeout(
+            robust_loader.SUPPORTED_EXTENSIONS.get(extension, "default"),
+            file_path.stat().st_size / (1024 * 1024)
+        )
+        
+        loop = asyncio.get_event_loop()
+        documents, error = await loop.run_in_executor(
+            None,
+            lambda: robust_loader.load_with_timeout(str(file_path), timeout=timeout)
+        )
+        
+        if error or not documents:
+            documents = [{
+                "content": f"[Dosya: {filename}]",
+                "metadata": {
+                    "source": str(file_path),
+                    "filename": filename,
+                    "file_type": extension
+                }
+            }]
+        
+        # Chunk documents
+        doc_objects = [
+            Document(content=d["content"], metadata=d["metadata"])
+            for d in documents
+        ]
+        
+        chunks = document_chunker.chunk_documents(doc_objects)
+        
+        if not chunks:
+            chunks = [Chunk(content=d.content, metadata=d.metadata) for d in doc_objects]
+        
+        # Add to vector store
+        chunk_texts = [c.content for c in chunks]
+        chunk_metadatas = [
+            {**c.metadata, "document_id": document_id, "original_filename": filename}
+            for c in chunks
+        ]
+        
+        vector_store.add_documents(
+            documents=chunk_texts,
+            metadatas=chunk_metadatas,
+        )
+        
+        processing_time = time.time() - start_time
+        
+        return {
+            "success": True,
+            "document_id": document_id,
+            "filename": filename,
+            "chunks_created": len(chunks),
+            "processing_time": round(processing_time, 2),
+            "message": f"{filename} başarıyla yeniden indekslendi"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Yeniden indeksleme hatası: {str(e)[:200]}")

@@ -142,6 +142,191 @@ API_VERSION = "v1"
 API_PREFIX = f"/api/{API_VERSION}"
 
 
+# ============ RAG SYNC UTILITIES ============
+
+def check_rag_sync_status() -> Dict[str, Any]:
+    """
+    ChromaDB ve uploads klasörü arasındaki senkronizasyon durumunu kontrol et.
+    
+    Returns:
+        Dict with sync status, missing files count, etc.
+    """
+    upload_dir = settings.DATA_DIR / "uploads"
+    
+    result = {
+        "synced": True,
+        "total_files": 0,
+        "indexed_files": 0,
+        "unindexed_files": 0,
+        "total_chunks": 0,
+        "unindexed_list": [],
+    }
+    
+    if not upload_dir.exists():
+        return result
+    
+    # Get indexed document IDs from ChromaDB
+    indexed_doc_ids = set()
+    try:
+        all_data = vector_store.collection.get(include=['metadatas'])
+        for meta in all_data.get('metadatas', []):
+            if meta and meta.get('document_id'):
+                indexed_doc_ids.add(meta.get('document_id'))
+        result["total_chunks"] = len(all_data.get('ids', []))
+    except Exception as e:
+        logger.error(f"Error checking ChromaDB: {e}")
+        result["synced"] = False
+        return result
+    
+    # Check files in uploads
+    for file_path in upload_dir.iterdir():
+        if not file_path.is_file():
+            continue
+        
+        parts = file_path.name.split("_", 1)
+        if len(parts) < 2:
+            continue
+        
+        doc_id = parts[0]
+        filename = parts[1]
+        result["total_files"] += 1
+        
+        if doc_id in indexed_doc_ids:
+            result["indexed_files"] += 1
+        else:
+            result["unindexed_files"] += 1
+            result["unindexed_list"].append(filename)
+    
+    result["synced"] = result["unindexed_files"] == 0
+    
+    return result
+
+
+async def auto_reindex_unsynced_documents() -> Dict[str, Any]:
+    """
+    Senkronize olmayan dökümanları otomatik olarak indeksle.
+    
+    Returns:
+        Dict with reindex results.
+    """
+    import asyncio
+    import time
+    import warnings
+    warnings.filterwarnings("ignore")
+    
+    from rag.document_loader import Document
+    from rag.chunker import document_chunker, Chunk
+    from rag.async_processor import robust_loader
+    
+    sync_status = check_rag_sync_status()
+    
+    if sync_status["synced"]:
+        return {"reindexed": 0, "message": "Tüm dökümanlar zaten senkronize"}
+    
+    upload_dir = settings.DATA_DIR / "uploads"
+    results = []
+    total_chunks = 0
+    
+    # Get indexed document IDs
+    indexed_doc_ids = set()
+    try:
+        all_data = vector_store.collection.get(include=['metadatas'])
+        for meta in all_data.get('metadatas', []):
+            if meta and meta.get('document_id'):
+                indexed_doc_ids.add(meta.get('document_id'))
+    except Exception:
+        pass
+    
+    for file_path in upload_dir.iterdir():
+        if not file_path.is_file():
+            continue
+        
+        parts = file_path.name.split("_", 1)
+        if len(parts) < 2:
+            continue
+        
+        doc_id = parts[0]
+        filename = parts[1]
+        
+        if doc_id in indexed_doc_ids:
+            continue
+        
+        try:
+            start_time = time.time()
+            extension = Path(filename).suffix.lower()
+            
+            timeout = robust_loader.get_timeout(
+                robust_loader.SUPPORTED_EXTENSIONS.get(extension, "default"),
+                file_path.stat().st_size / (1024 * 1024)
+            )
+            
+            loop = asyncio.get_event_loop()
+            documents, error = await loop.run_in_executor(
+                None,
+                lambda fp=str(file_path), to=timeout: robust_loader.load_with_timeout(fp, timeout=to)
+            )
+            
+            if error or not documents:
+                documents = [{
+                    "content": f"[Dosya: {filename}]",
+                    "metadata": {
+                        "source": str(file_path),
+                        "filename": filename,
+                        "file_type": extension
+                    }
+                }]
+            
+            doc_objects = [
+                Document(content=d["content"], metadata=d["metadata"])
+                for d in documents
+            ]
+            
+            chunks = document_chunker.chunk_documents(doc_objects)
+            
+            if not chunks:
+                chunks = [Chunk(content=d.content, metadata=d.metadata) for d in doc_objects]
+            
+            chunk_texts = [c.content for c in chunks]
+            chunk_metadatas = [
+                {**c.metadata, "document_id": doc_id, "original_filename": filename}
+                for c in chunks
+            ]
+            
+            vector_store.add_documents(
+                documents=chunk_texts,
+                metadatas=chunk_metadatas,
+            )
+            
+            processing_time = time.time() - start_time
+            total_chunks += len(chunks)
+            
+            results.append({
+                "filename": filename,
+                "status": "success",
+                "chunks": len(chunks),
+                "time": round(processing_time, 2)
+            })
+            
+            logger.info(f"Auto-reindexed {filename}: {len(chunks)} chunks")
+            
+        except Exception as e:
+            logger.error(f"Error auto-reindexing {filename}: {e}")
+            results.append({
+                "filename": filename,
+                "status": "error",
+                "error": str(e)[:100]
+            })
+    
+    successful = sum(1 for r in results if r.get("status") == "success")
+    
+    return {
+        "reindexed": successful,
+        "total_chunks_created": total_chunks,
+        "results": results,
+        "message": f"{successful} döküman otomatik indekslendi"
+    }
+
+
 # ============ FASTAPI APP ============
 
 app = FastAPI(
@@ -622,6 +807,7 @@ async def health_check():
     Sistem sağlık kontrolü.
     
     Tüm bileşenlerin durumunu kontrol eder ve genel sağlık durumunu döndürür.
+    RAG senkronizasyon durumunu da içerir.
     """
     components = {
         "api": "healthy",
@@ -643,6 +829,20 @@ async def health_check():
         components["document_count"] = count
     except Exception:
         components["vector_store"] = "unhealthy"
+    
+    # Check RAG Sync Status
+    try:
+        sync_status = check_rag_sync_status()
+        components["rag_synced"] = sync_status["synced"]
+        components["total_files"] = sync_status["total_files"]
+        components["indexed_files"] = sync_status["indexed_files"]
+        components["unindexed_files"] = sync_status["unindexed_files"]
+        components["total_chunks"] = sync_status["total_chunks"]
+        if not sync_status["synced"]:
+            components["unindexed_list"] = sync_status["unindexed_list"][:5]  # İlk 5 dosya
+    except Exception as e:
+        components["rag_synced"] = False
+        logger.error(f"RAG sync check error: {e}")
     
     overall = "healthy" if all(
         v in ["healthy", "unknown"] for k, v in components.items() 
@@ -740,17 +940,52 @@ async def readiness_probe():
 @app.get("/status", tags=["health"])
 async def get_status():
     """Detaylı sistem durumu."""
+    sync_status = check_rag_sync_status()
     return {
         "llm": llm_manager.get_status(),
         "vector_store": vector_store.get_stats(),
         "agents": orchestrator.get_agents_status(),
         "circuit_breakers": circuit_registry.get_all_status(),
+        "rag_sync": sync_status,
         "config": {
             "chunk_size": settings.CHUNK_SIZE,
             "chunk_overlap": settings.CHUNK_OVERLAP,
             "top_k": settings.TOP_K_RESULTS,
         },
     }
+
+
+@app.get("/api/rag/sync-status", tags=["Documents"])
+async def get_rag_sync_status():
+    """
+    RAG senkronizasyon durumunu kontrol et.
+    
+    ChromaDB ve uploads klasörü arasındaki tutarsızlıkları tespit eder.
+    """
+    sync_status = check_rag_sync_status()
+    return {
+        "success": True,
+        "sync_status": sync_status,
+        "message": "Senkronize" if sync_status["synced"] else f"{sync_status['unindexed_files']} dosya indekslenmemiş"
+    }
+
+
+@app.post("/api/rag/auto-sync", tags=["Documents"])
+async def auto_sync_rag():
+    """
+    Senkronize olmayan dökümanları otomatik olarak indeksle.
+    
+    Bu endpoint, ChromaDB'de eksik olan dosyaları otomatik olarak indeksler.
+    """
+    try:
+        result = await auto_reindex_unsynced_documents()
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        logger.error(f"Auto-sync error: {e}")
+        raise HTTPException(status_code=500, detail=f"Oto-senkronizasyon hatası: {str(e)[:200]}")
 
 
 @app.get("/status/circuits", tags=["health"])
@@ -1945,11 +2180,26 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.get("/api/documents", tags=["Documents"])
 async def list_documents():
-    """Yüklenen dökümanları listele."""
+    """Yüklenen dökümanları listele - chunk sayıları ile birlikte."""
     upload_dir = settings.DATA_DIR / "uploads"
     
     if not upload_dir.exists():
-        return {"documents": [], "total": 0}
+        return {"documents": [], "total": 0, "total_chunks": 0}
+    
+    # Get chunk counts from ChromaDB
+    chunk_counts = {}
+    total_chunks = 0
+    try:
+        all_data = vector_store.collection.get(include=['metadatas'])
+        for meta in all_data.get('metadatas', []):
+            if meta:
+                doc_id = meta.get('document_id')
+                if doc_id:
+                    chunk_counts[doc_id] = chunk_counts.get(doc_id, 0) + 1
+                    total_chunks += 1
+    except Exception as e:
+        import logging
+        logging.error(f"Error getting chunk counts: {e}")
     
     documents = []
     for file_path in upload_dir.iterdir():
@@ -1966,9 +2216,11 @@ async def list_documents():
                 "uploaded_at": datetime.fromtimestamp(
                     file_path.stat().st_mtime
                 ).isoformat(),
+                "chunks": chunk_counts.get(doc_id, 0),
+                "indexed": chunk_counts.get(doc_id, 0) > 0,
             })
     
-    return {"documents": documents, "total": len(documents)}
+    return {"documents": documents, "total": len(documents), "total_chunks": total_chunks}
 
 
 @app.get("/api/documents/{document_id}/download", tags=["Documents"])

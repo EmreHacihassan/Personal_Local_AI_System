@@ -18,12 +18,23 @@ import {
   FolderOpen,
   HardDrive,
   Layers,
-  BarChart3
+  BarChart3,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
-import { uploadDocument, getDocuments, deleteDocument, downloadDocument, previewDocument, DocumentPreview } from '@/lib/api';
+import { uploadDocument, getDocuments, deleteDocument, downloadDocument, previewDocument, DocumentPreview, apiCall } from '@/lib/api';
 import { cn, formatFileSize, formatDate } from '@/lib/utils';
 import { useEffect } from 'react';
+
+interface SyncStatus {
+  synced: boolean;
+  total_files: number;
+  indexed_files: number;
+  unindexed_files: number;
+  total_chunks: number;
+  unindexed_list?: string[];
+}
 
 interface DocumentResponse {
   // Backend returns both formats - handle both
@@ -62,6 +73,50 @@ export function DocumentsPage() {
   const [dragOver, setDragOver] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<{ id: string; preview: DocumentPreview } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Check sync status
+  const checkSyncStatus = useCallback(async () => {
+    try {
+      const response = await apiCall<{ sync_status: SyncStatus }>('/api/rag/sync-status');
+      if (response.success && response.data?.sync_status) {
+        setSyncStatus(response.data.sync_status);
+      }
+    } catch (error) {
+      console.error('Failed to check sync status:', error);
+    }
+  }, []);
+
+  // Auto sync unindexed documents
+  const handleAutoSync = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const response = await apiCall<{ reindexed: number; message: string }>('/api/rag/auto-sync', {
+        method: 'POST'
+      });
+      if (response.success) {
+        // Reload documents after sync
+        const docsResponse = await getDocuments();
+        if (docsResponse.success && docsResponse.data) {
+          setDocuments(docsResponse.data.documents.map((d: DocumentResponse) => ({
+            id: d.document_id || d.id || '',
+            name: d.filename || d.name || 'Unknown',
+            size: d.size || 0,
+            type: d.type || (d.filename || d.name || '').split('.').pop() || 'file',
+            uploadedAt: new Date(d.uploaded_at || d.uploadedAt || new Date()),
+            chunks: d.chunks || d.chunks_created || 0,
+          })));
+        }
+        // Recheck sync status
+        await checkSyncStatus();
+      }
+    } catch (error) {
+      console.error('Auto sync failed:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [checkSyncStatus, setDocuments]);
 
   // Load documents on mount
   useEffect(() => {
@@ -79,12 +134,14 @@ export function DocumentsPage() {
             chunks: d.chunks || d.chunks_created || 0,
           })));
         }
+        // Also check sync status
+        await checkSyncStatus();
       } catch (error) {
         console.error('Failed to load documents:', error);
       }
     };
     loadDocuments();
-  }, [setDocuments]);
+  }, [setDocuments, checkSyncStatus]);
 
   const handleUpload = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -288,6 +345,44 @@ export function DocumentsPage() {
                 <p className="text-xs text-muted-foreground">{language === 'tr' ? 'Dosya Türü' : 'File Types'}</p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync Warning */}
+      {syncStatus && !syncStatus.synced && syncStatus.unindexed_files > 0 && (
+        <div className="px-6 py-3 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800">
+          <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+              <div>
+                <p className="font-medium text-amber-800 dark:text-amber-200">
+                  {language === 'tr' 
+                    ? `${syncStatus.unindexed_files} döküman indekslenmemiş` 
+                    : `${syncStatus.unindexed_files} documents not indexed`}
+                </p>
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  {language === 'tr'
+                    ? 'Bu belgeler arama sonuçlarında görünmeyecek. Senkronize edin.'
+                    : 'These documents won\'t appear in search results. Sync to fix.'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleAutoSync}
+              disabled={isSyncing}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all",
+                isSyncing
+                  ? "bg-amber-200 dark:bg-amber-800 text-amber-600 dark:text-amber-300 cursor-not-allowed"
+                  : "bg-amber-500 hover:bg-amber-600 text-white"
+              )}
+            >
+              <RefreshCw className={cn("w-4 h-4", isSyncing && "animate-spin")} />
+              {isSyncing 
+                ? (language === 'tr' ? 'Senkronize ediliyor...' : 'Syncing...') 
+                : (language === 'tr' ? 'Şimdi Senkronize Et' : 'Sync Now')}
+            </button>
           </div>
         </div>
       )}

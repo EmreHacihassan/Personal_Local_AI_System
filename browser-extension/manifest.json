@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Enterprise AI Assistant",
+  "version": "1.0.0",
+  "description": "AI Asistanınıza her sayfadan erişin - Google Scholar, araştırma siteleri ve daha fazlası",
+  "author": "Enterprise AI",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:8001/*"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "Enterprise AI Assistant"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["widget.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["widget.html", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

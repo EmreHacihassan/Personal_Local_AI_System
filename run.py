@@ -21,11 +21,12 @@ Kullanım:
   python run.py --skip-health  # Sağlık kontrollerini atla (hızlı başlatma)
   python run.py --health-only  # Sadece sağlık kontrolü yap
 
-v2.1 - RESILIENCE UPDATE:
-- ChromaDB auto-backup & recovery
-- Comprehensive startup health checks
-- Python version validation
-- Dependency verification
+v2.2 - SELF-HEALING UPDATE:
+- Lock file ile çoklu instance engelleme
+- NUCLEAR port temizleme
+- Zombie process tespit ve temizleme
+- Otomatik kurtarma mekanizması
+- Previous session cleanup
 """
 
 import subprocess
@@ -39,10 +40,12 @@ import argparse
 import signal
 import threading
 import psutil  # Process yönetimi için
+import tempfile
+import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional, List
-from dataclasses import dataclass
+from typing import Dict, Optional, List, Set
+from dataclasses import dataclass, field
 from enum import Enum
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -51,6 +54,10 @@ from enum import Enum
 
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Lock file for single instance
+LOCK_FILE = PROJECT_ROOT / ".run.lock"
+PID_FILE = PROJECT_ROOT / ".run.pid"
 
 class ServicePort(Enum):
     """Servis port tanımları."""
@@ -140,8 +147,93 @@ class AppState:
         self.shutdown_requested = False
         self.log_threads: List[threading.Thread] = []
         self.start_time: Optional[datetime] = None
+        self.lock_acquired = False
 
 state = AppState()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOCK FILE MANAGEMENT - Prevent Multiple Instances
+# ══════════════════════════════════════════════════════════════════════════════
+
+def is_process_running(pid: int) -> bool:
+    """PID'nin gerçekten çalışıp çalışmadığını kontrol et."""
+    try:
+        proc = psutil.Process(pid)
+        return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+
+def get_previous_instance_pid() -> Optional[int]:
+    """Önceki instance'ın PID'sini oku."""
+    try:
+        if PID_FILE.exists():
+            pid = int(PID_FILE.read_text().strip())
+            if is_process_running(pid):
+                return pid
+    except:
+        pass
+    return None
+
+def kill_previous_instance() -> bool:
+    """Önceki instance'ı öldür."""
+    pid = get_previous_instance_pid()
+    if pid:
+        try:
+            log("🔄 Önceki instance tespit edildi, kapatılıyor...", "warning")
+            proc = psutil.Process(pid)
+            
+            # Önce nazik ol
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except psutil.TimeoutExpired:
+                # Sonra agresif ol
+                proc.kill()
+                proc.wait(timeout=3)
+            
+            log(f"✅ Önceki instance (PID: {pid}) kapatıldı", "success")
+            return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return False
+
+def acquire_lock() -> bool:
+    """
+    Lock dosyasını al - sadece bir instance çalışabilir.
+    
+    Eğer önceki instance varsa otomatik olarak öldürür.
+    """
+    # Önceki instance'ı temizle
+    kill_previous_instance()
+    
+    # Lock dosyasını sil (varsa)
+    try:
+        LOCK_FILE.unlink(missing_ok=True)
+    except:
+        pass
+    
+    # Kendi PID'mizi yaz
+    try:
+        PID_FILE.write_text(str(os.getpid()))
+        LOCK_FILE.write_text(json.dumps({
+            "pid": os.getpid(),
+            "started_at": datetime.now().isoformat(),
+            "services": []
+        }))
+        state.lock_acquired = True
+        return True
+    except Exception as e:
+        log(f"Lock alınamadı: {e}", "error")
+        return False
+
+def release_lock():
+    """Lock dosyasını serbest bırak."""
+    try:
+        LOCK_FILE.unlink(missing_ok=True)
+        PID_FILE.unlink(missing_ok=True)
+    except:
+        pass
+    state.lock_acquired = False
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOGGING
@@ -246,7 +338,7 @@ def print_success_panel(services: List[str]):
     print()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PORT MANAGEMENT
+# PORT MANAGEMENT - NUCLEAR EDITION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def is_port_available(port: int) -> bool:
@@ -291,8 +383,9 @@ def get_pids_using_port(port: int) -> List[int]:
             pass
     return list(pids)
 
-def kill_process_tree(pid: int):
-    """Process ve tüm child process'lerini öldür."""
+def kill_process_tree(pid: int) -> bool:
+    """Process ve tüm child process'lerini öldür - GARANTILI."""
+    killed = False
     try:
         parent = psutil.Process(pid)
         children = parent.children(recursive=True)
@@ -301,6 +394,7 @@ def kill_process_tree(pid: int):
         for child in children:
             try:
                 child.kill()
+                killed = True
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
         
@@ -308,144 +402,259 @@ def kill_process_tree(pid: int):
         try:
             parent.kill()
             parent.wait(timeout=3)
+            killed = True
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
             pass
             
     except (psutil.NoSuchProcess, psutil.AccessDenied):
-        # Fallback: taskkill
-        if sys.platform == 'win32':
-            subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], 
-                          capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        pass
+    
+    # Fallback: taskkill - Windows'ta en güvenilir yöntem
+    if sys.platform == 'win32':
+        try:
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(pid)], 
+                capture_output=True, 
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=10
+            )
+            killed = True
+        except:
+            pass
+    
+    return killed
 
-def kill_processes_by_name(name: str):
-    """İsme göre tüm process'leri öldür."""
+def kill_processes_by_name(name: str) -> int:
+    """İsme göre tüm process'leri öldür. Kaç tane öldürüldüğünü döndür."""
+    killed_count = 0
     try:
         for proc in psutil.process_iter(['name', 'pid']):
             try:
                 if name.lower() in proc.info['name'].lower():
                     kill_process_tree(proc.info['pid'])
+                    killed_count += 1
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
     except:
         pass
+    return killed_count
+
+def nuclear_kill_by_name(name: str):
+    """Belirli isimdeki TÜM process'leri öldür - NUCLEAR."""
+    # Method 1: psutil
+    kill_processes_by_name(name)
+    
+    # Method 2: taskkill (Windows)
+    if sys.platform == 'win32':
+        try:
+            subprocess.run(
+                f'taskkill /F /IM {name} 2>nul',
+                shell=True, 
+                capture_output=True, 
+                timeout=10
+            )
+        except:
+            pass
+        
+        # Method 3: wmic (Windows - daha agresif)
+        try:
+            subprocess.run(
+                f'wmic process where "name like \'%{name.replace(".exe", "")}%\'" delete 2>nul',
+                shell=True, 
+                capture_output=True, 
+                timeout=10
+            )
+        except:
+            pass
 
 def kill_port(port: int, force: bool = True) -> bool:
-    """Portu temizle - NUCLEAR mode."""
+    """Portu temizle - ULTRA NUCLEAR mode."""
     killed = False
     
-    # 1. Port kullanan tüm PID'leri bul ve öldür (3 deneme)
-    for attempt in range(3):
+    # Phase 1: Port kullanan tüm PID'leri bul ve öldür (5 deneme)
+    for attempt in range(5):
         pids = get_pids_using_port(port)
         for pid in pids:
-            kill_process_tree(pid)
-            killed = True
+            if kill_process_tree(pid):
+                killed = True
         if not pids:
             break
         time.sleep(0.5)
     
-    # 2. Next.js portu için tüm node.exe'leri öldür
+    # Phase 2: Servise özel işlemler
     if port == ServicePort.NEXTJS.value:
-        kill_processes_by_name('node.exe')
-        # Ekstra: taskkill ile de dene
-        try:
-            subprocess.run('taskkill /F /IM node.exe', shell=True, 
-                          capture_output=True, timeout=5)
-        except:
-            pass
+        # Next.js için tüm node.exe'leri NUCLEAR öldür
+        nuclear_kill_by_name('node.exe')
         killed = True
     
-    # 3. API portu için python/uvicorn öldür
     if port == ServicePort.API.value:
+        # API için uvicorn/python
         pids = get_pids_using_port(port)
         for pid in pids:
             try:
                 proc = psutil.Process(pid)
-                if 'python' in proc.name().lower():
+                if 'python' in proc.name().lower() or 'uvicorn' in proc.name().lower():
                     kill_process_tree(pid)
                     killed = True
             except:
                 pass
     
-    # Windows'ta port release için bekle
+    # Phase 3: Windows port release için bekle
     time.sleep(2)
     return killed
 
-def ensure_port_available(port: int, max_attempts: int = 10) -> bool:
-    """Port'un kullanılabilir olmasını garanti et - NUCLEAR."""
+def ensure_port_available(port: int, max_attempts: int = 8) -> bool:
+    """Port'un kullanılabilir olmasını garanti et - HIZLI ve ETKİLİ."""
     if is_port_available(port):
         return True
     
-    log(f"Port {port} meşgul, agresif temizlik başlatılıyor...", "warning")
+    log(f"Port {port} meşgul, hızlı temizlik...", "warning")
     
     for attempt in range(max_attempts):
+        # Adım 1: Normal kill
         kill_port(port, force=True)
         
-        # Her denemede daha uzun bekle (exponential backoff)
-        wait_time = min(1 + attempt * 0.5, 5)  # 1s, 1.5s, 2s... max 5s
+        # Adım 2: Kısa bekleme (maksimum 2 saniye)
+        wait_time = min(0.5 + attempt * 0.3, 2)
         time.sleep(wait_time)
         
         if is_port_available(port):
-            log(f"Port {port} başarıyla temizlendi (deneme {attempt + 1})", "success")
+            log(f"Port {port} temizlendi (deneme {attempt + 1})", "success")
             return True
         
-        # 3. denemeden sonra daha agresif ol
+        # Adım 3: Daha agresif yöntemler (2+ deneme)
         if attempt >= 2:
             if port == ServicePort.NEXTJS.value:
-                # Tüm node process'lerini öldür
-                kill_processes_by_name('node')
-                try:
-                    subprocess.run('taskkill /F /IM node.exe', shell=True, capture_output=True, timeout=5)
-                except:
-                    pass
-            time.sleep(2)
+                nuclear_kill_by_name('node.exe')
+            time.sleep(1)  # 3s -> 1s
         
-        # 5. denemeden sonra netstat ile kontrol et ve logla
+        # Adım 4: netstat ile manuel tespit (4+ deneme)
         if attempt >= 4:
             try:
-                result = subprocess.run(f'netstat -ano | findstr ":{port}"', 
-                                       shell=True, capture_output=True, text=True, timeout=5)
+                result = subprocess.run(
+                    f'netstat -ano | findstr ":{port}"', 
+                    shell=True, capture_output=True, text=True, timeout=3
+                )
                 if result.stdout.strip():
-                    log(f"Port {port} hala kullanılıyor: {result.stdout.strip()[:80]}", "debug")
+                    for line in result.stdout.strip().split('\n'):
+                        parts = line.split()
+                        if len(parts) >= 5 and parts[-1].isdigit():
+                            pid = int(parts[-1])
+                            if pid > 0:
+                                kill_process_tree(pid)
+                                subprocess.run(
+                                    f'taskkill /F /PID {pid} 2>nul',
+                                    shell=True, timeout=3
+                                )
             except:
                 pass
+            time.sleep(1)  # 3s -> 1s
+        
+        # Adım 5: Son çare (6+ deneme)
+        if attempt >= 6:
+            log(f"Port {port} inatçı, son çare...", "warning")
+            nuclear_kill_by_name('node.exe')
+            time.sleep(2)  # 5s -> 2s
     
     log(f"Port {port} temizlenemedi! ({max_attempts} deneme)", "error")
     return False
 
+def cleanup_zombie_processes():
+    """Zombie ve eski process'leri temizle."""
+    log("🧹 Zombie process temizliği yapılıyor...", "loading")
+    
+    zombie_patterns = ['node.exe', 'uvicorn', 'streamlit']
+    our_ports = [ServicePort.API.value, ServicePort.NEXTJS.value, ServicePort.STREAMLIT.value]
+    
+    killed_count = 0
+    
+    # Port kullanan eski process'leri öldür
+    for port in our_ports:
+        pids = get_pids_using_port(port)
+        for pid in pids:
+            # Kendi PID'miz değilse öldür
+            if pid != os.getpid():
+                if kill_process_tree(pid):
+                    killed_count += 1
+    
+    if killed_count > 0:
+        log(f"🧹 {killed_count} zombie process temizlendi", "success")
+    
+    return killed_count
+
 def cleanup_all_ports():
-    """Tüm servislerin portlarını NUCLEAR şekilde temizle."""
-    log("Tüm portlar NUCLEAR şekilde temizleniyor...", "loading")
+    """Tüm servislerin portlarını HIZLI ve ETKİLİ şekilde temizle."""
     
-    # Önce tüm node.exe'leri öldür (Next.js için)
-    kill_processes_by_name('node.exe')
-    try:
-        subprocess.run('taskkill /F /IM node.exe', shell=True, capture_output=True, timeout=5)
-    except:
-        pass
-    time.sleep(2)
+    # FAST PATH: Tüm portlar zaten boşsa hiç temizlik yapma
+    all_ports_free = all(is_port_available(config.port) for config in SERVICES.values())
+    if all_ports_free:
+        log("✅ Tüm portlar zaten temiz", "success")
+        return True
     
-    # Tüm portları temizle
+    log("🔥 Port temizliği yapılıyor...", "loading")
+    
+    # Phase 1: Meşgul portları bul ve sadece onları temizle
+    busy_ports = []
     for service_name, config in SERVICES.items():
         if not is_port_available(config.port):
+            busy_ports.append((service_name, config.port))
             pids = get_pids_using_port(config.port)
             for pid in pids:
-                kill_process_tree(pid)
-            log(f"Port {config.port} temizlendi", "success")
+                if pid != os.getpid():
+                    kill_process_tree(pid)
     
-    # Windows'ta port release için uzun bekle
-    time.sleep(3)
+    # Phase 2: Node.exe varsa öldür (Next.js için)
+    if any(p == ServicePort.NEXTJS.value for _, p in busy_ports):
+        nuclear_kill_by_name('node.exe')
     
-    # Son kontrol
+    # Phase 3: Kısa bekleme (2s yeterli)
+    time.sleep(2)
+    
+    # Phase 4: Son kontrol - sadece meşgul olan portlar için
     all_clean = True
-    for service_name, config in SERVICES.items():
-        if not is_port_available(config.port):
-            log(f"UYARI: Port {config.port} hala meşgul!", "warning")
-            all_clean = False
+    for service_name, port in busy_ports:
+        if not is_port_available(port):
+            # Tek bir hızlı deneme daha
+            ensure_port_available(port, max_attempts=3)
+            if not is_port_available(port):
+                all_clean = False
     
     if all_clean:
-        log("Tüm portlar temiz", "success")
+        log("✅ Tüm portlar temiz ve hazır", "success")
     else:
-        log("Bazı portlar temizlenemedi, devam ediliyor...", "warning")
+        log("⚠️ Bazı portlar temizlenemedi, devam ediliyor...", "warning")
+    
+    return all_clean
+
+def preflight_cleanup():
+    """
+    Başlamadan önce HIZLI ve ETKİLİ temizlik yap.
+    
+    Optimizasyonlar:
+    - Fast path: Portlar boşsa temizlik atlanır
+    - Paralel kontroller
+    - Azaltılmış bekleme süreleri
+    """
+    log("🚀 Hızlı ön kontrol başlatılıyor...", "loading")
+    
+    # Adım 1: Önceki instance (gerekirse)
+    kill_previous_instance()
+    
+    # Adım 2: Lock al
+    if not acquire_lock():
+        log("❌ Lock alınamadı, başka bir instance çalışıyor olabilir", "error")
+        return False
+    
+    # Adım 3: Zombie temizliği
+    zombies = cleanup_zombie_processes()
+    if zombies > 0:
+        time.sleep(1)  # Sadece zombie varsa bekle
+    
+    # Adım 4: Port temizliği (akıllı - Fast Path)
+    cleanup_all_ports()
+    
+    log("✅ Ön kontrol tamamlandı", "success")
+    return True
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OLLAMA MANAGEMENT
@@ -789,7 +998,7 @@ def check_websocket_compatibility() -> bool:
 
 
 def start_nextjs(dev_mode: bool = False):
-    """Next.js frontend'i başlat - ULTRA BULLET-PROOF versiyon."""
+    """Next.js frontend'i başlat - HIZLI ve GÜVENILIR versiyon."""
     config = SERVICES["nextjs"]
     nextjs_dir = PROJECT_ROOT / "frontend-next"
     
@@ -810,54 +1019,22 @@ def start_nextjs(dev_mode: bool = False):
     
     log(f"Node.js {node_version} tespit edildi ✓", "success", "nextjs")
     
-    # ═══════ ADIM 1: PORT TEMİZLİĞİ ═══════
+    # ═══════ ADIM 1: HIZLI PORT TEMİZLİĞİ ═══════
     log(f"Port {config.port} hazırlanıyor...", "loading", "nextjs")
     
-    # Önce tüm node process'lerini öldür - en agresif yöntem
-    kill_processes_by_name('node.exe')
-    try:
-        subprocess.run('taskkill /F /IM node.exe 2>nul', shell=True, capture_output=True, timeout=10)
-    except:
-        pass
-    time.sleep(3)
-    
-    # Port'u agresif şekilde temizle
-    if not ensure_port_available(config.port, max_attempts=15):  # 15 deneme
-        state.processes["nextjs"].status = ServiceStatus.ERROR
-        state.processes["nextjs"].last_error = f"Port {config.port} temizlenemedi"
-        return False
-    
-    # EXTRA: Port temizlendikten sonra bekle - Windows port release YAVAŞ
-    time.sleep(5)
-    
-    # Port gerçekten temiz mi TEKRAR kontrol et
-    for retry in range(3):
-        if is_port_available(config.port):
-            break
-        
-        log(f"Port {config.port} hala meşgul, agresif temizlik #{retry+1}...", "warning", "nextjs")
-        kill_processes_by_name('node.exe')
-        
-        # netstat ile PID bul ve öldür
-        try:
-            result = subprocess.run(
-                f'netstat -ano | findstr ":{config.port}"',
-                shell=True, capture_output=True, text=True, timeout=10
-            )
-            for line in result.stdout.split('\n'):
-                parts = line.split()
-                if len(parts) >= 5 and parts[-1].isdigit():
-                    pid = parts[-1]
-                    subprocess.run(f'taskkill /F /PID {pid} 2>nul', shell=True, timeout=5)
-        except:
-            pass
-        
-        time.sleep(5)
-    
+    # Port zaten boşsa temizlik atla (FAST PATH)
     if not is_port_available(config.port):
-        log(f"Port {config.port} temizlenemedi! Yeniden başlatma gerekebilir.", "error", "nextjs")
-        state.processes["nextjs"].status = ServiceStatus.ERROR
-        return False
+        # Sadece gerekirse node process'lerini öldür
+        kill_processes_by_name('node.exe')
+        time.sleep(1)  # 3s -> 1s
+        
+        # Port'u hızlıca temizle
+        if not ensure_port_available(config.port, max_attempts=5):  # 15 -> 5
+            state.processes["nextjs"].status = ServiceStatus.ERROR
+            state.processes["nextjs"].last_error = f"Port {config.port} temizlenemedi"
+            return False
+        
+        time.sleep(1)  # 5s -> 1s (Windows port release için minimal bekleme)
     
     log(f"Port {config.port} hazır ✓", "success", "nextjs")
     
@@ -905,14 +1082,14 @@ def start_nextjs(dev_mode: bool = False):
     state.processes["nextjs"].started_at = datetime.now()
     
     # ═══════ ADIM 6: HEALTH CHECK ═══════
-    # Dev mode için uzun bekle - İlk compile UZUN sürer
-    wait_time = 180  # 3 dakika - ilk compile çok uzun sürebilir
+    # Dev mode için akıllı bekleme
+    wait_time = 120  # 3 dakika -> 2 dakika (yeterli)
     log(f"Next.js hazır olması bekleniyor (max {wait_time}s)...", "loading", "nextjs")
     
-    # İlk başlangıç için bekle - Node.js'in başlaması zaman alır
-    time.sleep(15)
+    # İlk başlangıç için bekle - 15s -> 5s (process başlaması için yeterli)
+    time.sleep(5)
     
-    # Progressive health check - her 5 saniyede kontrol et
+    # Progressive health check - her 3 saniyede kontrol et (5s -> 3s)
     start_check = time.time()
     health_ok = False
     last_status = ""
@@ -937,7 +1114,7 @@ def start_nextjs(dev_mode: bool = False):
         # HTTP health check
         try:
             import requests
-            response = requests.get(f"http://localhost:{config.port}", timeout=5)
+            response = requests.get(f"http://localhost:{config.port}", timeout=3)  # 5s -> 3s
             if response.status_code in [200, 304]:
                 health_ok = True
                 break
@@ -955,7 +1132,7 @@ def start_nextjs(dev_mode: bool = False):
             log(f"Next.js: {current_status}", "loading", "nextjs")
             last_status = current_status
         
-        time.sleep(5)
+        time.sleep(3)  # 5s -> 3s (daha sık kontrol)
     
     if health_ok:
         state.processes["nextjs"].status = ServiceStatus.RUNNING
@@ -1156,13 +1333,13 @@ def monitor_services(services: List[str], dev_mode: bool = False):
         time.sleep(10)  # 10 saniye aralıklarla kontrol (5'ten artırıldı)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CLEANUP
+# CLEANUP - Enhanced Edition
 # ══════════════════════════════════════════════════════════════════════════════
 
 _cleanup_done = False
 
 def cleanup():
-    """Tüm process'leri temiz bir şekilde kapat."""
+    """Tüm process'leri temiz bir şekilde kapat ve lock'u serbest bırak."""
     global _cleanup_done
     
     # Cleanup zaten yapıldıysa tekrar yapma
@@ -1178,13 +1355,33 @@ def cleanup():
                 config = SERVICES.get(name)
                 if config:
                     log(f"{config.name} durduruluyor...", "loading", name)
+                
+                # Nazik kapatma
                 proc_info.process.terminate()
-                proc_info.process.wait(timeout=5)
+                try:
+                    proc_info.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # Agresif kapatma
+                    proc_info.process.kill()
+                    try:
+                        proc_info.process.wait(timeout=3)
+                    except:
+                        pass
             except:
                 try:
                     proc_info.process.kill()
                 except:
                     pass
+    
+    # Portları da temizle (kalıntı olmaması için)
+    for config in SERVICES.values():
+        pids = get_pids_using_port(config.port)
+        for pid in pids:
+            if pid != os.getpid():  # Kendimizi öldürme
+                kill_process_tree(pid)
+    
+    # Lock'u serbest bırak
+    release_lock()
     
     log("Tüm servisler durduruldu", "success")
 
@@ -1323,7 +1520,7 @@ def run_basic_health_check() -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    """Ana çalıştırma fonksiyonu."""
+    """Ana çalıştırma fonksiyonu - Self-Healing Edition."""
     args = parse_args()
     
     # Cleanup handler
@@ -1375,11 +1572,15 @@ def main():
     
     log(f"Başlatılacak servisler: {', '.join([SERVICES[s].name for s in services_to_start])}", "info")
     
-    # ═══════ STEP 1: CLEAN ALL PORTS FIRST ═══════
-    # Her zaman portları temizle - bu en önemli adım
-    log("Portlar temizleniyor (çakışmaları önlemek için)...", "loading")
-    cleanup_all_ports()
-    time.sleep(3)  # Port temizliği için UZUN bekle - Windows port release yavaş
+    # ═══════ STEP 1: PREFLIGHT CLEANUP - THE MAGIC ═══════
+    # Bu adım tüm port çakışmalarını ve zombie process'leri otomatik temizler
+    if not preflight_cleanup():
+        log("❌ Pre-flight temizlik başarısız!", "error")
+        log("💡 Bilgisayarı yeniden başlatmayı deneyin", "info")
+        sys.exit(1)
+    
+    # Ekstra bekleme - Windows port release YAVAŞ
+    time.sleep(3)
     
     # ═══════ STEP 2: OLLAMA ═══════
     if not args.skip_ollama:

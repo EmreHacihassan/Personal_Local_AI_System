@@ -88,15 +88,15 @@ type WidgetPage = 'home' | 'chat' | 'documents' | 'history' | 'search' | 'settin
 // =================== CONSTANTS ===================
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
-const WIDGET_PAGES: { id: WidgetPage; icon: React.ElementType; label: { tr: string; en: string } }[] = [
-  { id: 'home', icon: Home, label: { tr: 'Ana Sayfa', en: 'Home' } },
-  { id: 'chat', icon: MessageSquare, label: { tr: 'Sohbet', en: 'Chat' } },
-  { id: 'documents', icon: FileText, label: { tr: 'Belgeler', en: 'Documents' } },
-  { id: 'rag', icon: Brain, label: { tr: 'RAG', en: 'RAG' } },
-  { id: 'history', icon: History, label: { tr: 'Geçmiş', en: 'History' } },
-  { id: 'search', icon: SearchIcon, label: { tr: 'Ara', en: 'Search' } },
-  { id: 'analytics', icon: BarChart3, label: { tr: 'Analitik', en: 'Analytics' } },
-  { id: 'settings', icon: Settings, label: { tr: 'Ayarlar', en: 'Settings' } },
+const WIDGET_PAGES: { id: WidgetPage; icon: React.ElementType; label: { tr: string; en: string }; color: string }[] = [
+  { id: 'home', icon: Home, label: { tr: 'Ana Sayfa', en: 'Home' }, color: 'from-violet-500 to-purple-600' },
+  { id: 'chat', icon: MessageSquare, label: { tr: 'Sohbet', en: 'Chat' }, color: 'from-blue-500 to-cyan-500' },
+  { id: 'documents', icon: FileText, label: { tr: 'Belgeler', en: 'Documents' }, color: 'from-green-500 to-emerald-500' },
+  { id: 'rag', icon: Brain, label: { tr: 'RAG', en: 'RAG' }, color: 'from-purple-500 to-pink-500' },
+  { id: 'history', icon: History, label: { tr: 'Geçmiş', en: 'History' }, color: 'from-amber-500 to-orange-500' },
+  { id: 'search', icon: SearchIcon, label: { tr: 'Ara', en: 'Search' }, color: 'from-cyan-500 to-teal-500' },
+  { id: 'analytics', icon: BarChart3, label: { tr: 'Analitik', en: 'Analytics' }, color: 'from-rose-500 to-red-500' },
+  { id: 'settings', icon: Settings, label: { tr: 'Ayarlar', en: 'Settings' }, color: 'from-gray-500 to-slate-600' },
 ];
 
 // =================== MAIN COMPONENT ===================
@@ -398,19 +398,25 @@ export function FloatingWidget() {
     const page = WIDGET_PAGES.find(p => p.id === currentPage);
     return page?.label[language as 'tr' | 'en'] || 'Widget';
   };
+  
+  const getPageColor = () => {
+    const page = WIDGET_PAGES.find(p => p.id === currentPage);
+    return page?.color || 'from-primary-500 to-primary-600';
+  };
 
   if (!widgetEnabled) return null;
 
   // =================== RENDER ===================
   return (
     <>
-      {/* Floating Button */}
+      {/* Floating Button - Premium Design */}
       <AnimatePresence>
         {!isOpen && (
           <motion.div
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0, opacity: 0 }}
+            initial={{ scale: 0, opacity: 0, rotate: -180 }}
+            animate={{ scale: 1, opacity: 1, rotate: 0 }}
+            exit={{ scale: 0, opacity: 0, rotate: 180 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 300 }}
             drag
             dragControls={dragControls}
             dragMomentum={false}
@@ -421,48 +427,108 @@ export function FloatingWidget() {
               top: position.y,
               zIndex: 9999 
             }}
-            className="cursor-grab active:cursor-grabbing"
+            className="cursor-grab active:cursor-grabbing select-none group"
           >
+            {/* Main Floating Button */}
             <motion.button
               onClick={() => setIsOpen(true)}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              className="w-14 h-14 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-2xl flex items-center justify-center hover:shadow-primary-500/50 transition-shadow group"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
+              className="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 via-primary-600 to-primary-700 text-white shadow-2xl shadow-primary-500/40 flex items-center justify-center overflow-hidden"
             >
-              <MessageSquare className="w-6 h-6 group-hover:scale-110 transition-transform" />
-            </motion.button>
-            <div className="absolute inset-0 rounded-full bg-primary-500 animate-ping opacity-25" />
-            
-            {/* Quick action buttons */}
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.8 }}
-              whileHover={{ opacity: 1, scale: 1 }}
-              className="absolute -top-2 -right-2 flex gap-1"
-            >
-              <button 
-                onClick={(e) => { e.stopPropagation(); setIsOpen(true); setCurrentPage('chat'); }}
-                className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center shadow-lg hover:bg-green-600 transition-colors"
+              {/* Gradient Overlay on Hover */}
+              <div className="absolute inset-0 bg-gradient-to-br from-white/25 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              
+              {/* Shine Effect */}
+              <div className="absolute inset-0 overflow-hidden rounded-2xl">
+                <motion.div 
+                  className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-white/40 to-transparent rotate-12"
+                  initial={{ x: '-100%' }}
+                  whileHover={{ x: '200%' }}
+                  transition={{ duration: 0.6 }}
+                />
+              </div>
+              
+              {/* Icon with pulse effect */}
+              <motion.div
+                animate={{ scale: [1, 1.05, 1] }}
+                transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                className="relative z-10"
               >
-                <Zap className="w-3 h-3" />
-              </button>
+                <MessageSquare className="w-7 h-7" />
+              </motion.div>
+              
+              {/* Sparkle decorations */}
+              <Sparkles className="absolute top-2 right-2 w-3 h-3 text-white/70" />
+            </motion.button>
+            
+            {/* Animated Ring - Pulsing glow */}
+            <motion.div 
+              className="absolute inset-0 rounded-2xl border-2 border-primary-400/50"
+              animate={{ 
+                scale: [1, 1.25, 1.25], 
+                opacity: [0.6, 0, 0],
+                borderRadius: ['16px', '20px', '20px']
+              }}
+              transition={{ repeat: Infinity, duration: 2, ease: 'easeOut' }}
+            />
+            
+            {/* Second Ring for depth */}
+            <motion.div 
+              className="absolute inset-0 rounded-2xl border-2 border-primary-300/30"
+              animate={{ 
+                scale: [1, 1.4, 1.4], 
+                opacity: [0.4, 0, 0],
+              }}
+              transition={{ repeat: Infinity, duration: 2, ease: 'easeOut', delay: 0.3 }}
+            />
+            
+            {/* Hover tooltip */}
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.8 }}
+              whileHover={{ opacity: 1, y: 0, scale: 1 }}
+              className="absolute -bottom-10 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-card/95 backdrop-blur-sm text-foreground text-xs font-medium rounded-lg shadow-lg border border-border whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              {language === 'tr' ? '✨ AI Asistan' : '✨ AI Assistant'}
+            </motion.div>
+            
+            {/* Quick action button - appears on hover */}
+            <motion.div 
+              className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <motion.button 
+                onClick={(e) => { e.stopPropagation(); setIsOpen(true); setCurrentPage('chat'); }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                className="w-7 h-7 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 text-white flex items-center justify-center shadow-lg shadow-green-500/30"
+              >
+                <Zap className="w-3.5 h-3.5" />
+              </motion.button>
+            </motion.div>
+            
+            {/* Drag hint - appears on hover */}
+            <motion.div
+              className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] text-muted-foreground/70 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              {language === 'tr' ? '↕ Sürükle' : '↕ Drag'}
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Widget Panel */}
+      {/* Widget Panel - Enhanced Design */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.9, y: 30 }}
             animate={{ 
               opacity: 1, 
               scale: 1, 
               y: 0,
               ...getWidgetSize(),
             }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            exit={{ opacity: 0, scale: 0.9, y: 30 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 350 }}
             drag={!isFullscreen}
             dragControls={dragControls}
             dragMomentum={false}
@@ -472,41 +538,52 @@ export function FloatingWidget() {
               right: isFullscreen ? 0 : 20,
               bottom: isFullscreen ? 0 : 20,
               zIndex: 9999,
-              borderRadius: isFullscreen ? 0 : 16
+              borderRadius: isFullscreen ? 0 : 20
             }}
-            className="bg-card border border-border shadow-2xl overflow-hidden flex"
+            className="bg-card border border-border shadow-2xl shadow-black/20 overflow-hidden flex backdrop-blur-xl"
           >
-            {/* Mini Sidebar */}
+            {/* Mini Sidebar - Enhanced */}
             <motion.div 
-              animate={{ width: sidebarCollapsed ? 48 : 160 }}
-              className="bg-muted/50 border-r border-border flex flex-col"
+              animate={{ width: sidebarCollapsed ? 52 : 170 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-gradient-to-b from-muted/80 to-muted/40 border-r border-border/80 flex flex-col backdrop-blur-sm"
             >
               {/* Sidebar Toggle */}
               <button
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="p-2 hover:bg-accent m-1 rounded-lg transition-colors"
+                className="p-2.5 hover:bg-accent m-1.5 rounded-xl transition-all duration-200 flex items-center gap-2"
               >
                 {sidebarCollapsed ? <PanelRight className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
               </button>
               
-              {/* Navigation */}
-              <div className="flex-1 flex flex-col gap-0.5 p-1 overflow-y-auto">
+              {/* Navigation - Enhanced */}
+              <div className="flex-1 flex flex-col gap-1 p-1.5 overflow-y-auto scrollbar-thin">
                 {WIDGET_PAGES.map((page) => (
-                  <button
+                  <motion.button
                     key={page.id}
                     onClick={() => navigateTo(page.id)}
+                    whileHover={{ x: 2 }}
+                    whileTap={{ scale: 0.98 }}
                     className={cn(
-                      "flex items-center gap-2 px-2 py-2 rounded-lg transition-all text-sm",
+                      "flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl transition-all text-sm relative group",
                       currentPage === page.id 
-                        ? "bg-primary-500 text-white" 
+                        ? `bg-gradient-to-r ${page.color} text-white shadow-lg` 
                         : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     )}
                   >
                     <page.icon className="w-4 h-4 shrink-0" />
                     {!sidebarCollapsed && (
-                      <span className="truncate">{page.label[language as 'tr' | 'en']}</span>
+                      <span className="truncate font-medium">{page.label[language as 'tr' | 'en']}</span>
                     )}
-                  </button>
+                    
+                    {/* Active indicator for collapsed mode */}
+                    {currentPage === page.id && sidebarCollapsed && (
+                      <motion.div
+                        layoutId="activeIndicator"
+                        className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-white rounded-r-full"
+                      />
+                    )}
+                  </motion.button>
                 ))}
               </div>
               
@@ -521,53 +598,92 @@ export function FloatingWidget() {
             </motion.div>
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col min-w-0">
-              {/* Header */}
-              <div 
+            <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-br from-background to-muted/20">
+              {/* Header - Dynamic Color */}
+              <motion.div 
                 onPointerDown={(e) => !isFullscreen && dragControls.start(e)}
-                className="flex items-center justify-between px-3 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white cursor-grab active:cursor-grabbing"
+                className={cn(
+                  "flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing",
+                  `bg-gradient-to-r ${getPageColor()} text-white`
+                )}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   {pageHistory.length > 1 && (
-                    <button onClick={goBack} className="p-1 hover:bg-white/20 rounded transition-colors">
+                    <motion.button 
+                      onClick={goBack} 
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                    >
                       <ChevronLeft className="w-4 h-4" />
-                    </button>
+                    </motion.button>
                   )}
                   <GripVertical className="w-4 h-4 opacity-50" />
-                  <Sparkles className="w-4 h-4" />
-                  <span className="font-medium text-sm">{renderPageTitle()}</span>
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    <span className="font-semibold text-sm">{renderPageTitle()}</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
+                  {/* Minimize - Widget'ı küçük hale getir (sadece header görünsün) */}
+                  <motion.button
                     onClick={() => setIsMinimized(!isMinimized)}
-                    className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                    title={language === 'tr' ? (isMinimized ? 'Genişlet' : 'Küçült') : (isMinimized ? 'Expand' : 'Minimize')}
                   >
                     <Minimize2 className="w-4 h-4" />
-                  </button>
-                  <button
+                  </motion.button>
+                  {/* Expand - Widget boyutunu büyüt/küçült */}
+                  <motion.button
                     onClick={() => setIsExpanded(!isExpanded)}
-                    className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                    title={language === 'tr' ? (isExpanded ? 'Normal Boyut' : 'Büyüt') : (isExpanded ? 'Normal Size' : 'Expand')}
                   >
                     <Maximize2 className="w-4 h-4" />
-                  </button>
-                  <button
+                  </motion.button>
+                  {/* Fullscreen - Tam ekran */}
+                  <motion.button
                     onClick={() => setIsFullscreen(!isFullscreen)}
-                    className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                    title={language === 'tr' ? (isFullscreen ? 'Tam Ekrandan Çık' : 'Tam Ekran') : (isFullscreen ? 'Exit Fullscreen' : 'Fullscreen')}
                   >
                     <Monitor className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setIsOpen(false)}
-                    className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                  </motion.button>
+                  {/* Close - Widget'ı kapat (floating button'a dön) */}
+                  <motion.button
+                    onClick={() => {
+                      setIsOpen(false);
+                      setIsMinimized(false);
+                      setIsExpanded(false);
+                      setIsFullscreen(false);
+                    }}
+                    whileHover={{ scale: 1.1, backgroundColor: 'rgba(255,255,255,0.3)' }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-2 hover:bg-white/20 rounded-lg transition-colors ml-1"
+                    title={language === 'tr' ? 'Kapat' : 'Close'}
                   >
                     <X className="w-4 h-4" />
-                  </button>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
 
-              {/* Content */}
+              {/* Content with page transition */}
+              <AnimatePresence mode="wait">
               {!isMinimized && (
-                <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <motion.div 
+                  key={currentPage}
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex-1 flex flex-col min-h-0 overflow-hidden"
+                >
                   
                   {/* ========== HOME PAGE ========== */}
                   {currentPage === 'home' && (
@@ -1134,13 +1250,14 @@ export function FloatingWidget() {
                     </div>
                   )}
 
-                </div>
+                </motion.div>
               )}
+              </AnimatePresence>
 
               {/* Minimized Footer */}
               {isMinimized && (
-                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                  {language === 'tr' ? 'Genişletmek için tıklayın' : 'Click to expand'}
+                <div className="px-3 py-2 text-xs text-muted-foreground text-center cursor-pointer hover:bg-accent transition-colors" onClick={() => setIsMinimized(false)}>
+                  {language === 'tr' ? '☝️ Genişletmek için tıklayın' : '☝️ Click to expand'}
                 </div>
               )}
             </div>

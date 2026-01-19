@@ -189,6 +189,17 @@ export function Sidebar() {
       });
     }
     
+    // Check RAG sync status
+    const ragSynced = health.components?.rag_synced;
+    const unindexedFiles = health.components?.unindexed_files;
+    if (ragSynced === false && typeof unindexedFiles === 'number' && unindexedFiles > 0) {
+      issues.push({
+        severity: 'warning',
+        message: language === 'tr' ? 'Belge senkronizasyonu gerekli' : 'Document sync required',
+        detail: language === 'tr' ? `${unindexedFiles} belge indekslenmemiş` : `${unindexedFiles} documents not indexed`
+      });
+    }
+    
     // Connection retry warning
     if (connectionAttempts > 2) {
       issues.push({

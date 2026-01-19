@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useDragControls, PanInfo } from 'framer-motion';
 import { 
   MessageSquare, 
@@ -11,6 +11,7 @@ import {
   ImageIcon,
   Globe,
   Mic,
+  MicOff,
   Paperclip,
   Sparkles,
   GripVertical,
@@ -25,14 +26,18 @@ import {
   BarChart3,
   Home,
   ChevronLeft,
+  ChevronUp,
   Brain,
   Zap,
   Database,
   Copy,
+  Check,
   ExternalLink,
   Sun,
+  Moon,
   Monitor,
   Volume2,
+  VolumeX,
   Bell,
   PanelLeft,
   PanelRight,
@@ -43,11 +48,72 @@ import {
   Clock,
   MessageCircle,
   FileSearch,
-  Layers
+  Layers,
+  Code,
+  Quote,
+  List,
+  AlertCircle,
+  CheckCircle2,
+  Info,
+  ThumbsUp,
+  ThumbsDown,
+  RotateCcw,
+  Share2,
+  Bookmark
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { sendMessage } from '@/lib/api';
+
+// =================== MARKDOWN RENDERER ===================
+function renderMarkdown(content: string): string {
+  return content
+    // Code blocks
+    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="code-block" data-lang="$1"><code>$2</code></pre>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+    // Bold
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // Links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="message-link">$1</a>')
+    // Headers
+    .replace(/^### (.+)$/gm, '<h4 class="message-h4">$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3 class="message-h3">$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2 class="message-h2">$1</h2>')
+    // Lists
+    .replace(/^- (.+)$/gm, '<li class="message-li">$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm, '<li class="message-li-num">$2</li>')
+    // Blockquotes
+    .replace(/^> (.+)$/gm, '<blockquote class="message-quote">$1</blockquote>')
+    // Line breaks
+    .replace(/\n/g, '<br>');
+}
+
+// =================== TEXT TO SPEECH ===================
+function speakText(text: string, lang: string = 'tr-TR') {
+  if ('speechSynthesis' in window) {
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang === 'tr' ? 'tr-TR' : 'en-US';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    window.speechSynthesis.speak(utterance);
+    return true;
+  }
+  return false;
+}
+
+function stopSpeaking() {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+}
 
 // =================== TYPES ===================
 interface Message {
@@ -56,6 +122,9 @@ interface Message {
   content: string;
   timestamp: Date;
   sources?: Array<{ title: string; url: string }>;
+  isTyping?: boolean;
+  feedback?: 'positive' | 'negative' | null;
+  bookmarked?: boolean;
 }
 
 interface Document {
@@ -99,6 +168,38 @@ const WIDGET_PAGES: { id: WidgetPage; icon: React.ElementType; label: { tr: stri
   { id: 'settings', icon: Settings, label: { tr: 'Ayarlar', en: 'Settings' }, color: 'from-gray-500 to-slate-600' },
 ];
 
+// =================== TYPING ANIMATION HOOK ===================
+function useTypingEffect(text: string, speed: number = 20, enabled: boolean = true) {
+  const [displayedText, setDisplayedText] = useState('');
+  const [isComplete, setIsComplete] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayedText(text);
+      setIsComplete(true);
+      return;
+    }
+
+    setDisplayedText('');
+    setIsComplete(false);
+    let index = 0;
+
+    const timer = setInterval(() => {
+      if (index < text.length) {
+        setDisplayedText(text.slice(0, index + 1));
+        index++;
+      } else {
+        setIsComplete(true);
+        clearInterval(timer);
+      }
+    }, speed);
+
+    return () => clearInterval(timer);
+  }, [text, speed, enabled]);
+
+  return { displayedText, isComplete };
+}
+
 // =================== MAIN COMPONENT ===================
 export function FloatingWidget() {
   const { 
@@ -118,6 +219,11 @@ export function FloatingWidget() {
   const [currentPage, setCurrentPage] = useState<WidgetPage>('home');
   const [pageHistory, setPageHistory] = useState<WidgetPage[]>(['home']);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  
+  // Voice & Accessibility State
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   
   // Chat State
   const [input, setInput] = useState('');
@@ -603,11 +709,30 @@ export function FloatingWidget() {
               <motion.div 
                 onPointerDown={(e) => !isFullscreen && dragControls.start(e)}
                 className={cn(
-                  "flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing",
+                  "flex items-center justify-between px-4 py-3 cursor-grab active:cursor-grabbing relative overflow-hidden",
                   `bg-gradient-to-r ${getPageColor()} text-white`
                 )}
               >
-                <div className="flex items-center gap-2.5">
+                {/* Animated Background Pattern */}
+                <div className="absolute inset-0 opacity-10">
+                  <motion.div
+                    className="absolute inset-0"
+                    style={{
+                      backgroundImage: `radial-gradient(circle at 20% 50%, rgba(255,255,255,0.3) 0%, transparent 50%),
+                                        radial-gradient(circle at 80% 50%, rgba(255,255,255,0.2) 0%, transparent 50%)`
+                    }}
+                    animate={{ 
+                      backgroundPosition: ['0% 0%', '100% 100%', '0% 0%'] 
+                    }}
+                    transition={{ 
+                      repeat: Infinity, 
+                      duration: 10, 
+                      ease: 'linear' 
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center gap-2.5 relative z-10">
                   {pageHistory.length > 1 && (
                     <motion.button 
                       onClick={goBack} 
@@ -620,11 +745,27 @@ export function FloatingWidget() {
                   )}
                   <GripVertical className="w-4 h-4 opacity-50" />
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4" />
+                    <motion.div
+                      animate={{ rotate: [0, 360] }}
+                      transition={{ repeat: Infinity, duration: 20, ease: 'linear' }}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                    </motion.div>
                     <span className="font-semibold text-sm">{renderPageTitle()}</span>
+                    {/* Online Indicator */}
+                    <div className="flex items-center gap-1 ml-1">
+                      <motion.div 
+                        className="w-2 h-2 rounded-full bg-green-400"
+                        animate={{ scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
+                        transition={{ repeat: Infinity, duration: 2 }}
+                      />
+                      <span className="text-[10px] opacity-75">
+                        {language === 'tr' ? 'Çevrimiçi' : 'Online'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 relative z-10">
                   {/* Minimize - Widget'ı küçük hale getir (sadece header görünsün) */}
                   <motion.button
                     onClick={() => setIsMinimized(!isMinimized)}
@@ -759,36 +900,59 @@ export function FloatingWidget() {
                             <p className="text-sm">
                               {language === 'tr' ? 'Sohbete başlamak için bir mesaj yazın' : 'Type a message to start chatting'}
                             </p>
+                            <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                              {[
+                                language === 'tr' ? '📝 Özet çıkar' : '📝 Summarize',
+                                language === 'tr' ? '🔍 Açıkla' : '🔍 Explain',
+                                language === 'tr' ? '💡 Öneri ver' : '💡 Suggest'
+                              ].map((suggestion, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setInput(suggestion.replace(/^[^\s]+\s/, ''))}
+                                  className="text-xs px-3 py-1.5 bg-muted hover:bg-accent rounded-full transition-colors"
+                                >
+                                  {suggestion}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         )}
 
                         {messages.map((message) => (
                           <motion.div
                             key={message.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            transition={{ type: 'spring', damping: 20, stiffness: 300 }}
                             className={cn("flex", message.role === 'user' ? 'justify-end' : 'justify-start')}
                           >
                             <div
                               className={cn(
-                                "max-w-[85%] px-3 py-2 rounded-2xl text-sm group relative",
+                                "max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm group relative",
                                 message.role === 'user'
-                                  ? 'bg-primary-500 text-white rounded-br-md'
-                                  : 'bg-muted rounded-bl-md'
+                                  ? 'bg-gradient-to-br from-primary-500 to-primary-600 text-white rounded-br-md shadow-lg shadow-primary-500/20'
+                                  : 'bg-muted rounded-bl-md border border-border/50'
                               )}
                             >
-                              <p className="whitespace-pre-wrap">{message.content}</p>
+                              {/* Message Content with Markdown */}
+                              <div 
+                                className="whitespace-pre-wrap prose prose-sm dark:prose-invert max-w-none [&_code]:bg-black/10 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_pre]:bg-black/20 [&_pre]:p-2 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_a]:text-blue-300 [&_a]:underline"
+                                dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                              />
                               
                               {/* Sources */}
                               {message.sources && message.sources.length > 0 && (
                                 <div className="mt-2 pt-2 border-t border-white/20 space-y-1">
+                                  <span className="text-[10px] uppercase tracking-wider opacity-60">
+                                    {language === 'tr' ? 'Kaynaklar' : 'Sources'}
+                                  </span>
                                   {message.sources.map((src, i) => (
                                     <a 
                                       key={i}
                                       href={src.url} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
-                                      className="text-xs flex items-center gap-1 opacity-70 hover:opacity-100"
+                                      className="text-xs flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity"
                                     >
                                       <ExternalLink className="w-3 h-3" />
                                       {src.title}
@@ -797,16 +961,126 @@ export function FloatingWidget() {
                                 </div>
                               )}
                               
-                              {/* Copy button */}
-                              <button
-                                onClick={() => copyToClipboard(message.content)}
-                                className="absolute -right-8 top-1 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-accent transition-all"
-                              >
-                                <Copy className="w-3 h-3" />
-                              </button>
+                              {/* Message Actions - Assistant messages only */}
+                              {message.role === 'assistant' && (
+                                <div className="flex items-center gap-0.5 mt-2 pt-2 border-t border-border/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {/* Copy */}
+                                  <button
+                                    onClick={() => {
+                                      copyToClipboard(message.content);
+                                      setCopiedMessageId(message.id);
+                                      setTimeout(() => setCopiedMessageId(null), 2000);
+                                    }}
+                                    className="p-1.5 hover:bg-accent rounded-lg transition-colors"
+                                    title={language === 'tr' ? 'Kopyala' : 'Copy'}
+                                  >
+                                    {copiedMessageId === message.id ? (
+                                      <Check className="w-3.5 h-3.5 text-green-500" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                                    )}
+                                  </button>
+                                  
+                                  {/* Speak */}
+                                  <button
+                                    onClick={() => {
+                                      if (isSpeaking) {
+                                        stopSpeaking();
+                                        setIsSpeaking(false);
+                                      } else {
+                                        speakText(message.content, language);
+                                        setIsSpeaking(true);
+                                        // Auto-stop when speech ends
+                                        const checkSpeaking = setInterval(() => {
+                                          if (!window.speechSynthesis?.speaking) {
+                                            setIsSpeaking(false);
+                                            clearInterval(checkSpeaking);
+                                          }
+                                        }, 500);
+                                      }
+                                    }}
+                                    className="p-1.5 hover:bg-accent rounded-lg transition-colors"
+                                    title={language === 'tr' ? (isSpeaking ? 'Durdur' : 'Seslendir') : (isSpeaking ? 'Stop' : 'Speak')}
+                                  >
+                                    {isSpeaking ? (
+                                      <VolumeX className="w-3.5 h-3.5 text-primary-500" />
+                                    ) : (
+                                      <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+                                    )}
+                                  </button>
+                                  
+                                  {/* Thumbs up */}
+                                  <button
+                                    onClick={() => {
+                                      setMessages(prev => prev.map(m => 
+                                        m.id === message.id ? { ...m, feedback: m.feedback === 'positive' ? null : 'positive' } : m
+                                      ));
+                                    }}
+                                    className={cn(
+                                      "p-1.5 hover:bg-accent rounded-lg transition-colors",
+                                      message.feedback === 'positive' && "bg-green-500/20"
+                                    )}
+                                    title={language === 'tr' ? 'Beğen' : 'Like'}
+                                  >
+                                    <ThumbsUp className={cn(
+                                      "w-3.5 h-3.5",
+                                      message.feedback === 'positive' ? "text-green-500" : "text-muted-foreground"
+                                    )} />
+                                  </button>
+                                  
+                                  {/* Thumbs down */}
+                                  <button
+                                    onClick={() => {
+                                      setMessages(prev => prev.map(m => 
+                                        m.id === message.id ? { ...m, feedback: m.feedback === 'negative' ? null : 'negative' } : m
+                                      ));
+                                    }}
+                                    className={cn(
+                                      "p-1.5 hover:bg-accent rounded-lg transition-colors",
+                                      message.feedback === 'negative' && "bg-red-500/20"
+                                    )}
+                                    title={language === 'tr' ? 'Beğenme' : 'Dislike'}
+                                  >
+                                    <ThumbsDown className={cn(
+                                      "w-3.5 h-3.5",
+                                      message.feedback === 'negative' ? "text-red-500" : "text-muted-foreground"
+                                    )} />
+                                  </button>
+                                  
+                                  {/* Regenerate */}
+                                  <button
+                                    onClick={() => {
+                                      // Find the user message before this assistant message
+                                      const msgIndex = messages.findIndex(m => m.id === message.id);
+                                      if (msgIndex > 0) {
+                                        const userMessage = messages[msgIndex - 1];
+                                        if (userMessage.role === 'user') {
+                                          // Remove this assistant message and regenerate
+                                          setMessages(prev => prev.filter(m => m.id !== message.id));
+                                          setInput(userMessage.content);
+                                        }
+                                      }
+                                    }}
+                                    className="p-1.5 hover:bg-accent rounded-lg transition-colors"
+                                    title={language === 'tr' ? 'Yeniden Oluştur' : 'Regenerate'}
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
+                                  </button>
+                                </div>
+                              )}
+                              
+                              {/* User message copy button */}
+                              {message.role === 'user' && (
+                                <button
+                                  onClick={() => copyToClipboard(message.content)}
+                                  className="absolute -left-8 top-1 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-accent transition-all"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              )}
                               
                               <p className={cn(
-                                "text-[10px] mt-1",
+                                "text-[10px] mt-1.5",
                                 message.role === 'user' ? 'text-white/70' : 'text-muted-foreground'
                               )}>
                                 {new Date(message.timestamp).toLocaleTimeString(language === 'tr' ? 'tr-TR' : 'en-US', {
@@ -819,12 +1093,32 @@ export function FloatingWidget() {
                         ))}
 
                         {isLoading && (
-                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                            <div className="bg-muted px-4 py-3 rounded-2xl rounded-bl-md">
-                              <div className="flex items-center gap-2">
-                                <Loader2 className="w-4 h-4 animate-spin text-primary-500" />
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10 }} 
+                            animate={{ opacity: 1, y: 0 }} 
+                            className="flex justify-start"
+                          >
+                            <div className="bg-muted px-4 py-3 rounded-2xl rounded-bl-md border border-border/50">
+                              <div className="flex items-center gap-3">
+                                <div className="flex gap-1">
+                                  <motion.div 
+                                    className="w-2 h-2 rounded-full bg-primary-500"
+                                    animate={{ y: [0, -6, 0] }}
+                                    transition={{ repeat: Infinity, duration: 0.6, delay: 0 }}
+                                  />
+                                  <motion.div 
+                                    className="w-2 h-2 rounded-full bg-primary-500"
+                                    animate={{ y: [0, -6, 0] }}
+                                    transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }}
+                                  />
+                                  <motion.div 
+                                    className="w-2 h-2 rounded-full bg-primary-500"
+                                    animate={{ y: [0, -6, 0] }}
+                                    transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }}
+                                  />
+                                </div>
                                 <span className="text-sm text-muted-foreground">
-                                  {language === 'tr' ? 'Düşünüyor...' : 'Thinking...'}
+                                  {language === 'tr' ? 'AI düşünüyor...' : 'AI is thinking...'}
                                 </span>
                               </div>
                             </div>
@@ -835,13 +1129,15 @@ export function FloatingWidget() {
                       </div>
 
                       {/* Input Area */}
-                      <div className="p-3 border-t border-border bg-background">
+                      <div className="p-3 border-t border-border bg-background/80 backdrop-blur-sm">
                         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                           <button
                             onClick={() => setWebSearchEnabled(!webSearchEnabled)}
                             className={cn(
-                              "flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all",
-                              webSearchEnabled ? "bg-blue-500 text-white" : "bg-muted text-muted-foreground hover:bg-accent"
+                              "flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all",
+                              webSearchEnabled 
+                                ? "bg-blue-500 text-white shadow-lg shadow-blue-500/30" 
+                                : "bg-muted text-muted-foreground hover:bg-accent"
                             )}
                           >
                             <Globe className="w-3 h-3" />
@@ -850,26 +1146,120 @@ export function FloatingWidget() {
                           <button
                             onClick={() => setRagEnabled(!ragEnabled)}
                             className={cn(
-                              "flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all",
-                              ragEnabled ? "bg-purple-500 text-white" : "bg-muted text-muted-foreground hover:bg-accent"
+                              "flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium transition-all",
+                              ragEnabled 
+                                ? "bg-purple-500 text-white shadow-lg shadow-purple-500/30" 
+                                : "bg-muted text-muted-foreground hover:bg-accent"
                             )}
+                            title={language === 'tr' ? 'Döküman Araması' : 'Document Search'}
                           >
                             <Brain className="w-3 h-3" />
                             RAG
                           </button>
-                          <button className="p-1.5 rounded-lg bg-muted text-muted-foreground hover:bg-accent transition-colors">
+                          <button 
+                            onClick={() => {
+                              // Image upload functionality
+                              const imageInput = document.createElement('input');
+                              imageInput.type = 'file';
+                              imageInput.accept = 'image/*';
+                              imageInput.onchange = (e) => {
+                                const file = (e.target as HTMLInputElement).files?.[0];
+                                if (file) {
+                                  // Handle image - for now just add a message about it
+                                  setInput(prev => prev + (prev ? ' ' : '') + `[📷 ${file.name}]`);
+                                }
+                              };
+                              imageInput.click();
+                            }}
+                            className="p-1.5 rounded-full bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                            title={language === 'tr' ? 'Görsel Ekle' : 'Add Image'}
+                          >
                             <ImageIcon className="w-3.5 h-3.5" />
                           </button>
                           <button 
                             onClick={() => fileInputRef.current?.click()}
-                            className="p-1.5 rounded-lg bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                            className="p-1.5 rounded-full bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                            title={language === 'tr' ? 'Dosya Ekle' : 'Attach File'}
                           >
                             <Paperclip className="w-3.5 h-3.5" />
                           </button>
-                          <button className="p-1.5 rounded-lg bg-muted text-muted-foreground hover:bg-accent transition-colors">
-                            <Mic className="w-3.5 h-3.5" />
+                          <button 
+                            onClick={() => {
+                              if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                                alert(language === 'tr' ? 'Tarayıcınız ses tanımayı desteklemiyor' : 'Your browser does not support speech recognition');
+                                return;
+                              }
+                              
+                              if (isListening) {
+                                // Stop listening
+                                setIsListening(false);
+                                return;
+                              }
+                              
+                              // Start listening
+                              const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+                              const recognition = new SpeechRecognition();
+                              recognition.lang = language === 'tr' ? 'tr-TR' : 'en-US';
+                              recognition.continuous = false;
+                              recognition.interimResults = true;
+                              
+                              recognition.onstart = () => setIsListening(true);
+                              recognition.onend = () => setIsListening(false);
+                              recognition.onerror = () => setIsListening(false);
+                              
+                              recognition.onresult = (event: any) => {
+                                const transcript = Array.from(event.results)
+                                  .map((result: any) => result[0].transcript)
+                                  .join('');
+                                setInput(prev => prev + (prev ? ' ' : '') + transcript);
+                              };
+                              
+                              recognition.start();
+                            }}
+                            className={cn(
+                              "p-1.5 rounded-full transition-all",
+                              isListening 
+                                ? "bg-red-500 text-white animate-pulse shadow-lg shadow-red-500/30" 
+                                : "bg-muted text-muted-foreground hover:bg-accent"
+                            )}
+                            title={language === 'tr' ? (isListening ? 'Dinlemeyi Durdur' : 'Sesli Giriş') : (isListening ? 'Stop Listening' : 'Voice Input')}
+                          >
+                            {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
                           </button>
                         </div>
+                        
+                        {/* Voice Listening Indicator */}
+                        <AnimatePresence>
+                          {isListening && (
+                            <motion.div 
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="flex items-center gap-2 mb-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg"
+                            >
+                              <div className="flex gap-1">
+                                <motion.div 
+                                  className="w-1 h-3 bg-red-500 rounded-full"
+                                  animate={{ scaleY: [1, 1.5, 1] }}
+                                  transition={{ repeat: Infinity, duration: 0.5 }}
+                                />
+                                <motion.div 
+                                  className="w-1 h-3 bg-red-500 rounded-full"
+                                  animate={{ scaleY: [1, 2, 1] }}
+                                  transition={{ repeat: Infinity, duration: 0.5, delay: 0.1 }}
+                                />
+                                <motion.div 
+                                  className="w-1 h-3 bg-red-500 rounded-full"
+                                  animate={{ scaleY: [1, 1.5, 1] }}
+                                  transition={{ repeat: Infinity, duration: 0.5, delay: 0.2 }}
+                                />
+                              </div>
+                              <span className="text-xs text-red-500 font-medium">
+                                {language === 'tr' ? 'Dinleniyor...' : 'Listening...'}
+                              </span>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                         
                         <div className="flex items-end gap-2">
                           <textarea
@@ -879,15 +1269,22 @@ export function FloatingWidget() {
                             onKeyDown={handleKeyDown}
                             placeholder={language === 'tr' ? 'Mesajınızı yazın...' : 'Type your message...'}
                             rows={1}
-                            className="flex-1 resize-none bg-muted border-0 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50 max-h-20"
+                            className="flex-1 resize-none bg-muted border-0 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50 max-h-24 transition-all"
                           />
-                          <button
+                          <motion.button
                             onClick={handleSend}
                             disabled={!input.trim() || isLoading}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            className={cn(
+                              "w-10 h-10 flex items-center justify-center rounded-xl transition-all shadow-lg",
+                              input.trim() && !isLoading
+                                ? "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-primary-500/30 hover:shadow-primary-500/50"
+                                : "bg-muted text-muted-foreground cursor-not-allowed"
+                            )}
                           >
                             <Send className="w-4 h-4" />
-                          </button>
+                          </motion.button>
                         </div>
                       </div>
                       
@@ -1254,11 +1651,39 @@ export function FloatingWidget() {
               )}
               </AnimatePresence>
 
-              {/* Minimized Footer */}
+              {/* Minimized Footer - Enhanced */}
               {isMinimized && (
-                <div className="px-3 py-2 text-xs text-muted-foreground text-center cursor-pointer hover:bg-accent transition-colors" onClick={() => setIsMinimized(false)}>
-                  {language === 'tr' ? '☝️ Genişletmek için tıklayın' : '☝️ Click to expand'}
-                </div>
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="px-4 py-3 cursor-pointer hover:bg-accent transition-all group"
+                  onClick={() => setIsMinimized(false)}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <motion.div
+                      animate={{ y: [0, -3, 0] }}
+                      transition={{ repeat: Infinity, duration: 1.5 }}
+                      className="text-primary-500"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </motion.div>
+                    <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                      {language === 'tr' ? 'Genişletmek için tıklayın' : 'Click to expand'}
+                    </span>
+                    <motion.div
+                      animate={{ y: [0, -3, 0] }}
+                      transition={{ repeat: Infinity, duration: 1.5 }}
+                      className="text-primary-500"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </motion.div>
+                  </div>
+                  {messages.length > 0 && (
+                    <p className="text-[10px] text-center text-muted-foreground mt-1 truncate">
+                      {language === 'tr' ? `${messages.length} mesaj` : `${messages.length} messages`}
+                    </p>
+                  )}
+                </motion.div>
               )}
             </div>
           </motion.div>

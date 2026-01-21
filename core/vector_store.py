@@ -3,7 +3,7 @@ Enterprise AI Assistant - Vector Store
 Endüstri Standartlarında Kurumsal AI Çözümü
 
 ChromaDB tabanlı vector veritabanı yönetimi.
-Yeni ChromaDBManager entegrasyonu ile daha dayanıklı.
+Yeni EnterpriseVectorStore entegrasyonu ile daha dayanıklı.
 
 Features:
 - Semantic search with scores
@@ -14,6 +14,13 @@ Features:
 - Embedding-based search
 - Automatic corruption recovery
 - Health monitoring
+- ADVANCED: Duplicate detection (exact + semantic)
+- ADVANCED: Near-duplicate detection
+- ADVANCED: Content quality scoring
+- ADVANCED: Query caching
+- ADVANCED: Usage analytics
+- ADVANCED: Auto-cleanup
+- ADVANCED: Export/Import
 """
 
 from typing import List, Dict, Any, Optional
@@ -29,6 +36,12 @@ from .chromadb_manager import (
     ChromaDBConfig,
     get_chromadb_manager,
 )
+from .enterprise_vector_store import (
+    EnterpriseVectorStore,
+    DuplicateConfig,
+    ContentQualityConfig,
+    get_enterprise_vector_store,
+)
 
 logger = get_logger("vector_store")
 
@@ -37,7 +50,7 @@ class VectorStore:
     """
     Vector Store yönetim sınıfı - Endüstri standartlarına uygun.
     
-    Yeni ChromaDBManager ile entegre, daha dayanıklı ve güvenli.
+    Yeni EnterpriseVectorStore ile entegre, daha dayanıklı ve güvenli.
     
     Özellikler:
     - ChromaDB persistence (via ChromaDBManager)
@@ -46,15 +59,25 @@ class VectorStore:
     - Similarity search
     - Batch operations
     - Health monitoring
+    
+    ADVANCED Özellikler:
+    - Akıllı Duplicate Detection (Hash + Semantic)
+    - Near-Duplicate Detection
+    - Content Quality Scoring
+    - Query Caching
+    - Usage Analytics
+    - Auto-Cleanup
     """
     
     def __init__(
         self,
         persist_directory: Optional[str] = None,
         collection_name: Optional[str] = None,
+        enable_advanced_features: bool = True,
     ):
         self.persist_directory = persist_directory or settings.CHROMA_PERSIST_DIR
         self.collection_name = collection_name or settings.CHROMA_COLLECTION_NAME
+        self.enable_advanced_features = enable_advanced_features
         
         # Use ChromaDBManager
         config = ChromaDBConfig(
@@ -67,6 +90,28 @@ class VectorStore:
         )
         
         self._manager = get_chromadb_manager(config)
+        
+        # Enterprise features
+        if enable_advanced_features:
+            self._enterprise_store = get_enterprise_vector_store(
+                duplicate_config=DuplicateConfig(
+                    enabled=True,
+                    check_exact_hash=True,
+                    check_semantic=True,
+                    semantic_threshold=0.95,
+                    check_near_duplicates=True,
+                    near_duplicate_threshold=0.85,
+                ),
+                quality_config=ContentQualityConfig(
+                    enabled=True,
+                    min_length=10,
+                    min_word_count=3,
+                    min_quality_score=0.2,
+                ),
+            )
+        else:
+            self._enterprise_store = None
+        
         self._initialized = False
     
     def _ensure_initialized(self):
@@ -94,6 +139,7 @@ class VectorStore:
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids: Optional[List[str]] = None,
         skip_duplicates: bool = True,
+        validate_content: bool = True,
     ) -> List[str]:
         """
         Dökümanları vector store'a ekle.
@@ -103,6 +149,7 @@ class VectorStore:
             metadatas: Metadata listesi (opsiyonel)
             ids: Döküman ID'leri (opsiyonel, otomatik oluşturulur)
             skip_duplicates: Duplicate dökümanları atla (varsayılan: True)
+            validate_content: İçerik doğrulama (varsayılan: True)
             
         Returns:
             Eklenen döküman ID'leri
@@ -112,7 +159,19 @@ class VectorStore:
         if not documents:
             return []
         
-        # Filter duplicates if enabled
+        # Use enterprise store if available for advanced features
+        if self.enable_advanced_features and self._enterprise_store:
+            result = self._enterprise_store.add_documents(
+                documents=documents,
+                metadatas=metadatas,
+                ids=ids,
+                skip_duplicates=skip_duplicates,
+                validate_content=validate_content,
+                enrich_metadata=True,
+            )
+            return result.get("added_ids", [])
+        
+        # Fallback to basic duplicate check
         unique_docs = []
         unique_metadatas = []
         unique_ids = []
@@ -205,9 +264,26 @@ class VectorStore:
         n_results: int = 5,
         where: Optional[Dict[str, Any]] = None,
         where_document: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
-        """Semantic search yap."""
+        """Semantic search yap (cache destekli)."""
         self._ensure_initialized()
+        
+        # Use enterprise store with caching if available
+        if self.enable_advanced_features and self._enterprise_store and use_cache:
+            results = self._enterprise_store.search(
+                query=query,
+                n_results=n_results,
+                where=where,
+                use_cache=True,
+            )
+            # Convert to legacy format
+            return {
+                "documents": [r["document"] for r in results],
+                "metadatas": [r["metadata"] for r in results],
+                "distances": [1 - r["score"] for r in results],
+                "ids": [r["id"] for r in results],
+            }
         
         query_embedding = embedding_manager.embed_query(query)
         
@@ -359,12 +435,68 @@ class VectorStore:
         """Vector store istatistiklerini döndür."""
         self._ensure_initialized()
         
-        return {
+        stats = {
             "collection_name": self.collection_name,
             "persist_directory": self.persist_directory,
             "document_count": self.count(),
             "health": self._manager.get_status().get("health", {}),
+            "advanced_features_enabled": self.enable_advanced_features,
         }
+        
+        # Add enterprise stats if available
+        if self.enable_advanced_features and self._enterprise_store:
+            enterprise_stats = self._enterprise_store.get_stats()
+            stats["enterprise_stats"] = enterprise_stats
+            stats["analytics"] = self._enterprise_store.get_analytics()
+        
+        return stats
+    
+    def find_duplicates(self, threshold: float = 0.95) -> List[Dict[str, Any]]:
+        """Mevcut duplicate'leri tespit et."""
+        if self.enable_advanced_features and self._enterprise_store:
+            return self._enterprise_store.find_duplicates(threshold=threshold)
+        return []
+    
+    def remove_duplicates(self, threshold: float = 0.98, dry_run: bool = True) -> Dict[str, Any]:
+        """Duplicate dökümanları otomatik temizle."""
+        if self.enable_advanced_features and self._enterprise_store:
+            return self._enterprise_store.remove_duplicates(threshold=threshold, dry_run=dry_run)
+        return {"error": "Advanced features not enabled"}
+    
+    def cleanup_low_quality(self, min_quality: float = 0.3, dry_run: bool = True) -> Dict[str, Any]:
+        """Düşük kaliteli dökümanları temizle."""
+        if self.enable_advanced_features and self._enterprise_store:
+            return self._enterprise_store.cleanup_low_quality(min_quality=min_quality, dry_run=dry_run)
+        return {"error": "Advanced features not enabled"}
+    
+    def export_documents(self, output_path: str) -> Dict[str, Any]:
+        """Dökümanları JSON dosyasına export et."""
+        if self.enable_advanced_features and self._enterprise_store:
+            return self._enterprise_store.export_documents(output_path)
+        return {"error": "Advanced features not enabled"}
+    
+    def import_documents(self, input_path: str, skip_duplicates: bool = True) -> Dict[str, Any]:
+        """JSON dosyasından döküman import et."""
+        if self.enable_advanced_features and self._enterprise_store:
+            return self._enterprise_store.import_documents(input_path, skip_duplicates=skip_duplicates)
+        return {"error": "Advanced features not enabled"}
+    
+    def find_similar(self, doc_id: str, n_results: int = 5) -> List[Dict[str, Any]]:
+        """Belirli bir dökümana benzer dökümanları bul."""
+        if self.enable_advanced_features and self._enterprise_store:
+            return self._enterprise_store.find_similar(doc_id, n_results=n_results)
+        return []
+    
+    def get_search_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Arama geçmişi."""
+        if self.enable_advanced_features and self._enterprise_store:
+            return self._enterprise_store.get_search_history(limit=limit)
+        return []
+    
+    def clear_cache(self):
+        """Sorgu önbelleğini temizle."""
+        if self.enable_advanced_features and self._enterprise_store:
+            self._enterprise_store.clear_cache()
     
     def search_by_embedding(
         self,

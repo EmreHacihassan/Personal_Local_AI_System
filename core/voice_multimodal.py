@@ -175,37 +175,68 @@ class SpeechToText(ABC):
 class WhisperLocalSTT(SpeechToText):
     """
     Local Whisper STT using faster-whisper or openai-whisper.
+    
+    GPU OPTIMIZATION:
+    - CUDA acceleration for 10x faster transcription
+    - FP16 for memory efficiency
+    - Batch processing support
     """
     
     def __init__(
         self,
         model_size: str = "base",
-        device: str = "cpu",
-        compute_type: str = "int8"
+        device: str = "auto",  # "auto", "cuda", "cpu"
+        compute_type: str = "auto"  # "auto", "float16", "int8", "float32"
     ):
         self.model_size = model_size
-        self.device = device
-        self.compute_type = compute_type
+        self._device = device
+        self._compute_type = compute_type
         self._model = None
+        
+        # Auto-detect GPU
+        if device == "auto":
+            try:
+                import torch
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            except ImportError:
+                self.device = "cpu"
+        else:
+            self.device = device
+        
+        # Auto-select compute type based on device
+        if compute_type == "auto":
+            self.compute_type = "float16" if self.device == "cuda" else "int8"
+        else:
+            self.compute_type = compute_type
     
     @property
     def provider(self) -> STTProvider:
         return STTProvider.WHISPER_LOCAL
     
     def _load_model(self):
-        """Lazy load whisper model"""
+        """Lazy load whisper model with GPU support"""
         if self._model is None:
             try:
                 from faster_whisper import WhisperModel
+                
+                print(f"🎤 Whisper model yükleniyor: {self.model_size}")
+                print(f"   Device: {self.device}, Compute: {self.compute_type}")
+                
                 self._model = WhisperModel(
                     self.model_size,
                     device=self.device,
                     compute_type=self.compute_type
                 )
+                
+                gpu_info = " (GPU)" if self.device == "cuda" else " (CPU)"
+                print(f"✅ Whisper hazır{gpu_info}")
+                
             except ImportError:
                 try:
                     import whisper
-                    self._model = whisper.load_model(self.model_size)
+                    print(f"🎤 OpenAI Whisper yükleniyor: {self.model_size}")
+                    self._model = whisper.load_model(self.model_size, device=self.device)
+                    print(f"✅ OpenAI Whisper hazır")
                 except ImportError:
                     raise RuntimeError("Neither faster-whisper nor openai-whisper installed")
     

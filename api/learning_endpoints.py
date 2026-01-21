@@ -207,6 +207,22 @@ async def archive_workspace(workspace_id: str):
     }
 
 
+@router.get("/workspaces/{workspace_id}/stats")
+async def get_workspace_stats(workspace_id: str):
+    """Çalışma ortamı istatistikleri."""
+    workspace = learning_workspace_manager.get_workspace(workspace_id)
+    
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Çalışma ortamı bulunamadı")
+    
+    stats = learning_workspace_manager.get_workspace_stats(workspace_id)
+    
+    return {
+        "success": True,
+        "stats": stats
+    }
+
+
 # ==================== SOURCE MANAGEMENT ====================
 
 @router.get("/workspaces/{workspace_id}/sources")
@@ -1059,3 +1075,1146 @@ async def get_learning_stats():
         "completed_tests": completed_tests,
         "average_score": round(avg_score, 1)
     }
+
+
+# ==================== ADVANCED FEATURES ====================
+# 14. Visual Learning Tools
+# 15. Multimedia Content Generation
+# 16. Smart Content Linking
+
+from core.learning_advanced_features import get_learning_advanced_features
+
+
+class VisualContentRequest(BaseModel):
+    """Görsel içerik oluşturma isteği."""
+    topic: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=10, max_length=100000)
+
+
+class MultimediaRequest(BaseModel):
+    """Multimedya içerik isteği."""
+    topic: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=10, max_length=100000)
+    duration_minutes: int = Field(default=10, ge=1, le=60)
+    style: str = Field(default="educational")
+
+
+class SlideRequest(BaseModel):
+    """Slide deck isteği."""
+    topic: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=10, max_length=100000)
+    slide_count: int = Field(default=10, ge=3, le=30)
+    include_notes: bool = Field(default=True)
+
+
+class PodcastRequest(BaseModel):
+    """Podcast script isteği."""
+    topic: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=10, max_length=100000)
+    duration_minutes: int = Field(default=15, ge=5, le=60)
+    host_count: int = Field(default=1, ge=1, le=2)
+    style: str = Field(default="conversational")
+
+
+class LearningPathRequest(BaseModel):
+    """Öğrenme yolu isteği."""
+    target_topic: str = Field(..., min_length=1, max_length=200)
+    current_knowledge: List[str] = Field(default=[])
+    max_steps: int = Field(default=10, ge=1, le=20)
+
+
+class NextTopicsRequest(BaseModel):
+    """Sonraki konu önerisi isteği."""
+    completed_topics: List[str] = Field(..., min_length=1)
+    interests: List[str] = Field(default=[])
+
+
+# ==================== VISUAL LEARNING TOOLS ====================
+
+@router.post("/visual/mindmap")
+async def create_mind_map(request: VisualContentRequest):
+    """
+    🎨 Mind-map oluştur.
+    
+    İçerikten otomatik mind-map çıkarır.
+    Mermaid ve HTML formatında export.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_mind_map(request.topic, request.content)
+        
+        return {
+            "success": True,
+            "type": "mindmap",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/visual/conceptmap")
+async def create_concept_map(request: VisualContentRequest):
+    """
+    🎨 Kavram haritası oluştur.
+    
+    Kavramlar arası ilişkileri gösterir.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_concept_map(request.topic, request.content)
+        
+        return {
+            "success": True,
+            "type": "conceptmap",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/visual/timeline")
+async def create_timeline(request: VisualContentRequest):
+    """
+    🎨 Zaman çizelgesi oluştur.
+    
+    Sıralı adımlar ve olaylar için.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_timeline(request.topic, request.content)
+        
+        return {
+            "success": True,
+            "type": "timeline",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/visual/flowchart")
+async def create_flowchart(request: VisualContentRequest):
+    """
+    🎨 Akış şeması oluştur.
+    
+    Süreç, algoritma ve karar ağaçları için.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_flowchart(request.topic, request.content)
+        
+        return {
+            "success": True,
+            "type": "flowchart",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/visual/infographic")
+async def create_infographic(request: VisualContentRequest):
+    """
+    🎨 İnfografik yapısı oluştur.
+    
+    Bölümler, istatistikler, önemli noktalar.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_infographic(request.topic, request.content)
+        
+        return {
+            "success": True,
+            "type": "infographic",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== MULTIMEDIA CONTENT ====================
+
+@router.post("/multimedia/video-script")
+async def create_video_script(request: MultimediaRequest):
+    """
+    📹 Video script oluştur.
+    
+    Segment'ler, görsel cue'lar ve tam script.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_video_script(
+            request.topic, 
+            request.content,
+            duration_minutes=request.duration_minutes,
+            style=request.style
+        )
+        
+        return {
+            "success": True,
+            "type": "video_script",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/multimedia/slides")
+async def create_slide_deck(request: SlideRequest):
+    """
+    📹 Slide deck oluştur.
+    
+    PowerPoint/Google Slides için yapı.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_slide_deck(
+            request.topic,
+            request.content,
+            slide_count=request.slide_count,
+            include_notes=request.include_notes
+        )
+        
+        return {
+            "success": True,
+            "type": "slide_deck",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/multimedia/podcast")
+async def create_podcast_script(request: PodcastRequest):
+    """
+    📹 Podcast script oluştur.
+    
+    Monolog veya dialog formatında.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_podcast_script(
+            request.topic,
+            request.content,
+            duration_minutes=request.duration_minutes,
+            host_count=request.host_count,
+            style=request.style
+        )
+        
+        return {
+            "success": True,
+            "type": "podcast_script",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/multimedia/audio-summary")
+async def create_audio_summary(request: VisualContentRequest):
+    """
+    📹 Audio özet scripti oluştur.
+    
+    1 dakikalık TL;DR.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.create_audio_summary(request.topic, request.content)
+        
+        return {
+            "success": True,
+            "type": "audio_summary",
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== SMART CONTENT LINKING ====================
+
+@router.post("/linking/prerequisites")
+async def get_prerequisites(request: VisualContentRequest):
+    """
+    🔗 Ön koşulları tespit et.
+    
+    "Bu konuyu anlamak için önce ne öğrenmeli?"
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.get_prerequisites(request.topic, request.content)
+        
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/linking/related")
+async def get_related_content(request: VisualContentRequest):
+    """
+    🔗 İlişkili içerikleri bul.
+    
+    Benzer konular, devam konuları, örnekler.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.get_related_content(request.topic, request.content)
+        
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/linking/learning-path")
+async def get_learning_path(request: LearningPathRequest):
+    """
+    🔗 Öğrenme yolu oluştur.
+    
+    Hedefe ulaşmak için adım adım yol haritası.
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.get_learning_path(
+            request.target_topic,
+            current_knowledge=request.current_knowledge,
+            max_steps=request.max_steps
+        )
+        
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/linking/next-topics")
+async def get_next_topics(request: NextTopicsRequest):
+    """
+    🔗 Sonraki konuları öner.
+    
+    Tamamlanan konulara göre ne öğrenilmeli?
+    """
+    try:
+        features = get_learning_advanced_features()
+        result = features.get_next_topics(
+            request.completed_topics,
+            interests=request.interests
+        )
+        
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== DOCUMENT VISUAL GENERATION ====================
+
+@router.post("/documents/{document_id}/visualize")
+async def generate_document_visuals(
+    document_id: str,
+    visual_types: List[str] = ["mindmap", "timeline"]
+):
+    """
+    Döküman için görsel içerikler oluştur.
+    
+    Mind-map, timeline, flowchart vb.
+    """
+    document = learning_workspace_manager.get_document(document_id)
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Döküman bulunamadı")
+    
+    if not document.content:
+        raise HTTPException(status_code=400, detail="Döküman içeriği boş")
+    
+    features = get_learning_advanced_features()
+    results = {}
+    
+    try:
+        if "mindmap" in visual_types:
+            results["mindmap"] = features.create_mind_map(document.title, document.content)
+        
+        if "conceptmap" in visual_types:
+            results["conceptmap"] = features.create_concept_map(document.title, document.content)
+        
+        if "timeline" in visual_types:
+            results["timeline"] = features.create_timeline(document.title, document.content)
+        
+        if "flowchart" in visual_types:
+            results["flowchart"] = features.create_flowchart(document.title, document.content)
+        
+        if "infographic" in visual_types:
+            results["infographic"] = features.create_infographic(document.title, document.content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return {
+        "success": True,
+        "document_id": document_id,
+        "document_title": document.title,
+        "visuals": results
+    }
+
+
+@router.post("/documents/{document_id}/multimedia")
+async def generate_document_multimedia(
+    document_id: str,
+    content_type: str = "slides"  # slides, video, podcast, audio
+):
+    """
+    Döküman için multimedya içerik oluştur.
+    """
+    document = learning_workspace_manager.get_document(document_id)
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Döküman bulunamadı")
+    
+    if not document.content:
+        raise HTTPException(status_code=400, detail="Döküman içeriği boş")
+    
+    features = get_learning_advanced_features()
+    
+    try:
+        if content_type == "slides":
+            result = features.create_slide_deck(document.title, document.content)
+        elif content_type == "video":
+            result = features.create_video_script(document.title, document.content)
+        elif content_type == "podcast":
+            result = features.create_podcast_script(document.title, document.content)
+        elif content_type == "audio":
+            result = features.create_audio_summary(document.title, document.content)
+        else:
+            raise HTTPException(status_code=400, detail="Geçersiz içerik tipi")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return {
+        "success": True,
+        "document_id": document_id,
+        "document_title": document.title,
+        "content_type": content_type,
+        **result
+    }
+
+
+# ==================== PREMIUM: LEARNING ANALYTICS ====================
+
+from core.learning_premium_features import get_premium_features, ScenarioType, ScenarioDifficulty, ReviewRating, TutorMode
+
+
+class LogEventRequest(BaseModel):
+    """Öğrenme olayı kaydı."""
+    event_type: str
+    duration_minutes: int = 0
+    score: Optional[float] = None
+    topic: str = ""
+    metadata: Dict[str, Any] = {}
+
+
+@router.get("/analytics/status")
+async def get_premium_status():
+    """Premium özelliklerin durumunu getir."""
+    try:
+        features = get_premium_features()
+        return {
+            "success": True,
+            "features": features.get_feature_status()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workspaces/{workspace_id}/analytics/log")
+async def log_learning_event(workspace_id: str, request: LogEventRequest):
+    """Öğrenme olayı kaydet."""
+    try:
+        features = get_premium_features()
+        event = features.analytics.log_event(
+            workspace_id=workspace_id,
+            event_type=request.event_type,
+            duration_minutes=request.duration_minutes,
+            score=request.score,
+            topic=request.topic,
+            metadata=request.metadata
+        )
+        return {"success": True, "event": event.to_dict()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/analytics/stats")
+async def get_workspace_analytics(workspace_id: str):
+    """Çalışma alanı istatistiklerini getir."""
+    try:
+        features = get_premium_features()
+        stats = features.analytics.get_workspace_stats(workspace_id)
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/analytics/weekly")
+async def get_weekly_activity(workspace_id: str):
+    """Haftalık aktivite verilerini getir."""
+    try:
+        features = get_premium_features()
+        weekly = features.analytics.get_weekly_activity(workspace_id)
+        return {"success": True, "weekly_activity": weekly}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/analytics/insights")
+async def get_learning_insights(workspace_id: str):
+    """AI destekli öğrenme içgörüleri."""
+    try:
+        features = get_premium_features()
+        insights = features.analytics.generate_insights(workspace_id)
+        return {"success": True, "insights": [i.to_dict() for i in insights]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/analytics/report")
+async def get_learning_report(workspace_id: str):
+    """Kapsamlı öğrenme raporu."""
+    try:
+        features = get_premium_features()
+        report = features.analytics.get_learning_report(workspace_id)
+        return {"success": True, **report}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/analytics/weak-areas")
+async def get_weak_areas(workspace_id: str, limit: int = 5):
+    """Zayıf alanları tespit et."""
+    try:
+        features = get_premium_features()
+        weak = features.analytics.get_weak_areas(workspace_id, limit)
+        return {"success": True, "weak_areas": weak}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PREMIUM: AI SIMULATIONS ====================
+
+class CreateScenarioRequest(BaseModel):
+    """Senaryo oluşturma isteği."""
+    scenario_type: str
+    topic: str
+    difficulty: str = "medium"
+    custom_context: str = ""
+
+
+class ScenarioInteractRequest(BaseModel):
+    """Senaryo etkileşim isteği."""
+    message: str
+
+
+@router.get("/simulations/types")
+async def get_scenario_types():
+    """Mevcut senaryo türlerini getir."""
+    try:
+        features = get_premium_features()
+        types = features.simulations.get_scenario_types()
+        return {"success": True, "scenario_types": types}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workspaces/{workspace_id}/simulations")
+async def create_simulation(workspace_id: str, request: CreateScenarioRequest):
+    """Yeni simülasyon senaryosu oluştur."""
+    try:
+        features = get_premium_features()
+        
+        # Enum'a çevir
+        scenario_type = ScenarioType(request.scenario_type)
+        difficulty = ScenarioDifficulty(request.difficulty)
+        
+        scenario = features.simulations.create_scenario(
+            workspace_id=workspace_id,
+            scenario_type=scenario_type,
+            topic=request.topic,
+            difficulty=difficulty,
+            custom_context=request.custom_context
+        )
+        
+        return {
+            "success": True,
+            "scenario": scenario.to_dict()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/simulations")
+async def list_simulations(workspace_id: str, status: Optional[str] = None):
+    """Simülasyonları listele."""
+    try:
+        features = get_premium_features()
+        scenarios = features.simulations.list_scenarios(workspace_id, status)
+        return {
+            "success": True,
+            "scenarios": [s.to_dict() for s in scenarios]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/simulations/{scenario_id}")
+async def get_simulation(scenario_id: str):
+    """Simülasyon detaylarını getir."""
+    try:
+        features = get_premium_features()
+        scenario = features.simulations.get_scenario(scenario_id)
+        
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Senaryo bulunamadı")
+        
+        return {"success": True, "scenario": scenario.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/simulations/{scenario_id}/interact")
+async def interact_with_simulation(scenario_id: str, request: ScenarioInteractRequest):
+    """Simülasyonla etkileşim."""
+    try:
+        features = get_premium_features()
+        result = features.simulations.interact(scenario_id, request.message)
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return {"success": True, **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/simulations/{scenario_id}/abandon")
+async def abandon_simulation(scenario_id: str):
+    """Simülasyonu terk et."""
+    try:
+        features = get_premium_features()
+        success = features.simulations.abandon_scenario(scenario_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Senaryo bulunamadı")
+        
+        return {"success": True, "message": "Senaryo terk edildi"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PREMIUM: AI TUTOR ====================
+
+class StartTutorSessionRequest(BaseModel):
+    """Tutor oturumu başlatma isteği."""
+    topic: str
+    mode: str = "adaptive"
+    student_id: Optional[str] = None
+
+
+class TutorMessageRequest(BaseModel):
+    """Tutor mesaj isteği."""
+    message: str
+    context: Optional[str] = None
+
+
+@router.post("/workspaces/{workspace_id}/tutor/session")
+async def start_tutor_session(workspace_id: str, request: StartTutorSessionRequest):
+    """Yeni AI Tutor oturumu başlat."""
+    try:
+        features = get_premium_features()
+        
+        mode = TutorMode(request.mode)
+        session = features.ai_tutor.start_session(
+            workspace_id=workspace_id,
+            topic=request.topic,
+            mode=mode,
+            student_id=request.student_id
+        )
+        
+        return {"success": True, "session": session.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tutor/{session_id}/message")
+async def send_tutor_message(session_id: str, request: TutorMessageRequest):
+    """Tutor'a mesaj gönder."""
+    try:
+        features = get_premium_features()
+        result = features.ai_tutor.process_message(
+            session_id=session_id,
+            user_message=request.message,
+            context=request.context
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+        return {"success": True, **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tutor/{session_id}")
+async def get_tutor_session(session_id: str):
+    """Tutor oturumunu getir."""
+    try:
+        features = get_premium_features()
+        session = features.ai_tutor.get_session(session_id)
+        
+        if not session:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+        
+        return {"success": True, "session": session.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tutor/{session_id}/end")
+async def end_tutor_session(session_id: str):
+    """Tutor oturumunu sonlandır."""
+    try:
+        features = get_premium_features()
+        result = features.ai_tutor.end_session(session_id)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+        
+        return {"success": True, "session": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PREMIUM: SPACED REPETITION ====================
+
+class CreateFlashcardRequest(BaseModel):
+    """Flashcard oluşturma isteği."""
+    front: str
+    back: str
+    deck: str = "default"
+    tags: List[str] = []
+
+
+class CreateCardsFromContentRequest(BaseModel):
+    """İçerikten kart oluşturma isteği."""
+    content: str
+    deck: str = "default"
+    card_type: str = "qa"  # qa, cloze, reverse
+
+
+class ReviewCardRequest(BaseModel):
+    """Kart değerlendirme isteği."""
+    rating: int  # 0-3
+
+
+@router.post("/workspaces/{workspace_id}/flashcards")
+async def create_flashcard(workspace_id: str, request: CreateFlashcardRequest):
+    """Yeni flashcard oluştur."""
+    try:
+        features = get_premium_features()
+        card = features.srs.create_card(
+            workspace_id=workspace_id,
+            front=request.front,
+            back=request.back,
+            deck=request.deck,
+            tags=request.tags
+        )
+        return {"success": True, "card": card.to_dict()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workspaces/{workspace_id}/flashcards/generate")
+async def generate_flashcards(workspace_id: str, request: CreateCardsFromContentRequest):
+    """İçerikten otomatik flashcard oluştur."""
+    try:
+        features = get_premium_features()
+        cards = features.srs.create_cards_from_content(
+            workspace_id=workspace_id,
+            content=request.content,
+            deck=request.deck,
+            card_type=request.card_type
+        )
+        return {
+            "success": True,
+            "cards": [c.to_dict() for c in cards],
+            "count": len(cards)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/flashcards")
+async def get_flashcards(workspace_id: str, deck: Optional[str] = None):
+    """Flashcard'ları getir."""
+    try:
+        features = get_premium_features()
+        cards = features.srs.get_cards_by_workspace(workspace_id, deck)
+        return {
+            "success": True,
+            "cards": [c.to_dict() for c in cards],
+            "count": len(cards)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/flashcards/due")
+async def get_due_flashcards(workspace_id: str, deck: Optional[str] = None, limit: int = 20):
+    """Tekrar edilmesi gereken kartları getir."""
+    try:
+        features = get_premium_features()
+        cards = features.srs.get_due_cards(workspace_id, deck, limit)
+        return {
+            "success": True,
+            "cards": [c.to_dict() for c in cards],
+            "count": len(cards)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/flashcards/stats")
+async def get_flashcard_stats(workspace_id: str, deck: Optional[str] = None):
+    """Flashcard istatistiklerini getir."""
+    try:
+        features = get_premium_features()
+        stats = features.srs.get_deck_stats(workspace_id, deck)
+        return {"success": True, "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flashcards/{card_id}/review")
+async def review_flashcard(card_id: str, request: ReviewCardRequest):
+    """Flashcard'ı değerlendir."""
+    try:
+        features = get_premium_features()
+        
+        # Rating enum'a çevir
+        rating = ReviewRating(request.rating)
+        result = features.srs.review_card(card_id, rating)
+        
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result["error"])
+        
+        return {"success": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Geçersiz rating: 0-3 arası olmalı")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/flashcards/{card_id}")
+async def delete_flashcard(card_id: str):
+    """Flashcard sil."""
+    try:
+        features = get_premium_features()
+        success = features.srs.delete_card(card_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Kart bulunamadı")
+        
+        return {"success": True, "message": "Kart silindi"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PREMIUM: KNOWLEDGE GRAPH ====================
+
+class CreateKnowledgeNodeRequest(BaseModel):
+    """Bilgi düğümü oluşturma isteği."""
+    label: str
+    node_type: str = "concept"
+    description: str = ""
+    tags: List[str] = []
+
+
+class CreateKnowledgeEdgeRequest(BaseModel):
+    """Bilgi bağlantısı oluşturma isteği."""
+    source_id: str
+    target_id: str
+    edge_type: str = "related"
+    label: str = ""
+    bidirectional: bool = False
+
+
+class BuildGraphRequest(BaseModel):
+    """İçerikten graph oluşturma isteği."""
+    content: str
+    source_doc_id: Optional[str] = None
+
+
+@router.post("/workspaces/{workspace_id}/knowledge-graph/nodes")
+async def create_knowledge_node(workspace_id: str, request: CreateKnowledgeNodeRequest):
+    """Bilgi düğümü oluştur."""
+    try:
+        from core.learning_premium_features import NodeType
+        features = get_premium_features()
+        
+        node_type = NodeType(request.node_type)
+        node = features.knowledge_graph.create_node(
+            workspace_id=workspace_id,
+            label=request.label,
+            node_type=node_type,
+            description=request.description,
+            tags=request.tags
+        )
+        return {"success": True, "node": node.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workspaces/{workspace_id}/knowledge-graph/edges")
+async def create_knowledge_edge(workspace_id: str, request: CreateKnowledgeEdgeRequest):
+    """Bilgi bağlantısı oluştur."""
+    try:
+        from core.learning_premium_features import EdgeType
+        features = get_premium_features()
+        
+        edge_type = EdgeType(request.edge_type)
+        edge = features.knowledge_graph.create_edge(
+            source_id=request.source_id,
+            target_id=request.target_id,
+            edge_type=edge_type,
+            label=request.label,
+            bidirectional=request.bidirectional
+        )
+        
+        if not edge:
+            raise HTTPException(status_code=400, detail="Düğümler bulunamadı")
+        
+        return {"success": True, "edge": edge.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workspaces/{workspace_id}/knowledge-graph/build")
+async def build_knowledge_graph(workspace_id: str, request: BuildGraphRequest):
+    """İçerikten otomatik bilgi grafiği oluştur."""
+    try:
+        features = get_premium_features()
+        result = features.knowledge_graph.build_from_content(
+            workspace_id=workspace_id,
+            content=request.content,
+            source_doc_id=request.source_doc_id
+        )
+        return {"success": True, **result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/knowledge-graph")
+async def get_knowledge_graph(workspace_id: str):
+    """Bilgi grafiğini getir."""
+    try:
+        features = get_premium_features()
+        nodes = features.knowledge_graph.get_nodes_by_workspace(workspace_id)
+        edges = features.knowledge_graph.get_edges_by_workspace(workspace_id)
+        stats = features.knowledge_graph.get_graph_stats(workspace_id)
+        
+        return {
+            "success": True,
+            "nodes": [n.to_dict() for n in nodes],
+            "edges": [e.to_dict() for e in edges],
+            "stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/knowledge-graph/clusters")
+async def get_knowledge_clusters(workspace_id: str):
+    """Bilgi kümelerini getir."""
+    try:
+        features = get_premium_features()
+        clusters = features.knowledge_graph.get_clusters(workspace_id)
+        return {"success": True, "clusters": clusters}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/knowledge-graph/export/{format}")
+async def export_knowledge_graph(workspace_id: str, format: str):
+    """Bilgi grafiğini export et."""
+    try:
+        features = get_premium_features()
+        
+        if format == "mermaid":
+            result = features.knowledge_graph.export_mermaid(workspace_id)
+            return {"success": True, "format": "mermaid", "content": result}
+        elif format == "cytoscape":
+            result = features.knowledge_graph.export_cytoscape(workspace_id)
+            return {"success": True, "format": "cytoscape", "elements": result}
+        else:
+            raise HTTPException(status_code=400, detail="Desteklenmeyen format. mermaid veya cytoscape kullanın.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/knowledge-graph/nodes/{node_id}/suggestions")
+async def get_node_suggestions(node_id: str, limit: int = 5):
+    """Düğüm için bağlantı önerileri."""
+    try:
+        features = get_premium_features()
+        node = features.knowledge_graph.get_node(node_id)
+        
+        if not node:
+            raise HTTPException(status_code=404, detail="Düğüm bulunamadı")
+        
+        suggestions = features.knowledge_graph.suggest_connections(
+            node.workspace_id, node_id, limit
+        )
+        return {"success": True, "suggestions": suggestions}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== PREMIUM: CODE PLAYGROUND ====================
+
+class CreateSnippetRequest(BaseModel):
+    """Kod parçası oluşturma isteği."""
+    title: str
+    language: str = "python"
+    code: str
+    explanation: str = ""
+    tags: List[str] = []
+
+
+class RunCodeRequest(BaseModel):
+    """Kod çalıştırma isteği."""
+    code: str
+    language: str = "python"
+
+
+@router.post("/workspaces/{workspace_id}/code/snippets")
+async def create_code_snippet(workspace_id: str, request: CreateSnippetRequest):
+    """Kod parçası oluştur."""
+    try:
+        from core.learning_premium_features import CodeLanguage
+        features = get_premium_features()
+        
+        language = CodeLanguage(request.language)
+        snippet = features.code_playground.create_snippet(
+            workspace_id=workspace_id,
+            title=request.title,
+            language=language,
+            code=request.code,
+            explanation=request.explanation,
+            tags=request.tags
+        )
+        return {"success": True, "snippet": snippet.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/workspaces/{workspace_id}/code/snippets")
+async def get_code_snippets(workspace_id: str):
+    """Kod parçalarını getir."""
+    try:
+        features = get_premium_features()
+        snippets = features.code_playground.get_snippets_by_workspace(workspace_id)
+        return {
+            "success": True,
+            "snippets": [s.to_dict() for s in snippets]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/code/snippets/{snippet_id}/run")
+async def run_code_snippet(snippet_id: str):
+    """Kod parçasını çalıştır."""
+    try:
+        features = get_premium_features()
+        result = features.code_playground.run_snippet(snippet_id)
+        
+        if "error" in result and "Snippet bulunamadı" in str(result.get("error", "")):
+            raise HTTPException(status_code=404, detail="Snippet bulunamadı")
+        
+        return {"success": result.get("success", False), **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/code/run")
+async def run_code(request: RunCodeRequest):
+    """Anlık kod çalıştır."""
+    try:
+        features = get_premium_features()
+        
+        if request.language != "python":
+            raise HTTPException(status_code=400, detail="Şu an sadece Python destekleniyor")
+        
+        result = features.code_playground.run_python_code(request.code)
+        return {"success": result.get("success", False), **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/code/analyze")
+async def analyze_code(request: RunCodeRequest):
+    """Kod analizi yap."""
+    try:
+        from core.learning_premium_features import CodeLanguage
+        features = get_premium_features()
+        
+        language = CodeLanguage(request.language)
+        analysis = features.code_playground.analyze_code(request.code, language)
+        return {"success": True, "analysis": analysis}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

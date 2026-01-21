@@ -16,7 +16,10 @@ export const metadata: Metadata = {
   title: 'Enterprise AI Assistant',
   description: 'Endüstri Standartlarında Kurumsal AI Çözümü',
   icons: {
-    icon: '/favicon.ico',
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: '/icon.svg',
   },
 };
 

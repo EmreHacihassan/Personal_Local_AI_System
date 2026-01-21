@@ -1,3 +1,11 @@
+<!-- 
+╔═══════════════════════════════════════════════════════════════════════════════════╗
+║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
+║  📁  Konum: .\venv\Scripts\python.exe                                           ║
+║  💡  Çalıştırma: .\venv\Scripts\python.exe run.py                                ║
+╚═══════════════════════════════════════════════════════════════════════════════════╝
+-->
+
 # 🚀 Enterprise AI Assistant
 ## Endüstri Standartlarında Kurumsal Agentic AI Çözümü
 
@@ -66,6 +74,14 @@ Enterprise AI Assistant, şirketlerin kurumsal bilgi yönetimi ihtiyaçlarını 
 - **Remote MCP Servers** - Uzak araç entegrasyonu
 - **MCPHub** - Çoklu sunucu yönetimi
 - **Built-in Tools** - Calculator, Time, File Info
+
+#### 🤖 Autonomous Agent System (YENİ!)
+- **Multi-step Task Planning** - Karmaşık görevleri otomatik planlama
+- **Tool Selection & Execution** - Akıllı araç seçimi ve çalıştırma
+- **Self-Correction Mechanism** - Hata durumunda otomatik düzeltme
+- **Human-in-the-Loop Support** - Gerektiğinde insan müdahalesi
+- **Progress Streaming** - Gerçek zamanlı ilerleme takibi
+- **WebSocket Integration** - Anlık durum güncellemeleri
 
 #### 📊 v1.1.0 Özellikler
 - **Analytics Dashboard** - Kullanım istatistikleri ve trend analizi
@@ -223,6 +239,22 @@ curl http://localhost:8000/api/export/backup -o backup.zip
 | `/api/export/sessions` | GET | Session export |
 | `/api/export/backup` | GET | Tam yedek |
 | `/ws/chat/{client_id}` | WS | Real-time streaming |
+
+### 🤖 Autonomous Agent API
+
+| Endpoint | Method | Açıklama |
+|----------|--------|----------|
+| `/api/agent/tasks` | POST | Yeni görev oluştur |
+| `/api/agent/tasks` | GET | Tüm görevleri listele |
+| `/api/agent/tasks/{id}` | GET | Görev detayı |
+| `/api/agent/tasks/{id}/start` | POST | Görevi başlat |
+| `/api/agent/tasks/{id}/cancel` | POST | Görevi iptal et |
+| `/api/agent/tasks/{id}/respond` | POST | İnsan müdahalesine yanıt |
+| `/api/agent/tasks/{id}/stream` | POST | Streaming execution (SSE) |
+| `/api/agent/quick` | POST | Hızlı görev (oluştur + çalıştır) |
+| `/api/agent/tools` | GET | Mevcut araçları listele |
+| `/api/agent/stats` | GET | Agent istatistikleri |
+| `/ws/agent/{task_id}` | WS | Task WebSocket streaming |
 
 ### API Dökümantasyonu
 

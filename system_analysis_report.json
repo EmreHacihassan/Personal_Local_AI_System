@@ -1,0 +1,97 @@
+{
+  "total_checks": 98,
+  "passed": 85,
+  "failed": 8,
+  "warnings": 5,
+  "success_rate": 86.7,
+  "issues": [
+    {
+      "component": "Config",
+      "issue": "OLLAMA_HOST not found in .env",
+      "fix": "Add OLLAMA_HOST to .env file",
+      "severity": "warning"
+    },
+    {
+      "component": "Config",
+      "issue": "CHROMA_HOST not found in .env",
+      "fix": "Add CHROMA_HOST to .env file",
+      "severity": "warning"
+    },
+    {
+      "component": "Config",
+      "issue": "FRONTEND_PORT not found in .env",
+      "fix": "Add FRONTEND_PORT to .env file",
+      "severity": "warning"
+    },
+    {
+      "component": "Import",
+      "issue": "LLM Client (core.llm_client): No module named 'core.llm_client'",
+      "fix": "Fix import in core.llm_client",
+      "severity": "error"
+    },
+    {
+      "component": "API",
+      "issue": "GET /api/health - Not Found",
+      "fix": "Implement endpoint /api/health",
+      "severity": "error"
+    },
+    {
+      "component": "API",
+      "issue": "GET /api/rag/status - Not Found",
+      "fix": "Implement endpoint /api/rag/status",
+      "severity": "error"
+    },
+    {
+      "component": "API",
+      "issue": "GET /api/chat/sessions - Not Found",
+      "fix": "Implement endpoint /api/chat/sessions",
+      "severity": "error"
+    },
+    {
+      "component": "API",
+      "issue": "GET /api/system/info - Not Found",
+      "fix": "Implement endpoint /api/system/info",
+      "severity": "error"
+    },
+    {
+      "component": "Learning",
+      "issue": "Stats endpoint failed",
+      "fix": null,
+      "severity": "error"
+    },
+    {
+      "component": "RAG",
+      "issue": "RAG status check failed: 404",
+      "fix": null,
+      "severity": "error"
+    },
+    {
+      "component": "WebSocket",
+      "issue": "WebSocket connection test: server rejected WebSocket connection: HTTP 403",
+      "fix": null,
+      "severity": "warning"
+    },
+    {
+      "component": "Core",
+      "issue": "LLM Client error: No module named 'core.llm_client'",
+      "fix": null,
+      "severity": "error"
+    },
+    {
+      "component": "Agents",
+      "issue": "Orchestrator class 'AgentOrchestrator' not found in module",
+      "fix": null,
+      "severity": "warning"
+    }
+  ],
+  "recommendations": [
+    "Config: Add OLLAMA_HOST to .env file",
+    "Config: Add CHROMA_HOST to .env file",
+    "Config: Add FRONTEND_PORT to .env file",
+    "Import: Fix import in core.llm_client",
+    "API: Implement endpoint /api/health",
+    "API: Implement endpoint /api/rag/status",
+    "API: Implement endpoint /api/chat/sessions",
+    "API: Implement endpoint /api/system/info"
+  ]
+}

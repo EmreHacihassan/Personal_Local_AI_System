@@ -35,11 +35,13 @@ import {
   ChevronDown,
   ChevronUp,
   Zap,
-  Shield
+  Shield,
+  Play,
+  RotateCcw
 } from 'lucide-react';
 import { useStore, Page } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { checkHealth, HealthStatus } from '@/lib/api';
+import { checkHealth, HealthStatus, startOllamaService, startChromaDBService, getBackendRestartInfo } from '@/lib/api';
 
 const menuItems: { id: Page; icon: React.ElementType; label: string; labelEn: string; labelDe: string }[] = [
   { id: 'chat', icon: MessageSquare, label: 'Sohbet', labelEn: 'Chat', labelDe: 'Chat' },
@@ -80,6 +82,8 @@ export function Sidebar() {
   const [lastHealthCheck, setLastHealthCheck] = useState<Date | null>(null);
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [startingService, setStartingService] = useState<string | null>(null);
+  const [serviceMessage, setServiceMessage] = useState<{type: 'success' | 'error' | 'info', text: string} | null>(null);
 
   // Get all unique categories and tags from sessions
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -147,6 +151,78 @@ export function Sidebar() {
     const interval = setInterval(() => fetchHealth(), 15000); // Every 15 seconds
     return () => clearInterval(interval);
   }, []);
+
+  // Service start handlers
+  const handleStartOllama = async () => {
+    setStartingService('ollama');
+    setServiceMessage(null);
+    try {
+      const response = await startOllamaService();
+      if (response.success && response.data) {
+        setServiceMessage({
+          type: response.data.success ? 'success' : 'error',
+          text: response.data.message
+        });
+        if (response.data.success) {
+          fetchHealth(true); // Refresh health status
+        }
+      }
+    } catch {
+      setServiceMessage({
+        type: 'error',
+        text: language === 'tr' ? 'Ollama başlatılamadı' : 'Failed to start Ollama'
+      });
+    }
+    setStartingService(null);
+    // Clear message after 5 seconds
+    setTimeout(() => setServiceMessage(null), 5000);
+  };
+
+  const handleStartChromaDB = async () => {
+    setStartingService('chromadb');
+    setServiceMessage(null);
+    try {
+      const response = await startChromaDBService();
+      if (response.success && response.data) {
+        setServiceMessage({
+          type: response.data.success ? 'success' : 'error',
+          text: response.data.message
+        });
+        if (response.data.success) {
+          fetchHealth(true);
+        }
+      }
+    } catch {
+      setServiceMessage({
+        type: 'error',
+        text: language === 'tr' ? 'ChromaDB bağlanamadı' : 'Failed to connect ChromaDB'
+      });
+    }
+    setStartingService(null);
+    setTimeout(() => setServiceMessage(null), 5000);
+  };
+
+  const handleBackendInfo = async () => {
+    setStartingService('backend');
+    try {
+      const response = await getBackendRestartInfo();
+      if (response.success && response.data) {
+        setServiceMessage({
+          type: 'info',
+          text: response.data.steps?.join(' ') || response.data.message
+        });
+      }
+    } catch {
+      setServiceMessage({
+        type: 'info',
+        text: language === 'tr' 
+          ? "Terminal'de: python run.py" 
+          : "In terminal: python run.py"
+      });
+    }
+    setStartingService(null);
+    setTimeout(() => setServiceMessage(null), 8000);
+  };
 
   // Derive system issues from health data
   const systemIssues = useMemo(() => {
@@ -458,14 +534,30 @@ export function Sidebar() {
                           <Server className="w-3 h-3" />
                           <span className="text-xs">API Backend</span>
                         </div>
-                        {health ? (
-                          <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
-                            <Zap className="w-2.5 h-2.5" />
-                            {language === 'tr' ? 'Aktif' : 'Active'}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-red-500">Offline</span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {health ? (
+                            <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+                              <Zap className="w-2.5 h-2.5" />
+                              {language === 'tr' ? 'Aktif' : 'Active'}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-[10px] text-red-500">Offline</span>
+                              <button
+                                onClick={handleBackendInfo}
+                                disabled={startingService === 'backend'}
+                                className="ml-1 p-0.5 rounded hover:bg-primary-500/20 transition-colors"
+                                title={language === 'tr' ? 'Nasıl başlatılır?' : 'How to start?'}
+                              >
+                                {startingService === 'backend' ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-primary-500" />
+                                ) : (
+                                  <Play className="w-3 h-3 text-primary-500" />
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       {/* LLM Status */}
@@ -474,16 +566,32 @@ export function Sidebar() {
                           <Brain className="w-3 h-3" />
                           <span className="text-xs">LLM (Ollama)</span>
                         </div>
-                        {health?.components?.llm === 'healthy' ? (
-                          <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
-                            <Zap className="w-2.5 h-2.5" />
-                            {language === 'tr' ? 'Hazır' : 'Ready'}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-red-500">
-                            {language === 'tr' ? 'Hata' : 'Error'}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {health?.components?.llm === 'healthy' ? (
+                            <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+                              <Zap className="w-2.5 h-2.5" />
+                              {language === 'tr' ? 'Hazır' : 'Ready'}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-[10px] text-red-500">
+                                {language === 'tr' ? 'Hata' : 'Error'}
+                              </span>
+                              <button
+                                onClick={handleStartOllama}
+                                disabled={startingService === 'ollama'}
+                                className="ml-1 p-0.5 rounded hover:bg-primary-500/20 transition-colors"
+                                title={language === 'tr' ? 'Ollama Başlat' : 'Start Ollama'}
+                              >
+                                {startingService === 'ollama' ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-primary-500" />
+                                ) : (
+                                  <Play className="w-3 h-3 text-primary-500" />
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       {/* Vector DB Status */}
@@ -492,7 +600,7 @@ export function Sidebar() {
                           <Database className="w-3 h-3" />
                           <span className="text-xs">VectorDB</span>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                           {typeof health?.components?.document_count === 'number' && (
                             <span className="text-[10px] text-muted-foreground">
                               {health.components.document_count} {language === 'tr' ? 'belge' : 'docs'}
@@ -501,11 +609,37 @@ export function Sidebar() {
                           {health?.components?.vector_store === 'healthy' ? (
                             <CheckCircle2 className="w-3 h-3 text-green-500" />
                           ) : (
-                            <XCircle className="w-3 h-3 text-red-500" />
+                            <>
+                              <XCircle className="w-3 h-3 text-red-500" />
+                              <button
+                                onClick={handleStartChromaDB}
+                                disabled={startingService === 'chromadb'}
+                                className="ml-1 p-0.5 rounded hover:bg-primary-500/20 transition-colors"
+                                title={language === 'tr' ? 'Yeniden Bağlan' : 'Reconnect'}
+                              >
+                                {startingService === 'chromadb' ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-primary-500" />
+                                ) : (
+                                  <RotateCcw className="w-3 h-3 text-primary-500" />
+                                )}
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
                     </div>
+
+                    {/* Service Message */}
+                    {serviceMessage && (
+                      <div className={cn(
+                        "p-1.5 rounded text-[10px]",
+                        serviceMessage.type === 'success' ? "bg-green-500/20 text-green-700 dark:text-green-300" :
+                        serviceMessage.type === 'error' ? "bg-red-500/20 text-red-700 dark:text-red-300" :
+                        "bg-blue-500/20 text-blue-700 dark:text-blue-300"
+                      )}>
+                        {serviceMessage.text}
+                      </div>
+                    )}
 
                     {/* Issues Section */}
                     {systemIssues.length > 0 && (

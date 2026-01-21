@@ -35,6 +35,13 @@ import sqlite3
 import threading
 import atexit
 import signal
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHROMADB TELEMETRY KAPATMA - capture() argument hatası önleme
+# Bu, ChromaDB import edilmeden ÖNCE ayarlanmalı
+# ══════════════════════════════════════════════════════════════════════════════
+os.environ['ANONYMIZED_TELEMETRY'] = 'false'
+os.environ['CHROMA_TELEMETRY'] = 'false'
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Callable
@@ -52,6 +59,25 @@ try:
 except ImportError:
     HAS_FILELOCK = False
     filelock = None
+
+# ══════════════════════════════════════════════════════════════════════════════
+# POSTHOG TELEMETRY DEVRE DIŞI BIRAKMA
+# ChromaDB'nin internal Posthog client'ı "capture() takes 1 argument" hatası veriyor
+# Bu, Posthog'u tamamen devre dışı bırakarak çözülür
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import posthog
+    # Posthog'un capture metodunu boş fonksiyonla değiştir
+    posthog.capture = lambda *args, **kwargs: None
+    posthog.identify = lambda *args, **kwargs: None
+    posthog.Posthog = type('FakePosthog', (), {
+        'capture': lambda *a, **kw: None,
+        'identify': lambda *a, **kw: None,
+        'flush': lambda *a, **kw: None,
+        'shutdown': lambda *a, **kw: None,
+    })
+except ImportError:
+    pass
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -654,6 +680,12 @@ class ChromaDBManager:
             if not self._connect_with_retry():
                 raise ConnectionError("Failed to connect to ChromaDB")
             
+            # 5.5. HNSW Index Sağlık Kontrolü (Proaktif)
+            if not self._verify_hnsw_index():
+                logger.warning("⚠️ HNSW index verification failed, triggering recovery...")
+                if not self._handle_corruption():
+                    logger.error("HNSW index recovery failed")
+            
             # 6. Health check
             health = self.check_health(force=True)
             if not health.is_healthy:
@@ -793,6 +825,80 @@ class ChromaDBManager:
         except Exception:
             logger.warning("Connection lost, reconnecting...")
             return self._connect_with_retry()
+    
+    def _verify_hnsw_index(self) -> bool:
+        """
+        HNSW Index Sağlık Doğrulaması.
+        
+        Bu metod index corruption'ı ÖNCE tespit eder, runtime'da panic yaşanmadan.
+        'range start index X out of range for slice of length Y' hatasını önler.
+        
+        Returns:
+            Index sağlıklı mı (True = OK veya no collection, False = corrupted)
+        """
+        if self._collection is None:
+            logger.debug("HNSW verify: No collection yet, skipping check")
+            return True  # No collection = nothing to verify = OK
+        
+        try:
+            # 1. Basit count testi
+            count = self._collection.count()
+            logger.debug(f"HNSW test: Collection count = {count}")
+            
+            if count == 0:
+                return True  # Boş collection - sorun yok
+            
+            # 2. Query testi - HNSW index'i gerçekten test eder
+            try:
+                test_results = self._collection.query(
+                    query_texts=["test verification query"],
+                    n_results=min(1, count),
+                    include=["documents"]
+                )
+                logger.debug(f"HNSW test: Query returned {len(test_results.get('ids', [[]]))} results")
+            except Exception as query_error:
+                error_str = str(query_error).lower()
+                
+                # HNSW Rust panic tespiti
+                if "range" in error_str and ("index" in error_str or "slice" in error_str):
+                    logger.error(f"🔴 HNSW INDEX CORRUPTION DETECTED: {query_error}")
+                    return False
+                
+                # Diğer hatalar (embedding model eksik vb.) - critical değil
+                if "embedding" in error_str or "model" in error_str:
+                    logger.warning(f"HNSW test skipped (embedding issue): {query_error}")
+                    return True
+                
+                logger.warning(f"HNSW query test warning: {query_error}")
+            
+            # 3. Peek testi - doküman okuma
+            try:
+                peek = self._collection.peek(limit=1)
+                if peek and peek.get("ids"):
+                    logger.debug(f"HNSW test: Peek successful, got {len(peek['ids'])} docs")
+            except Exception as peek_error:
+                error_str = str(peek_error).lower()
+                if "range" in error_str:
+                    logger.error(f"🔴 HNSW INDEX CORRUPTION (peek): {peek_error}")
+                    return False
+            
+            logger.info("✅ HNSW index verification passed")
+            return True
+            
+        except Exception as e:
+            error_str = str(e).lower()
+            
+            # Rust panic tespiti
+            if "pyo3_runtime" in error_str or "panic" in error_str:
+                logger.error(f"🔴 HNSW RUST PANIC: {e}")
+                return False
+            
+            if "range" in error_str and "index" in error_str:
+                logger.error(f"🔴 HNSW INDEX CORRUPTION: {e}")
+                return False
+            
+            logger.warning(f"HNSW verification warning: {e}")
+            return True  # Belirsiz durumda devam et
     
     # =========================================================================
     # HEALTH & RECOVERY
@@ -1033,6 +1139,7 @@ class ChromaDBManager:
         embeddings: Optional[List[List[float]]] = None,
         metadatas: Optional[List[Dict[str, Any]]] = None,
         ids: Optional[List[str]] = None,
+        skip_duplicates: bool = True,
     ) -> List[str]:
         """
         Dökümanları güvenli şekilde ekle.
@@ -1042,6 +1149,7 @@ class ChromaDBManager:
             embeddings: Embedding listesi (opsiyonel)
             metadatas: Metadata listesi (opsiyonel)
             ids: ID listesi (opsiyonel, otomatik oluşturulur)
+            skip_duplicates: Duplicate dökümanları atla (default: True)
             
         Returns:
             Eklenen ID'ler
@@ -1049,12 +1157,50 @@ class ChromaDBManager:
         if not documents:
             return []
         
-        # Generate IDs if not provided
+        # Generate IDs if not provided - content-based hash for deduplication
         if not ids:
             ids = [
-                hashlib.sha256(f"{doc}_{i}_{time.time()}".encode()).hexdigest()[:32]
-                for i, doc in enumerate(documents)
+                hashlib.sha256(doc.strip().lower()[:500].encode()).hexdigest()[:32]
+                for doc in documents
             ]
+        
+        # DUPLICATE KONTROLÜ - aynı ID'li dökümanları atla
+        if skip_duplicates:
+            try:
+                # Check which IDs already exist
+                existing = self._collection.get(ids=ids, include=[])
+                existing_ids = set(existing.get("ids", []))
+                
+                if existing_ids:
+                    # Filter out duplicates
+                    new_docs = []
+                    new_ids = []
+                    new_embeddings = [] if embeddings else None
+                    new_metadatas = [] if metadatas else None
+                    
+                    for i, doc_id in enumerate(ids):
+                        if doc_id not in existing_ids:
+                            new_docs.append(documents[i])
+                            new_ids.append(doc_id)
+                            if embeddings:
+                                new_embeddings.append(embeddings[i])
+                            if metadatas:
+                                new_metadatas.append(metadatas[i])
+                    
+                    if not new_docs:
+                        logger.info(f"⚠️ All {len(documents)} documents already exist, skipping")
+                        return []
+                    
+                    skipped = len(documents) - len(new_docs)
+                    if skipped > 0:
+                        logger.info(f"⚠️ Skipping {skipped} duplicate documents")
+                    
+                    documents = new_docs
+                    ids = new_ids
+                    embeddings = new_embeddings
+                    metadatas = new_metadatas
+            except Exception as e:
+                logger.warning(f"Duplicate check failed, proceeding: {e}")
         
         # Backup before write (if enabled)
         if self.config.backup_before_write:

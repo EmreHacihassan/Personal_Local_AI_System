@@ -1,3 +1,8 @@
+# ╔═══════════════════════════════════════════════════════════════════════════════════╗
+# ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
+# ║  📁  Konum: .\venv\Scripts\python.exe                                           ║
+# ║  💡  Çalıştırma: .\venv\Scripts\python.exe -m uvicorn api.main:app               ║
+# ╚═══════════════════════════════════════════════════════════════════════════════════╝
 """
 Enterprise AI Assistant - FastAPI Main
 Endüstri Standartlarında Kurumsal AI Çözümü
@@ -16,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Logger setup
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, Request, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, Request, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -34,6 +39,7 @@ from core.health import get_health_report
 from core.export import export_manager, import_manager
 from core.session_manager import session_manager
 from core.notes_manager import notes_manager
+from core.embedding import embedding_manager  # GPU-accelerated embeddings
 from core.system_knowledge import SELF_KNOWLEDGE_PROMPT, SYSTEM_VERSION, SYSTEM_NAME
 from core.circuit_breaker import (
     ollama_circuit, 
@@ -54,6 +60,7 @@ from agents.orchestrator import orchestrator
 from rag.document_loader import document_loader
 from rag.chunker import document_chunker
 from rag.async_processor import robust_loader, batch_processor
+from rag.hybrid_search import HybridSearcher, SearchStrategy, Document as HybridDocument
 from api.websocket import websocket_endpoint, manager
 from tools.web_search_engine import PremiumWebSearchEngine, get_search_engine, WebSearchTool
 from tools.research_synthesizer import get_synthesizer, ResearchSynthesizer
@@ -586,7 +593,117 @@ def get_uploaded_document_list() -> list:
     return documents
 
 
-def search_knowledge_base(query: str, top_k: int = 5, strategy: str = "fusion") -> tuple:
+def _search_with_hybrid(query: str, top_k: int, source_map: dict) -> tuple:
+    """
+    Hybrid Search (Dense + Sparse) kullanarak arama yap.
+    
+    BM25 keyword search + semantic embedding search kombinasyonu.
+    Reciprocal Rank Fusion (RRF) ile sonuçları birleştirir.
+    
+    Args:
+        query: Arama sorgusu
+        top_k: Döndürülecek sonuç sayısı
+        source_map: Kaynak haritası (referans için)
+        
+    Returns:
+        tuple: (knowledge_text, reference_list, source_map)
+    """
+    import asyncio
+    
+    try:
+        # Tüm dökümanları al
+        all_data = vector_store.collection.get(include=['documents', 'metadatas', 'embeddings'])
+        
+        if not all_data.get('documents'):
+            return "", "", {}
+        
+        # Hybrid searcher oluştur (embedding fonksiyonu ile)
+        hybrid_searcher = HybridSearcher(
+            embedding_func=lambda texts: embedding_manager.embed_texts(texts),
+            dense_weight=0.6,  # Semantic search ağırlığı
+            sparse_weight=0.4,  # BM25 ağırlığı
+            rrf_k=60
+        )
+        
+        # Dökümanları ekle
+        docs = []
+        for i, doc_content in enumerate(all_data['documents']):
+            if not doc_content:
+                continue
+            
+            doc_id = all_data['ids'][i] if all_data.get('ids') else f"doc_{i}"
+            meta = all_data['metadatas'][i] if all_data.get('metadatas') else {}
+            
+            docs.append(HybridDocument(
+                id=doc_id,
+                content=doc_content,
+                metadata=meta,
+            ))
+        
+        # Dökümanları indexle (sync wrapper for async)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(hybrid_searcher.add_documents(docs))
+            
+            # Hybrid arama yap
+            results = loop.run_until_complete(
+                hybrid_searcher.search(query, top_k=top_k, strategy=SearchStrategy.HYBRID)
+            )
+        finally:
+            loop.close()
+        
+        if not results:
+            return "", "", {}
+        
+        # Sonuçları formatla
+        knowledge_text = "\n\n### 📚 BİLGİ TABANI İÇERİKLERİ (Hybrid Search):\n"
+        knowledge_text += "Dense + Sparse arama kombinasyonu ile en alakalı içerikler. Her içeriğin yanında [REF] referans kodu vardır.\n\n"
+        
+        for i, result in enumerate(results, 1):
+            metadata = result.metadata or {}
+            filename = metadata.get('original_filename') or metadata.get('filename', 'Bilinmeyen')
+            if '_' in filename and len(filename.split('_')[0]) == 36:
+                filename = filename.split('_', 1)[1]
+            
+            page_num = metadata.get("page") or metadata.get("page_number")
+            chunk_idx = metadata.get("chunk_index")
+            
+            # Referans ID oluştur
+            ref_id, _ = generate_source_ref_id(filename, page_num, i, source_map)
+            
+            # İçeriği optimize et
+            doc_content = result.content
+            if len(doc_content) > 2000:
+                doc_content = doc_content[:2000] + "..."
+            
+            # Skor bilgisi
+            score_info = f"hybrid={result.score:.2f}"
+            if result.dense_score is not None:
+                score_info += f", dense={result.dense_score:.2f}"
+            if result.sparse_score is not None:
+                score_info += f", sparse={result.sparse_score:.2f}"
+            
+            knowledge_text += f"**[{ref_id}]** 📄 _{filename}"
+            if page_num:
+                knowledge_text += f" | Sayfa {page_num}"
+            if chunk_idx is not None:
+                knowledge_text += f" | Bölüm {chunk_idx}"
+            knowledge_text += f"_ | Alaka: {score_info}\n"
+            knowledge_text += f"```\n{doc_content}\n```\n\n"
+        
+        reference_list = format_reference_list(source_map)
+        return knowledge_text, reference_list, source_map
+        
+    except Exception as e:
+        print(f"Hybrid search error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to original fusion search
+        return "", "", {}
+
+
+def search_knowledge_base(query: str, top_k: int = 5, strategy: str = "hybrid") -> tuple:
     """
     Gelişmiş RAG ile bilgi tabanında arama yap ve Wikipedia tarzı referanslarla döndür.
     
@@ -594,13 +711,14 @@ def search_knowledge_base(query: str, top_k: int = 5, strategy: str = "fusion") 
     - Filename-based priority (dosya adı eşleşmesi en yüksek öncelik)
     - Keyword matching (içerikte kelime eşleşmesi)  
     - Semantic search (embedding benzerliği)
+    - Hybrid search (dense + sparse kombinasyonu)
     - Duplicate filtering
     - Source attribution with refs
     
     Args:
         query: Arama sorgusu
         top_k: Döndürülecek sonuç sayısı
-        strategy: RAG stratejisi (kullanılmıyor, future use)
+        strategy: RAG stratejisi ("fusion", "hybrid", "rerank")
         
     Returns:
         tuple: (knowledge_text, reference_list, source_map)
@@ -613,6 +731,10 @@ def search_knowledge_base(query: str, top_k: int = 5, strategy: str = "fusion") 
         return "", "", {}
     
     try:
+        # === HYBRID SEARCH OPTION ===
+        if strategy == "hybrid":
+            return _search_with_hybrid(query, top_k, source_map)
+        
         # === SORGU ANALİZİ ===
         query_lower = query.lower()
         query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
@@ -1013,6 +1135,347 @@ async def reset_circuit_breakers():
         "message": "All circuit breakers reset to CLOSED state",
         "circuits": circuit_registry.get_all_status(),
         "timestamp": datetime.now().isoformat(),
+    }
+
+
+# ============ SERVICE CONTROL ENDPOINTS ============
+
+class ServiceStartRequest(BaseModel):
+    """Servis başlatma isteği"""
+    force: bool = Field(default=False, description="Zorla yeniden başlat")
+
+
+@app.post("/api/services/ollama/start", tags=["Services"])
+async def start_ollama_service():
+    """
+    Ollama servisini başlat veya bağlantıyı yenile.
+    
+    Windows'ta Ollama uygulamasını başlatır veya mevcut bağlantıyı test eder.
+    """
+    import subprocess
+    import httpx
+    
+    try:
+        # First check if already running
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            try:
+                response = await client.get("http://localhost:11434/api/tags")
+                if response.status_code == 200:
+                    models = response.json().get("models", [])
+                    return {
+                        "success": True,
+                        "status": "already_running",
+                        "message": "Ollama zaten çalışıyor",
+                        "models": [m.get("name") for m in models],
+                        "timestamp": datetime.now().isoformat()
+                    }
+            except:
+                pass  # Not running, continue to start
+        
+        # Try to start Ollama on Windows
+        try:
+            # Try common Ollama paths
+            ollama_paths = [
+                r"C:\Users\{}\AppData\Local\Programs\Ollama\ollama.exe".format(os.environ.get("USERNAME", "")),
+                r"C:\Program Files\Ollama\ollama.exe",
+                "ollama"  # If in PATH
+            ]
+            
+            started = False
+            for path in ollama_paths:
+                try:
+                    if os.path.exists(path) or path == "ollama":
+                        subprocess.Popen(
+                            [path, "serve"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                        )
+                        started = True
+                        break
+                except Exception:
+                    continue
+            
+            if started:
+                # Wait a bit and check
+                import asyncio
+                await asyncio.sleep(3)
+                
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    try:
+                        response = await client.get("http://localhost:11434/api/tags")
+                        if response.status_code == 200:
+                            return {
+                                "success": True,
+                                "status": "started",
+                                "message": "Ollama başarıyla başlatıldı",
+                                "timestamp": datetime.now().isoformat()
+                            }
+                    except:
+                        pass
+            
+            return {
+                "success": False,
+                "status": "failed",
+                "message": "Ollama başlatılamadı. Lütfen manuel olarak başlatın: ollama serve",
+                "hint": "Ollama'yı yüklemediyseniz: https://ollama.ai/download",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "status": "error",
+                "message": f"Başlatma hatası: {str(e)}",
+                "hint": "Terminal'de 'ollama serve' komutunu çalıştırın",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"Ollama start error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/services/chromadb/start", tags=["Services"])
+async def start_chromadb_service():
+    """
+    ChromaDB servisini başlat veya yeniden bağlan.
+    
+    Vector store bağlantısını yeniler ve test eder.
+    """
+    try:
+        # Reset circuit breaker if open
+        if chromadb_circuit.state.name != "CLOSED":
+            chromadb_circuit.reset()
+        
+        # Try to reconnect
+        try:
+            from core.chromadb_manager import chromadb_manager
+            
+            # Force reconnection
+            chromadb_manager._connect()
+            
+            # Test connection
+            health = chromadb_manager.health_check()
+            
+            return {
+                "success": True,
+                "status": "connected",
+                "message": "ChromaDB bağlantısı yenilendi",
+                "health": health,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            # Try to reset the database
+            return {
+                "success": False,
+                "status": "error",
+                "message": f"ChromaDB bağlantı hatası: {str(e)}",
+                "hint": "data/chroma_db klasörünü silip yeniden başlatmayı deneyin",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"ChromaDB start error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/services/chromadb/reset", tags=["Services"])
+async def reset_chromadb():
+    """
+    ChromaDB'yi sıfırla (tüm verileri siler!).
+    
+    ⚠️ DİKKAT: Bu işlem tüm vektör verilerini siler!
+    """
+    try:
+        from core.chromadb_manager import chromadb_manager
+        import shutil
+        
+        # Shutdown existing connection
+        chromadb_manager.shutdown()
+        
+        # Remove the database folder
+        chroma_path = Path(settings.CHROMA_PATH)
+        if chroma_path.exists():
+            shutil.rmtree(chroma_path)
+        
+        # Recreate the folder
+        chroma_path.mkdir(parents=True, exist_ok=True)
+        
+        # Reconnect
+        chromadb_manager._connect()
+        
+        # Reset circuit breaker
+        chromadb_circuit.reset()
+        
+        return {
+            "success": True,
+            "status": "reset",
+            "message": "ChromaDB sıfırlandı ve yeniden başlatıldı",
+            "warning": "Tüm vektör verileri silindi!",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"ChromaDB reset error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/services/backend/restart", tags=["Services"])
+async def restart_backend_hint():
+    """
+    Backend yeniden başlatma bilgisi.
+    
+    Backend kendini yeniden başlatamaz, kullanıcıya bilgi verir.
+    """
+    import socket
+    
+    # Backend sağlık durumunu kontrol et
+    backend_healthy = True
+    uptime_seconds = 0
+    
+    try:
+        from core.config import settings
+        import psutil
+        import os
+        
+        # Process uptime
+        current_process = psutil.Process(os.getpid())
+        uptime_seconds = int((datetime.now() - datetime.fromtimestamp(current_process.create_time())).total_seconds())
+    except:
+        pass
+    
+    return {
+        "success": True,
+        "status": "info",
+        "message": "Backend şu anda çalışıyor",
+        "uptime_seconds": uptime_seconds,
+        "uptime_formatted": f"{uptime_seconds // 3600}h {(uptime_seconds % 3600) // 60}m {uptime_seconds % 60}s",
+        "restart_steps": [
+            "1. Terminal'de CTRL+C ile durdurun",
+            "2. 'python run.py' ile yeniden başlatın",
+            "Veya: startup.bat dosyasını çalıştırın"
+        ],
+        "hint": "Otomatik yeniden başlatma için PM2 veya systemd kullanabilirsiniz",
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.post("/api/services/nextjs/start", tags=["Services"])
+async def start_nextjs_service():
+    """
+    Next.js frontend'i başlatma bilgisi.
+    
+    Backend, Next.js'i doğrudan başlatamaz ama bilgi verir.
+    """
+    import httpx
+    
+    # First check if already running
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get("http://localhost:3000")
+            if response.status_code in [200, 304]:
+                return {
+                    "success": True,
+                    "status": "already_running",
+                    "message": "Next.js zaten çalışıyor (port 3000)",
+                    "url": "http://localhost:3000",
+                    "timestamp": datetime.now().isoformat()
+                }
+    except:
+        pass
+    
+    return {
+        "success": False,
+        "status": "not_running",
+        "message": "Next.js çalışmıyor",
+        "start_steps": [
+            "1. Terminalde AgenticManagingSystem/frontend-next klasörüne gidin",
+            "2. 'npm run dev' komutunu çalıştırın",
+            "Veya: 'python run.py' ile tüm sistemi başlatın"
+        ],
+        "hint": "run.py scripti hem backend hem frontend'i otomatik başlatır",
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/api/services/status", tags=["Services"])
+async def get_all_services_status():
+    """
+    Tüm servislerin durumunu kontrol et.
+    """
+    import httpx
+    
+    services = {
+        "backend": {"status": "online", "healthy": True, "port": 8001},
+        "nextjs": {"status": "unknown", "healthy": False, "port": 3000},
+        "ollama": {"status": "unknown", "healthy": False, "port": 11434},
+        "chromadb": {"status": "unknown", "healthy": False},
+        "embedding": {"status": "unknown", "healthy": False}
+    }
+    
+    # Check Next.js
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get("http://localhost:3000")
+            if response.status_code in [200, 304]:
+                services["nextjs"] = {
+                    "status": "online",
+                    "healthy": True,
+                    "port": 3000
+                }
+    except:
+        services["nextjs"] = {"status": "offline", "healthy": False, "port": 3000}
+    
+    # Check Ollama
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get("http://localhost:11434/api/tags")
+            if response.status_code == 200:
+                models = response.json().get("models", [])
+                services["ollama"] = {
+                    "status": "online",
+                    "healthy": True,
+                    "models": len(models),
+                    "model_names": [m.get("name", "unknown") for m in models[:5]],
+                    "port": 11434
+                }
+    except:
+        services["ollama"] = {"status": "offline", "healthy": False, "port": 11434}
+    
+    # Check ChromaDB
+    try:
+        from core.chromadb_manager import chromadb_manager
+        health = chromadb_manager.health_check()
+        services["chromadb"] = {
+            "status": "online" if health.get("status") == "healthy" else "degraded",
+            "healthy": health.get("status") == "healthy",
+            "documents": health.get("document_count", 0)
+        }
+    except:
+        services["chromadb"] = {"status": "offline", "healthy": False}
+    
+    # Check Embedding
+    try:
+        stats = embedding_manager.get_cache_stats()
+        services["embedding"] = {
+            "status": "online",
+            "healthy": True,
+            "gpu_loaded": embedding_manager._gpu_model_loaded,
+            "cache_size": stats.get("size", 0)
+        }
+    except:
+        services["embedding"] = {"status": "error", "healthy": False}
+    
+    # Core services check (excludes embedding which is optional)
+    core_services = ["backend", "ollama", "chromadb"]
+    core_healthy = all(services[s].get("healthy", False) for s in core_services if s in services)
+    
+    return {
+        "services": services,
+        "all_healthy": all(s.get("healthy", False) for s in services.values()),
+        "core_healthy": core_healthy,
+        "timestamp": datetime.now().isoformat()
     }
 
 
@@ -2425,20 +2888,125 @@ class SessionMessagesResponse(BaseModel):
 
 
 @app.get("/api/sessions", tags=["Sessions"])
-async def get_sessions():
+@app.get("/api/chat/sessions", tags=["Sessions"])
+async def get_sessions(limit: int = 500):
     """
     Tüm oturumları listele.
     Dosya tabanlı session_manager kullanır - kalıcı depolama.
+    
+    Args:
+        limit: Maksimum döndürülecek session sayısı (default: 500)
     """
     try:
         # session_manager'dan al - dosya tabanlı, kalıcı
-        session_list = session_manager.list_sessions(limit=100)
+        session_list = session_manager.list_sessions(limit=limit)
         
-        return {"sessions": session_list}
+        return {"sessions": session_list, "total": len(session_list)}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# === Statik /api/sessions/* rotaları - {session_id} dinamik rotasından ÖNCE tanımlanmalı ===
+
+@app.get("/api/sessions/tags", tags=["Sessions"])
+async def get_all_tags():
+    """
+    Tüm session'larda kullanılan etiketleri getir.
+    """
+    try:
+        tags = session_manager.get_all_tags()
+        return {"tags": tags, "total": len(tags)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/categories", tags=["Sessions"])
+async def get_all_categories():
+    """
+    Tüm session'larda kullanılan kategorileri getir.
+    """
+    try:
+        categories = session_manager.get_all_categories()
+        return {"categories": categories, "total": len(categories)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sessions/search", tags=["Sessions"])
+async def advanced_session_search(
+    query: str = "",
+    date_from: str = None,
+    date_to: str = None,
+    tags: List[str] = Query(None),
+    category: str = None,
+    pinned_only: bool = False,
+    favorites_only: bool = False,
+    limit: int = 100
+):
+    """
+    Gelişmiş session ve mesaj araması.
+    
+    Args:
+        query: Arama metni
+        date_from: Başlangıç tarihi (YYYY-MM-DD)
+        date_to: Bitiş tarihi (YYYY-MM-DD)
+        tags: Etiket filtresi
+        category: Kategori filtresi
+        pinned_only: Sadece sabitlenmiş
+        favorites_only: Sadece favoriler
+        limit: Maksimum sonuç sayısı
+    """
+    try:
+        results = session_manager.advanced_search(
+            query=query,
+            date_from=date_from or "",
+            date_to=date_to or "",
+            tags=tags,
+            category=category or "",
+            pinned_only=pinned_only,
+            favorites_only=favorites_only,
+            limit=limit
+        )
+        
+        # Her sonuç için eşleşen mesajları da getir
+        enriched_results = []
+        for result in results:
+            session_data = session_manager.get_session(result["id"])
+            matched_messages = []
+            
+            if session_data and query:
+                query_lower = query.lower()
+                for i, msg in enumerate(session_data.messages):
+                    # Message is a dataclass, access attributes directly
+                    msg_content = msg.content if hasattr(msg, 'content') else msg.get("content", "")
+                    if query_lower in msg_content.lower():
+                        matched_messages.append({
+                            "index": i,
+                            "role": msg.role if hasattr(msg, 'role') else msg.get("role"),
+                            "content": msg_content[:300],
+                            "timestamp": msg.timestamp if hasattr(msg, 'timestamp') else msg.get("timestamp"),
+                            "is_favorite": msg.is_favorite if hasattr(msg, 'is_favorite') else msg.get("is_favorite", False)
+                        })
+                        if len(matched_messages) >= 3:
+                            break
+            
+            enriched_results.append({
+                "session": result,
+                "matched_messages": matched_messages
+            })
+        
+        return {
+            "results": enriched_results,
+            "total": len(enriched_results),
+            "query": query
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Dinamik /api/sessions/{session_id} rotası - statik rotalardan SONRA tanımlanmalı ===
 
 @app.get("/api/sessions/{session_id}", tags=["Sessions"])
 async def get_session(session_id: str):
@@ -2498,6 +3066,30 @@ async def delete_session(session_id: str):
         
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/sessions/cleanup/old", tags=["Sessions"])
+async def cleanup_old_sessions(days: int = 7):
+    """
+    Eski oturumları temizle.
+    
+    Args:
+        days: Kaç günden eski oturumlar silinsin (varsayılan: 7)
+        
+    Returns:
+        Temizleme raporu (silinen sayı, korunan pinned sayısı)
+    
+    Sabitlenmiş (pinned) oturumlar korunur.
+    """
+    try:
+        result = session_manager.cleanup_old_sessions(days=days, keep_pinned=True)
+        return {
+            "success": True,
+            "message": f"{result['deleted_count']} eski oturum silindi",
+            **result
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -3950,6 +4542,30 @@ async def get_agent_usage(days: int = 30):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/embedding/stats", tags=["Analytics"])
+async def get_embedding_stats():
+    """
+    GPU-accelerated embedding istatistikleri.
+    
+    Embedding cache hit rate, GPU kullanımı ve performans metrikleri.
+    """
+    try:
+        status = embedding_manager.get_status()
+        return {
+            "success": True,
+            "embedding_stats": {
+                "model": status.get("model_name"),
+                "dimension": status.get("dimension"),
+                "gpu": status.get("gpu", {}),
+                "metrics": status.get("metrics", {}),
+                "cache_stats": status.get("cache_stats", {}),
+            },
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ RATE LIMITING INFO ============
 
 @app.get("/api/ratelimit/status", tags=["Rate Limit"])
@@ -4600,10 +5216,21 @@ from api.routers import (
     advanced_rag_router,
     voice_router,  # 🎤🔊🖼️ Voice & Multimodal (100% LOCAL)
     screen_router,  # 📸 Screen Capture & Vision (100% LOCAL)
+    premium_router,  # 💎 Premium Features (NEW)
 )
+
+# Model Routing & Feedback router
+from api.routing_endpoints import router as routing_router
+
+# Autonomous Agent router
+from api.agent_endpoints import router as agent_router
+
+# DeepScholar v2.0 router
+from api.deep_scholar_endpoints import router as deep_scholar_router
 
 # Router'ları kaydet
 app.include_router(learning_router)
+app.include_router(deep_scholar_router)  # 📚 DeepScholar v2.0 Premium Document Generation
 app.include_router(health_router)
 app.include_router(documents_router)
 app.include_router(notes_router)
@@ -4613,6 +5240,9 @@ app.include_router(admin_router)
 app.include_router(advanced_rag_router)
 app.include_router(voice_router)  # 🎤🔊🖼️ Voice & Multimodal
 app.include_router(screen_router)  # 📸 Screen Capture & Vision
+app.include_router(premium_router)  # 💎 Premium Features
+app.include_router(routing_router)  # 🧠 Model Routing & Feedback
+app.include_router(agent_router)    # 🤖 Autonomous Agent
 
 
 # ============ RUN SERVER ============

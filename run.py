@@ -1,51 +1,152 @@
+#!/usr/bin/env python3
+# ╔═══════════════════════════════════════════════════════════════════════════════════╗
+# ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
+# ║  📁  Konum: .\venv\Scripts\python.exe                                           ║
+# ║  💡  Kullanım: .\venv\Scripts\python.exe run.py                                  ║
+# ╚═══════════════════════════════════════════════════════════════════════════════════╝
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    ENTERPRISE AI ASSISTANT - RUN SCRIPT                      ║
 ║                                                                              ║
-║   Endüstri Standartlarında Kurumsal AI Çözümü                                ║
-║   Tek komutla tüm sistemi başlat - SIFIR SORUN GARANTİSİ                     ║
+║   v3.0 - BULLET-PROOF EDITION                                                ║
+║                                                                              ║
+║   🔧 ÖZELLİKLER:                                                             ║
+║   ├─ Pre-flight testleri (başlamadan önce)                                   ║
+║   ├─ Akıllı port yönetimi (çakışma önleme)                                   ║
+║   ├─ Otomatik PATH yenileme (Node.js için)                                   ║
+║   ├─ Senkronize başlatma (backend → frontend sırası)                         ║
+║   ├─ Health check garantisi                                                  ║
+║   ├─ Post-startup API doğrulama testleri                                     ║
+║   └─ Otomatik servis izleme ve yeniden başlatma                              ║
 ║                                                                              ║
 ║   Backend:    FastAPI      → Port 8001                                       ║
-║   Frontend 1: Next.js      → Port 3000  (Modern React UI)                    ║
-║   Frontend 2: Streamlit    → Port 8501  (Klasik Python UI)                   ║
+║   Frontend:   Next.js      → Port 3000                                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 Kullanım:
-  python run.py              # Varsayılan: API + Next.js
-  python run.py --all        # Tüm servisleri başlat (API + Next.js + Streamlit)
-  python run.py --streamlit  # Sadece API + Streamlit
-  python run.py --next       # Sadece API + Next.js
+  python run.py              # Backend + Frontend başlat
   python run.py --api-only   # Sadece API başlat
-  python run.py --dev        # Development mode (hot reload)
-  python run.py --skip-ollama  # Ollama kontrolü atla
-  python run.py --skip-health  # Sağlık kontrollerini atla (hızlı başlatma)
-  python run.py --health-only  # Sadece sağlık kontrolü yap
-
-v2.2 - SELF-HEALING UPDATE:
-- Lock file ile çoklu instance engelleme
-- NUCLEAR port temizleme
-- Zombie process tespit ve temizleme
-- Otomatik kurtarma mekanizması
-- Previous session cleanup
+  python run.py --test       # Önce testleri çalıştır, sonra başlat
+  python run.py --test-only  # Sadece testleri çalıştır (API çalışıyor olmalı)
+  python run.py --clean      # Portları temizle ve başlat
+  python run.py --skip-frontend  # Sadece backend başlat
+  python run.py --no-browser # Tarayıcı açma
 """
 
 import subprocess
 import sys
 import os
 import time
-import webbrowser
 import socket
 import atexit
+import io
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UTF-8 STDOUT/STDERR - Windows emoji/unicode hataları için (ÖNCELİKLİ)
+# ══════════════════════════════════════════════════════════════════════════════
+if sys.platform == 'win32':
+    # Windows console için UTF-8 encoding zorla - HER ŞEYden ÖNCE
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except:
+        pass  # Zaten wrapper ise atla
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHROMADB TELEMETRY KAPATMA - capture() argument hatası önleme
+# ══════════════════════════════════════════════════════════════════════════════
+os.environ['ANONYMIZED_TELEMETRY'] = 'false'
+os.environ['CHROMA_TELEMETRY'] = 'false'
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HUGGINGFACE OFFLINE MODE - İnternet olmadan çalışması için
+# ══════════════════════════════════════════════════════════════════════════════
+os.environ['HF_HUB_OFFLINE'] = '1'
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VENV ENFORCEMENT - Bu script SADECE venv ile çalışmalı!
+# ══════════════════════════════════════════════════════════════════════════════
+def enforce_venv():
+    """Venv kullanımını zorunlu kıl ve gizli modda çalıştır."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.abspath(__file__)
+    
+    # .venv veya venv klasörünü bul
+    venv_dir = None
+    for venv_name in ['.venv', 'venv']:
+        potential_venv = os.path.join(script_dir, venv_name)
+        if os.path.exists(potential_venv):
+            venv_dir = potential_venv
+            break
+    
+    if not venv_dir:
+        print("\n❌ Venv bulunamadı! Önce venv oluşturun:")
+        print("   python -m venv .venv")
+        print("   .\\.venv\\Scripts\\pip.exe install -r requirements.txt")
+        sys.exit(1)
+    
+    venv_python = os.path.join(venv_dir, 'Scripts', 'python.exe')
+    venv_pythonw = os.path.join(venv_dir, 'Scripts', 'pythonw.exe')
+    
+    # Windows'ta kontrol et
+    if sys.platform == 'win32':
+        current_exe = sys.executable.lower()
+        venv_name = os.path.basename(venv_dir).lower()
+        
+        # 1. Venv içinde değilsek - venv ile yeniden başlat
+        if venv_name not in current_exe and '.venv' not in current_exe and 'venv' not in current_exe:
+            print("\n" + "="*70)
+            print("⚠️  HATA: Bu script VENV içinden çalıştırılmalı!")
+            print("="*70)
+            print(f"\n❌ Şu an kullanılan: {sys.executable}")
+            print(f"✅ Kullanılması gereken: {venv_python}")
+            print("\n💡 Doğru kullanım:")
+            print(f"   .\\{os.path.basename(venv_dir)}\\Scripts\\python.exe run.py")
+            print("\n" + "="*70)
+            
+            if os.path.exists(venv_python):
+                print("\n🔄 Otomatik olarak venv ile yeniden başlatılıyor...\n")
+                import subprocess
+                new_args = [venv_python, script_path] + sys.argv[1:]
+                result = subprocess.run(new_args)
+                sys.exit(result.returncode)
+            sys.exit(1)
+        
+        # 2. pythonw.exe değilsek VE --no-hide flag'i yoksa - gizli modda yeniden başlat
+        # Bu sayede terminal penceresi açılmaz
+        if '--no-hide' not in sys.argv and 'pythonw' not in current_exe:
+            if os.path.exists(venv_pythonw):
+                # VBScript ile gizli modda yeniden başlat (en güvenilir yöntem)
+                import subprocess
+                import tempfile
+                
+                # Geçici VBS dosyası oluştur
+                vbs_launcher = os.path.join(script_dir, '.run_launcher.vbs')
+                vbs_content = f'''Set objShell = CreateObject("WScript.Shell")
+objShell.CurrentDirectory = "{script_dir}"
+objShell.Run """{venv_pythonw}"" ""{script_path}"" --no-hide", 0, False
+'''
+                with open(vbs_launcher, 'w') as f:
+                    f.write(vbs_content)
+                
+                # VBS ile başlat
+                subprocess.Popen(['wscript.exe', vbs_launcher], creationflags=subprocess.CREATE_NO_WINDOW)
+                
+                # Mevcut process'i kapat - yeni process arka planda çalışacak
+                sys.exit(0)
+
+# Venv kontrolü - Script başlarken çalış
+enforce_venv()
 import argparse
 import signal
 import threading
-import psutil  # Process yönetimi için
-import tempfile
 import json
+import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional, List, Set
-from dataclasses import dataclass, field
+from typing import Dict, Optional, List, Tuple
+from dataclasses import dataclass
 from enum import Enum
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -55,15 +156,20 @@ from enum import Enum
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Lock file for single instance
+# Lock/PID files
 LOCK_FILE = PROJECT_ROOT / ".run.lock"
 PID_FILE = PROJECT_ROOT / ".run.pid"
+
+
+# Log directory
+LOG_DIR = PROJECT_ROOT / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 class ServicePort(Enum):
     """Servis port tanımları."""
     API = 8001
-    STREAMLIT = 8501
     NEXTJS = 3000
+    STREAMLIT = 8501
 
 class ServiceStatus(Enum):
     """Servis durumları."""
@@ -71,7 +177,6 @@ class ServiceStatus(Enum):
     STARTING = "starting"
     RUNNING = "running"
     ERROR = "error"
-    RESTARTING = "restarting"
 
 @dataclass
 class ServiceConfig:
@@ -80,35 +185,26 @@ class ServiceConfig:
     port: int
     color: str
     icon: str
-    max_restarts: int = 3
-    health_endpoint: Optional[str] = None
-    startup_timeout: int = 45
+    health_endpoint: str = "/"
+    startup_timeout: int = 60
 
 # Servis konfigürasyonları
 SERVICES = {
     "api": ServiceConfig(
         name="FastAPI Backend",
         port=ServicePort.API.value,
-        color="\033[92m",  # Green
+        color="\033[92m",
         icon="📡",
         health_endpoint="/health",
-        startup_timeout=45
+        startup_timeout=30
     ),
     "nextjs": ServiceConfig(
         name="Next.js Frontend",
         port=ServicePort.NEXTJS.value,
-        color="\033[94m",  # Blue
+        color="\033[94m",
         icon="⚛️",
         health_endpoint="/",
-        startup_timeout=60
-    ),
-    "streamlit": ServiceConfig(
-        name="Streamlit Frontend",
-        port=ServicePort.STREAMLIT.value,
-        color="\033[95m",  # Magenta
-        icon="🎨",
-        health_endpoint="/",
-        startup_timeout=30
+        startup_timeout=120
     ),
 }
 
@@ -121,126 +217,27 @@ class ProcessInfo:
     """Process bilgisi."""
     process: Optional[subprocess.Popen] = None
     status: ServiceStatus = ServiceStatus.STOPPED
-    restart_count: int = 0
-    last_error: Optional[str] = None
     started_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+    log_handle: Optional[any] = None  # Log dosyası handle'ı
 
 class AppState:
-    """Uygulama durumu - Singleton."""
-    _instance = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-    
+    """Uygulama durumu."""
     def __init__(self):
-        if self._initialized:
-            return
-        self._initialized = True
         self.processes: Dict[str, ProcessInfo] = {
             "api": ProcessInfo(),
             "nextjs": ProcessInfo(),
-            "streamlit": ProcessInfo(),
         }
         self.shutdown_requested = False
-        self.log_threads: List[threading.Thread] = []
         self.start_time: Optional[datetime] = None
-        self.lock_acquired = False
 
 state = AppState()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LOCK FILE MANAGEMENT - Prevent Multiple Instances
-# ══════════════════════════════════════════════════════════════════════════════
-
-def is_process_running(pid: int) -> bool:
-    """PID'nin gerçekten çalışıp çalışmadığını kontrol et."""
-    try:
-        proc = psutil.Process(pid)
-        return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        return False
-
-def get_previous_instance_pid() -> Optional[int]:
-    """Önceki instance'ın PID'sini oku."""
-    try:
-        if PID_FILE.exists():
-            pid = int(PID_FILE.read_text().strip())
-            if is_process_running(pid):
-                return pid
-    except:
-        pass
-    return None
-
-def kill_previous_instance() -> bool:
-    """Önceki instance'ı öldür."""
-    pid = get_previous_instance_pid()
-    if pid:
-        try:
-            log("🔄 Önceki instance tespit edildi, kapatılıyor...", "warning")
-            proc = psutil.Process(pid)
-            
-            # Önce nazik ol
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except psutil.TimeoutExpired:
-                # Sonra agresif ol
-                proc.kill()
-                proc.wait(timeout=3)
-            
-            log(f"✅ Önceki instance (PID: {pid}) kapatıldı", "success")
-            return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    return False
-
-def acquire_lock() -> bool:
-    """
-    Lock dosyasını al - sadece bir instance çalışabilir.
-    
-    Eğer önceki instance varsa otomatik olarak öldürür.
-    """
-    # Önceki instance'ı temizle
-    kill_previous_instance()
-    
-    # Lock dosyasını sil (varsa)
-    try:
-        LOCK_FILE.unlink(missing_ok=True)
-    except:
-        pass
-    
-    # Kendi PID'mizi yaz
-    try:
-        PID_FILE.write_text(str(os.getpid()))
-        LOCK_FILE.write_text(json.dumps({
-            "pid": os.getpid(),
-            "started_at": datetime.now().isoformat(),
-            "services": []
-        }))
-        state.lock_acquired = True
-        return True
-    except Exception as e:
-        log(f"Lock alınamadı: {e}", "error")
-        return False
-
-def release_lock():
-    """Lock dosyasını serbest bırak."""
-    try:
-        LOCK_FILE.unlink(missing_ok=True)
-        PID_FILE.unlink(missing_ok=True)
-    except:
-        pass
-    state.lock_acquired = False
-
-# ══════════════════════════════════════════════════════════════════════════════
-# LOGGING
+# TERMINAL COLORS
 # ══════════════════════════════════════════════════════════════════════════════
 
 class Colors:
-    """Terminal renkleri."""
     RESET = "\033[0m"
     RED = "\033[91m"
     GREEN = "\033[92m"
@@ -248,101 +245,121 @@ class Colors:
     BLUE = "\033[94m"
     MAGENTA = "\033[95m"
     CYAN = "\033[96m"
-    WHITE = "\033[97m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
-
-# Log dosyaları için dizin
-LOG_DIR = PROJECT_ROOT / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def get_log_file(service_name: str) -> Path:
-    """Servis için log dosya yolunu döndür."""
-    timestamp = datetime.now().strftime("%Y%m%d")
-    return LOG_DIR / f"{service_name}_{timestamp}.log"
-
-
-def write_to_service_log(service_name: str, message: str, level: str = "INFO"):
-    """Servis log dosyasına yaz."""
-    try:
-        log_file = get_log_file(service_name)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_line = f"[{timestamp}] [{level}] {message}\n"
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(log_line)
-    except Exception:
-        pass  # Log yazma hatası sistem çalışmasını engellememeli
-
-def log(msg: str, level: str = "info", service: Optional[str] = None):
-    """Gelişmiş renkli log mesajı."""
+def log(msg: str, level: str = "info", service: str = None):
+    """Renkli log mesajı."""
     timestamp = datetime.now().strftime("%H:%M:%S")
     
-    level_config = {
+    levels = {
         "info":    (Colors.CYAN,   "ℹ️ "),
         "success": (Colors.GREEN,  "✅"),
         "warning": (Colors.YELLOW, "⚠️ "),
         "error":   (Colors.RED,    "❌"),
         "loading": (Colors.BLUE,   "⏳"),
         "rocket":  (Colors.MAGENTA,"🚀"),
-        "debug":   (Colors.DIM,    "🔍"),
+        "test":    (Colors.CYAN,   "🧪"),
     }
     
-    color, icon = level_config.get(level, (Colors.WHITE, "•"))
-    
-    service_tag = ""
-    if service:
-        svc_config = SERVICES.get(service)
-        if svc_config:
-            service_tag = f" [{svc_config.icon} {svc_config.name}]"
+    color, icon = levels.get(level, (Colors.RESET, "•"))
+    service_tag = f" [{service}]" if service else ""
     
     print(f"{Colors.DIM}[{timestamp}]{Colors.RESET} {icon} {color}{msg}{Colors.RESET}{service_tag}")
 
 def print_banner():
-    """Profesyonel başlangıç banner'ı."""
-    banner = f"""
+    """Başlangıç banner'ı."""
+    print(f"""
 {Colors.CYAN}╔══════════════════════════════════════════════════════════════╗
-║                                                              ║
-║   {Colors.BOLD}🤖 ENTERPRISE AI ASSISTANT{Colors.RESET}{Colors.CYAN}                              ║
-║   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━            ║
-║   {Colors.DIM}Endüstri Standartlarında Kurumsal AI Çözümü{Colors.RESET}{Colors.CYAN}               ║
-║   {Colors.DIM}v2.0 - Multi-Frontend Architecture{Colors.RESET}{Colors.CYAN}                        ║
-║                                                              ║
+║   {Colors.BOLD}🤖 ENTERPRISE AI ASSISTANT v3.0{Colors.RESET}{Colors.CYAN}                          ║
+║   {Colors.DIM}Bullet-Proof Edition - Zero Failure Guarantee{Colors.RESET}{Colors.CYAN}             ║
 ╚══════════════════════════════════════════════════════════════╝{Colors.RESET}
-"""
-    print(banner)
-
-def print_success_panel(services: List[str]):
-    """Başarılı başlatma paneli."""
-    print()
-    print(f"{Colors.GREEN}╔══════════════════════════════════════════════════════════════╗")
-    print(f"║   {Colors.BOLD}✅ TÜM SERVİSLER BAŞARIYLA BAŞLATILDI!{Colors.RESET}{Colors.GREEN}                     ║")
-    print(f"╠══════════════════════════════════════════════════════════════╣")
-    print(f"║                                                              ║")
-    print(f"║   {Colors.CYAN}📍 ERİŞİM ADRESLERİ:{Colors.GREEN}                                        ║")
-    print(f"║   ────────────────────────────────────────────────           ║")
-    
-    if "nextjs" in services:
-        print(f"║   {Colors.BLUE}⚛️  Next.js:{Colors.GREEN}      http://localhost:{ServicePort.NEXTJS.value}                    ║")
-    if "streamlit" in services:
-        print(f"║   {Colors.MAGENTA}🎨 Streamlit:{Colors.GREEN}    http://localhost:{ServicePort.STREAMLIT.value}                    ║")
-    if "api" in services:
-        print(f"║   {Colors.YELLOW}📡 API:{Colors.GREEN}          http://localhost:{ServicePort.API.value}                    ║")
-        print(f"║   {Colors.YELLOW}📚 API Docs:{Colors.GREEN}     http://localhost:{ServicePort.API.value}/docs               ║")
-    
-    print(f"║                                                              ║")
-    print(f"║   {Colors.DIM}⌨️  Durdurmak için: Ctrl+C{Colors.GREEN}                                  ║")
-    print(f"║                                                              ║")
-    print(f"╚══════════════════════════════════════════════════════════════╝{Colors.RESET}")
-    print()
+""")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PORT MANAGEMENT - NUCLEAR EDITION
+# PSUTIL IMPORT WITH FALLBACK
+# ══════════════════════════════════════════════════════════════════════════════
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    log("psutil kurulu değil, temel process yönetimi kullanılacak", "warning")
+
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    log("requests kurulu değil, HTTP testleri atlanacak", "warning")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GPU DETECTION
+# ══════════════════════════════════════════════════════════════════════════════
+
+GPU_INFO = {
+    "available": False,
+    "name": None,
+    "memory_total": 0,
+    "memory_free": 0,
+    "utilization": 0,
+    "cuda_available": False,
+    "pytorch_version": None,
+}
+
+def detect_gpu():
+    """GPU bilgilerini tespit et."""
+    global GPU_INFO
+    
+    # 1. nvidia-smi ile GPU bilgisi
+    try:
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=name,memory.total,memory.free,utilization.gpu', 
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        )
+        if result.returncode == 0:
+            parts = result.stdout.strip().split(', ')
+            if len(parts) >= 4:
+                GPU_INFO["available"] = True
+                GPU_INFO["name"] = parts[0].strip()
+                GPU_INFO["memory_total"] = int(parts[1].strip())
+                GPU_INFO["memory_free"] = int(parts[2].strip())
+                GPU_INFO["utilization"] = int(parts[3].strip())
+    except:
+        pass
+    
+    # 2. PyTorch CUDA kontrolü
+    try:
+        import torch
+        GPU_INFO["pytorch_version"] = torch.__version__
+        GPU_INFO["cuda_available"] = torch.cuda.is_available()
+        if torch.cuda.is_available() and not GPU_INFO["name"]:
+            GPU_INFO["name"] = torch.cuda.get_device_name(0)
+            GPU_INFO["available"] = True
+    except:
+        pass
+    
+    return GPU_INFO
+
+def get_gpu_status_line() -> str:
+    """GPU durum satırı döndür."""
+    if not GPU_INFO["available"]:
+        return "GPU: Bulunamadı"
+    
+    mem_used = GPU_INFO["memory_total"] - GPU_INFO["memory_free"]
+    cuda_status = "CUDA ✓" if GPU_INFO["cuda_available"] else "CUDA ✗"
+    
+    return f"{GPU_INFO['name']} | {mem_used}/{GPU_INFO['memory_total']} MB | %{GPU_INFO['utilization']} | {cuda_status}"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PORT MANAGEMENT
 # ══════════════════════════════════════════════════════════════════════════════
 
 def is_port_available(port: int) -> bool:
-    """Port kullanılabilir mi kontrol et."""
+    """Port kullanılabilir mi? (bind test)"""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1)
@@ -351,72 +368,77 @@ def is_port_available(port: int) -> bool:
     except:
         return False
 
-def get_pids_using_port(port: int) -> List[int]:
-    """Belirli portu kullanan PID'leri bul - psutil ile."""
-    pids = set()
+def is_service_running(port: int) -> bool:
+    """Port'ta bir servis çalışıyor mu? (connect test)"""
     try:
-        for conn in psutil.net_connections(kind='inet'):
-            if conn.laddr.port == port and conn.status == 'LISTEN':
-                if conn.pid:
-                    pids.add(conn.pid)
-    except (psutil.AccessDenied, psutil.NoSuchProcess):
-        pass
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2)
+            result = s.connect_ex(('127.0.0.1', port))
+            return result == 0
+    except:
+        return False
+
+def get_pids_using_port(port: int) -> List[int]:
+    """Belirli portu kullanan PID'leri bul."""
+    pids = []
     
-    # Fallback: netstat
-    if not pids:
+    if PSUTIL_AVAILABLE:
         try:
-            if sys.platform == 'win32':
-                result = subprocess.run(
-                    ['netstat', '-ano', '-p', 'tcp'],
-                    capture_output=True,
-                    text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-                for line in result.stdout.split('\n'):
-                    if f':{port}' in line and 'LISTENING' in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            pid = parts[-1]
-                            if pid.isdigit() and pid != '0':
-                                pids.add(int(pid))
+            for conn in psutil.net_connections(kind='inet'):
+                if conn.laddr.port == port and conn.status == 'LISTEN':
+                    if conn.pid:
+                        pids.append(conn.pid)
         except:
             pass
-    return list(pids)
-
-def kill_process_tree(pid: int) -> bool:
-    """Process ve tüm child process'lerini öldür - GARANTILI."""
-    killed = False
-    try:
-        parent = psutil.Process(pid)
-        children = parent.children(recursive=True)
-        
-        # Önce children'ları öldür
-        for child in children:
-            try:
-                child.kill()
-                killed = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        
-        # Sonra parent'ı öldür
-        try:
-            parent.kill()
-            parent.wait(timeout=3)
-            killed = True
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
-            pass
-            
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        pass
     
-    # Fallback: taskkill - Windows'ta en güvenilir yöntem
-    if sys.platform == 'win32':
+    # Fallback: netstat (Windows)
+    if not pids and sys.platform == 'win32':
+        try:
+            result = subprocess.run(
+                f'netstat -ano | findstr ":{port}"',
+                shell=True, capture_output=True, text=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            for line in result.stdout.split('\n'):
+                if 'LISTENING' in line:
+                    parts = line.split()
+                    if len(parts) >= 5 and parts[-1].isdigit():
+                        pids.append(int(parts[-1]))
+        except:
+            pass
+    
+    return list(set(pids))
+
+def kill_process(pid: int) -> bool:
+    """Process'i öldür."""
+    if pid == os.getpid():
+        return False  # Kendimizi öldürme
+    
+    killed = False
+    
+    # Method 1: psutil
+    if PSUTIL_AVAILABLE:
+        try:
+            proc = psutil.Process(pid)
+            children = proc.children(recursive=True)
+            for child in children:
+                try:
+                    child.kill()
+                except:
+                    pass
+            proc.kill()
+            proc.wait(timeout=3)
+            killed = True
+        except:
+            pass
+    
+    # Method 2: taskkill (Windows)
+    if sys.platform == 'win32' and not killed:
         try:
             subprocess.run(
-                ['taskkill', '/F', '/T', '/PID', str(pid)], 
-                capture_output=True, 
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                timeout=10
+                ['taskkill', '/F', '/T', '/PID', str(pid)],
+                capture_output=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             killed = True
         except:
@@ -424,347 +446,609 @@ def kill_process_tree(pid: int) -> bool:
     
     return killed
 
-def kill_processes_by_name(name: str) -> int:
-    """İsme göre tüm process'leri öldür. Kaç tane öldürüldüğünü döndür."""
-    killed_count = 0
-    try:
-        for proc in psutil.process_iter(['name', 'pid']):
-            try:
-                if name.lower() in proc.info['name'].lower():
-                    kill_process_tree(proc.info['pid'])
-                    killed_count += 1
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-    except:
-        pass
-    return killed_count
-
-def nuclear_kill_by_name(name: str):
-    """Belirli isimdeki TÜM process'leri öldür - NUCLEAR."""
-    # Method 1: psutil
-    kill_processes_by_name(name)
-    
-    # Method 2: taskkill (Windows)
+def kill_by_name(name: str):
+    """İsme göre process'leri öldür."""
     if sys.platform == 'win32':
         try:
             subprocess.run(
                 f'taskkill /F /IM {name} 2>nul',
-                shell=True, 
-                capture_output=True, 
-                timeout=10
-            )
-        except:
-            pass
-        
-        # Method 3: wmic (Windows - daha agresif)
-        try:
-            subprocess.run(
-                f'wmic process where "name like \'%{name.replace(".exe", "")}%\'" delete 2>nul',
-                shell=True, 
-                capture_output=True, 
-                timeout=10
+                shell=True, capture_output=True, timeout=10
             )
         except:
             pass
 
-def kill_port(port: int, force: bool = True) -> bool:
-    """Portu temizle - ULTRA NUCLEAR mode."""
-    killed = False
+def nuclear_port_cleanup(port: int) -> bool:
+    """
+    NUCLEAR PORT CLEANUP - Portu MUTLAKA temizle.
+    Tüm yöntemleri agresif şekilde dene.
+    """
+    log(f"☢️ Nuclear cleanup başlatılıyor: Port {port}", "warning")
     
-    # Phase 1: Port kullanan tüm PID'leri bul ve öldür (5 deneme)
-    for attempt in range(5):
-        pids = get_pids_using_port(port)
-        for pid in pids:
-            if kill_process_tree(pid):
-                killed = True
-        if not pids:
-            break
-        time.sleep(0.5)
-    
-    # Phase 2: Servise özel işlemler
-    if port == ServicePort.NEXTJS.value:
-        # Next.js için tüm node.exe'leri NUCLEAR öldür
-        nuclear_kill_by_name('node.exe')
-        killed = True
-    
-    if port == ServicePort.API.value:
-        # API için uvicorn/python
-        pids = get_pids_using_port(port)
-        for pid in pids:
+    if sys.platform == 'win32':
+        # ═══════════════════════════════════════════════════════════════════
+        # YÖNTEM 1: netstat + for döngüsü ile tüm PID'leri öldür
+        # ═══════════════════════════════════════════════════════════════════
+        for _ in range(3):
             try:
-                proc = psutil.Process(pid)
-                if 'python' in proc.name().lower() or 'uvicorn' in proc.name().lower():
-                    kill_process_tree(pid)
-                    killed = True
+                # LISTENING + ESTABLISHED + TIME_WAIT hepsini bul
+                result = subprocess.run(
+                    f'netstat -ano | findstr ":{port}"',
+                    shell=True, capture_output=True, text=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                for line in result.stdout.split('\n'):
+                    parts = line.strip().split()
+                    if len(parts) >= 5:
+                        pid = parts[-1]
+                        if pid.isdigit() and int(pid) != os.getpid():
+                            subprocess.run(
+                                f'taskkill /F /T /PID {pid}',
+                                shell=True, capture_output=True, timeout=5,
+                                creationflags=subprocess.CREATE_NO_WINDOW
+                            )
             except:
                 pass
+            time.sleep(0.3)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # YÖNTEM 2: Port'a özel process isimleri
+        # ═══════════════════════════════════════════════════════════════════
+        if port == ServicePort.NEXTJS.value:
+            # Node.js - ama sadece 3000 portunu kullananları
+            try:
+                # wmic ile daha hassas kontrol
+                result = subprocess.run(
+                    'wmic process where "name=\'node.exe\'" get processid,commandline',
+                    shell=True, capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                for line in result.stdout.split('\n'):
+                    if 'next' in line.lower() or '3000' in line:
+                        parts = line.strip().split()
+                        if parts:
+                            pid = parts[-1]
+                            if pid.isdigit():
+                                subprocess.run(f'taskkill /F /T /PID {pid}', shell=True, capture_output=True, timeout=5)
+            except:
+                pass
+        
+        if port == ServicePort.API.value:
+            # Uvicorn/Python process'leri - 8001 portunu kullananları
+            try:
+                result = subprocess.run(
+                    'wmic process where "name=\'python.exe\'" get processid,commandline',
+                    shell=True, capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                for line in result.stdout.split('\n'):
+                    if 'uvicorn' in line.lower() or '8001' in line:
+                        parts = line.strip().split()
+                        if parts:
+                            pid = parts[-1]
+                            if pid.isdigit() and int(pid) != os.getpid():
+                                subprocess.run(f'taskkill /F /T /PID {pid}', shell=True, capture_output=True, timeout=5)
+            except:
+                pass
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # YÖNTEM 3: PowerShell ile daha güçlü temizlik
+        # ═══════════════════════════════════════════════════════════════════
+        try:
+            ps_cmd = f'''
+            Get-NetTCPConnection -LocalPort {port} -ErrorAction SilentlyContinue | 
+            ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }}
+            '''
+            subprocess.run(
+                ['powershell', '-Command', ps_cmd],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        except:
+            pass
     
-    # Phase 3: Windows port release için bekle
-    time.sleep(2)
-    return killed
+    time.sleep(1)
+    result = is_port_available(port)
+    if result:
+        log(f"✅ Port {port} temizlendi", "success")
+    else:
+        log(f"⚠️ Port {port} hala kullanımda", "warning")
+    return result
 
-def ensure_port_available(port: int, max_attempts: int = 8) -> bool:
-    """Port'un kullanılabilir olmasını garanti et - HIZLI ve ETKİLİ."""
+def ensure_port_free(port: int, max_attempts: int = 5) -> bool:
+    """Port'un boş olduğundan emin ol - garantili temizlik."""
+    # Zaten boşsa hemen dön
     if is_port_available(port):
         return True
     
-    log(f"Port {port} meşgul, hızlı temizlik...", "warning")
+    log(f"Port {port} kullanımda, temizleniyor...", "warning")
     
+    # Önce normal yöntemler
     for attempt in range(max_attempts):
-        # Adım 1: Normal kill
-        kill_port(port, force=True)
+        # Port'u kullanan process'leri bul ve öldür
+        pids = get_pids_using_port(port)
+        if pids:
+            for pid in pids:
+                kill_process(pid)
+            time.sleep(0.5)
         
-        # Adım 2: Kısa bekleme (maksimum 2 saniye)
-        wait_time = min(0.5 + attempt * 0.3, 2)
-        time.sleep(wait_time)
-        
+        # Hemen kontrol
         if is_port_available(port):
-            log(f"Port {port} temizlendi (deneme {attempt + 1})", "success")
+            log(f"Port {port} temizlendi", "success")
             return True
         
-        # Adım 3: Daha agresif yöntemler (2+ deneme)
-        if attempt >= 2:
-            if port == ServicePort.NEXTJS.value:
-                nuclear_kill_by_name('node.exe')
-            time.sleep(1)  # 3s -> 1s
-        
-        # Adım 4: netstat ile manuel tespit (4+ deneme)
-        if attempt >= 4:
-            try:
-                result = subprocess.run(
-                    f'netstat -ano | findstr ":{port}"', 
-                    shell=True, capture_output=True, text=True, timeout=3
-                )
-                if result.stdout.strip():
-                    for line in result.stdout.strip().split('\n'):
-                        parts = line.split()
-                        if len(parts) >= 5 and parts[-1].isdigit():
-                            pid = int(parts[-1])
-                            if pid > 0:
-                                kill_process_tree(pid)
-                                subprocess.run(
-                                    f'taskkill /F /PID {pid} 2>nul',
-                                    shell=True, timeout=3
-                                )
-            except:
-                pass
-            time.sleep(1)  # 3s -> 1s
-        
-        # Adım 5: Son çare (6+ deneme)
-        if attempt >= 6:
-            log(f"Port {port} inatçı, son çare...", "warning")
-            nuclear_kill_by_name('node.exe')
-            time.sleep(2)  # 5s -> 2s
-    
-    log(f"Port {port} temizlenemedi! ({max_attempts} deneme)", "error")
-    return False
-
-def cleanup_zombie_processes():
-    """Zombie ve eski process'leri temizle."""
-    log("🧹 Zombie process temizliği yapılıyor...", "loading")
-    
-    zombie_patterns = ['node.exe', 'uvicorn', 'streamlit']
-    our_ports = [ServicePort.API.value, ServicePort.NEXTJS.value, ServicePort.STREAMLIT.value]
-    
-    killed_count = 0
-    
-    # Port kullanan eski process'leri öldür
-    for port in our_ports:
-        pids = get_pids_using_port(port)
-        for pid in pids:
-            # Kendi PID'miz değilse öldür
-            if pid != os.getpid():
-                if kill_process_tree(pid):
-                    killed_count += 1
-    
-    if killed_count > 0:
-        log(f"🧹 {killed_count} zombie process temizlendi", "success")
-    
-    return killed_count
-
-def cleanup_all_ports():
-    """Tüm servislerin portlarını HIZLI ve ETKİLİ şekilde temizle."""
-    
-    # FAST PATH: Tüm portlar zaten boşsa hiç temizlik yapma
-    all_ports_free = all(is_port_available(config.port) for config in SERVICES.values())
-    if all_ports_free:
-        log("✅ Tüm portlar zaten temiz", "success")
-        return True
-    
-    log("🔥 Port temizliği yapılıyor...", "loading")
-    
-    # Phase 1: Meşgul portları bul ve sadece onları temizle
-    busy_ports = []
-    for service_name, config in SERVICES.items():
-        if not is_port_available(config.port):
-            busy_ports.append((service_name, config.port))
-            pids = get_pids_using_port(config.port)
-            for pid in pids:
-                if pid != os.getpid():
-                    kill_process_tree(pid)
-    
-    # Phase 2: Node.exe varsa öldür (Next.js için)
-    if any(p == ServicePort.NEXTJS.value for _, p in busy_ports):
-        nuclear_kill_by_name('node.exe')
-    
-    # Phase 3: Kısa bekleme (2s yeterli)
-    time.sleep(2)
-    
-    # Phase 4: Son kontrol - sadece meşgul olan portlar için
-    all_clean = True
-    for service_name, port in busy_ports:
-        if not is_port_available(port):
-            # Tek bir hızlı deneme daha
-            ensure_port_available(port, max_attempts=3)
-            if not is_port_available(port):
-                all_clean = False
-    
-    if all_clean:
-        log("✅ Tüm portlar temiz ve hazır", "success")
-    else:
-        log("⚠️ Bazı portlar temizlenemedi, devam ediliyor...", "warning")
-    
-    return all_clean
-
-def preflight_cleanup():
-    """
-    Başlamadan önce HIZLI ve ETKİLİ temizlik yap.
-    
-    Optimizasyonlar:
-    - Fast path: Portlar boşsa temizlik atlanır
-    - Paralel kontroller
-    - Azaltılmış bekleme süreleri
-    """
-    log("🚀 Hızlı ön kontrol başlatılıyor...", "loading")
-    
-    # Adım 1: Önceki instance (gerekirse)
-    kill_previous_instance()
-    
-    # Adım 2: Lock al
-    if not acquire_lock():
-        log("❌ Lock alınamadı, başka bir instance çalışıyor olabilir", "error")
-        return False
-    
-    # Adım 3: Zombie temizliği
-    zombies = cleanup_zombie_processes()
-    if zombies > 0:
-        time.sleep(1)  # Sadece zombie varsa bekle
-    
-    # Adım 4: Port temizliği (akıllı - Fast Path)
-    cleanup_all_ports()
-    
-    log("✅ Ön kontrol tamamlandı", "success")
-    return True
-
-# ══════════════════════════════════════════════════════════════════════════════
-# OLLAMA MANAGEMENT
-# ══════════════════════════════════════════════════════════════════════════════
-
-def check_ollama() -> bool:
-    """Ollama çalışıyor mu?"""
-    try:
-        import requests
-        response = requests.get("http://localhost:11434/api/version", timeout=2)
-        return response.status_code == 200
-    except:
-        return False
-
-def start_ollama() -> bool:
-    """Ollama'yı başlat."""
-    if check_ollama():
-        return True
-    
-    log("Ollama başlatılıyor...", "loading")
-    
-    try:
-        if sys.platform == 'win32':
-            ollama_paths = [
-                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
-                os.path.expandvars(r"%PROGRAMFILES%\Ollama\ollama.exe"),
-                r"C:\Program Files\Ollama\ollama.exe",
-            ]
-            
-            for path in ollama_paths:
-                if os.path.exists(path):
-                    subprocess.Popen(
-                        [path, "serve"],
-                        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True
-                    )
-                    break
-        else:
-            subprocess.Popen(
-                ['ollama', 'serve'],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
-            )
-        
-        for _ in range(15):
-            time.sleep(1)
-            if check_ollama():
-                log("Ollama başlatıldı", "success")
+        # 2. denemeden sonra Node.js için özel işlem
+        if attempt >= 1 and port == ServicePort.NEXTJS.value:
+            kill_by_name('node.exe')
+            time.sleep(0.5)
+            if is_port_available(port):
+                log(f"Port {port} temizlendi", "success")
                 return True
         
-    except Exception as e:
-        log(f"Ollama başlatma hatası: {e}", "warning")
+        # 3. denemeden sonra nuclear cleanup
+        if attempt >= 2:
+            nuclear_port_cleanup(port)
+            time.sleep(0.5)
+            if is_port_available(port):
+                log(f"Port {port} temizlendi (nuclear)", "success")
+                return True
     
-    return check_ollama()
+    # Son çare: tüm yöntemleri aynı anda uygula
+    log(f"Port {port} direniyor, tam temizlik yapılıyor...", "warning")
+    pids = get_pids_using_port(port)
+    for pid in pids:
+        kill_process(pid)
+    if port == ServicePort.NEXTJS.value:
+        kill_by_name('node.exe')
+    nuclear_port_cleanup(port)
+    time.sleep(1)
+    
+    if is_port_available(port):
+        log(f"Port {port} temizlendi (full cleanup)", "success")
+        return True
+    
+    log(f"Port {port} temizlenemedi!", "error")
+    return False
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PID MANAGEMENT - Önceki instance'ı otomatik kapat
+# ══════════════════════════════════════════════════════════════════════════════
+
+def kill_previous_instance() -> bool:
+    """
+    Önceki çalışan instance'ı kapat.
+    PID dosyasından eski PID'i oku ve process'i sonlandır.
+    Ayrıca portları da agresif şekilde temizle.
+    """
+    killed_any = False
+    my_pid = os.getpid()
+    
+    # 1. Önce portları HEMEN temizle - bu en önemli adım
+    for port in [ServicePort.API.value, ServicePort.NEXTJS.value]:
+        if not is_port_available(port):
+            log(f"Port {port} kullanımda, temizleniyor...", "loading")
+            # Nuclear cleanup - agresif temizlik
+            nuclear_port_cleanup(port)
+            time.sleep(1)
+            
+            # Hala kullanımdaysa ensure_port_free ile devam et
+            if not is_port_available(port):
+                if ensure_port_free(port):
+                    killed_any = True
+                    log(f"Port {port} temizlendi", "success")
+    
+    # 2. PID dosyasından önceki ana process'i de kapat
+    if PID_FILE.exists():
+        try:
+            with open(PID_FILE, 'r') as f:
+                old_pid = int(f.read().strip())
+            
+            # Kendimiz değilse kapat
+            if old_pid != my_pid:
+                if PSUTIL_AVAILABLE:
+                    try:
+                        proc = psutil.Process(old_pid)
+                        if 'python' in proc.name().lower():
+                            children = proc.children(recursive=True)
+                            for child in children:
+                                try:
+                                    child.kill()
+                                except:
+                                    pass
+                            proc.kill()
+                            proc.wait(timeout=3)
+                            killed_any = True
+                            log(f"Önceki ana process kapatıldı (PID: {old_pid})", "success")
+                    except psutil.NoSuchProcess:
+                        pass
+                    except:
+                        pass
+                else:
+                    if sys.platform == 'win32':
+                        try:
+                            subprocess.run(
+                                ['taskkill', '/F', '/T', '/PID', str(old_pid)],
+                                capture_output=True, timeout=5,
+                                creationflags=subprocess.CREATE_NO_WINDOW
+                            )
+                            killed_any = True
+                        except:
+                            pass
+        except:
+            pass
+        
+        try:
+            PID_FILE.unlink()
+        except:
+            pass
+    
+    # 3. Son kontrol - portlar temiz mi?
+    time.sleep(1)
+    for port in [ServicePort.API.value, ServicePort.NEXTJS.value]:
+        if not is_port_available(port):
+            log(f"⚠️ Port {port} hala kullanımda!", "warning")
+    
+    return killed_any
+
+
+def save_current_pid():
+    """Mevcut PID'i dosyaya kaydet."""
+    try:
+        with open(PID_FILE, 'w') as f:
+            f.write(str(os.getpid()))
+    except:
+        pass
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PATH MANAGEMENT (NODE.JS için kritik)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def refresh_environment_path():
+    """Windows ortam değişkenlerini yenile."""
+    if sys.platform != 'win32':
+        return True
+    
+    try:
+        # Sistem ve kullanıcı PATH'ini al
+        result = subprocess.run(
+            ['powershell', '-Command', 
+             '[System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")'],
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        if result.returncode == 0:
+            os.environ['PATH'] = result.stdout.strip()
+            return True
+    except:
+        pass
+    
+    return False
+
+def check_node_installed() -> Tuple[bool, str]:
+    """Node.js kurulu mu kontrol et."""
+    # PATH'i yenile
+    refresh_environment_path()
+    
+    # Node.js kontrol
+    try:
+        result = subprocess.run(
+            ['node', '--version'],
+            capture_output=True, text=True, timeout=10,
+            shell=True if sys.platform == 'win32' else False,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        )
+        if result.returncode == 0:
+            return True, result.stdout.strip()
+    except:
+        pass
+    
+    # Bilinen konumlarda ara
+    known_paths = [
+        r"C:\Program Files\nodejs",
+        r"C:\nvm4w\nodejs",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\nodejs"),
+    ]
+    
+    for path in known_paths:
+        node_exe = os.path.join(path, "node.exe")
+        if os.path.exists(node_exe):
+            os.environ['PATH'] = f"{path};{os.environ.get('PATH', '')}"
+            try:
+                result = subprocess.run(
+                    ['node', '--version'],
+                    capture_output=True, text=True, timeout=10,
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                if result.returncode == 0:
+                    return True, result.stdout.strip()
+            except:
+                pass
+    
+    return False, ""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRE-FLIGHT TESTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_preflight_tests() -> Dict:
+    """Başlamadan önce sistem testleri yap."""
+    log("🧪 Pre-flight testler başlatılıyor...", "test")
+    
+    results = {
+        "python_version": {"status": False, "detail": ""},
+        "directories": {"status": False, "detail": ""},
+        "node_js": {"status": False, "detail": ""},
+        "ports": {"status": False, "detail": ""},
+        "gpu": {"status": False, "detail": ""},
+        "ollama": {"status": False, "detail": ""},
+        "imports": {"status": False, "detail": ""},
+    }
+    
+    # 1. Python version
+    major, minor = sys.version_info[:2]
+    if major == 3 and minor >= 10:
+        results["python_version"]["status"] = True
+        results["python_version"]["detail"] = f"Python {major}.{minor}"
+    else:
+        results["python_version"]["detail"] = f"Python {major}.{minor} (min 3.10 gerekli)"
+    
+    # 2. Directories
+    try:
+        dirs = ["data", "data/chroma_db", "data/sessions", "logs"]
+        for d in dirs:
+            (PROJECT_ROOT / d).mkdir(parents=True, exist_ok=True)
+        results["directories"]["status"] = True
+        results["directories"]["detail"] = "Tüm dizinler hazır"
+    except Exception as e:
+        results["directories"]["detail"] = str(e)
+    
+    # 3. Node.js
+    node_ok, node_version = check_node_installed()
+    results["node_js"]["status"] = node_ok
+    results["node_js"]["detail"] = node_version if node_ok else "Node.js bulunamadı"
+    
+    # 4. Ports
+    ports_ok = True
+    port_details = []
+    for name, config in SERVICES.items():
+        if is_port_available(config.port):
+            port_details.append(f"{config.port}:✓")
+        else:
+            port_details.append(f"{config.port}:kullanımda")
+            # Temizlemeyi dene
+            if ensure_port_free(config.port):
+                port_details[-1] = f"{config.port}:temizlendi"
+            else:
+                ports_ok = False
+    results["ports"]["status"] = ports_ok
+    results["ports"]["detail"] = ", ".join(port_details)
+    
+    # 5. GPU Detection
+    detect_gpu()
+    if GPU_INFO["available"]:
+        if GPU_INFO["cuda_available"]:
+            results["gpu"]["status"] = True
+            mem_gb = GPU_INFO["memory_total"] / 1024
+            results["gpu"]["detail"] = f"{GPU_INFO['name'][:20]} {mem_gb:.0f}GB CUDA✓"
+        else:
+            results["gpu"]["status"] = False
+            results["gpu"]["detail"] = f"{GPU_INFO['name'][:20]} (CUDA yok!)"
+    else:
+        results["gpu"]["detail"] = "GPU bulunamadı"
+    
+    # 6. Ollama
+    if REQUESTS_AVAILABLE:
+        try:
+            resp = requests.get("http://localhost:11434/api/version", timeout=2)
+            results["ollama"]["status"] = resp.status_code == 200
+            results["ollama"]["detail"] = "Çalışıyor" if resp.status_code == 200 else "Yanıt yok"
+        except:
+            results["ollama"]["status"] = False
+            results["ollama"]["detail"] = "Bağlantı yok (isteğe bağlı)"
+    else:
+        results["ollama"]["detail"] = "Kontrol atlandı"
+    
+    # 7. Critical imports
+    try:
+        import fastapi
+        import uvicorn
+        import chromadb
+        results["imports"]["status"] = True
+        results["imports"]["detail"] = "FastAPI, Uvicorn, Chroma OK"
+    except ImportError as e:
+        results["imports"]["detail"] = str(e)
+    
+    # Sonuçları göster
+    print()
+    print(f"{Colors.CYAN}┌─────────────────────────────────────────────┐{Colors.RESET}")
+    print(f"{Colors.CYAN}│         PRE-FLIGHT TEST SONUÇLARI          │{Colors.RESET}")
+    print(f"{Colors.CYAN}├─────────────────────────────────────────────┤{Colors.RESET}")
+    
+    all_ok = True
+    for name, result in results.items():
+        icon = "✅" if result["status"] else "❌"
+        color = Colors.GREEN if result["status"] else Colors.RED
+        # GPU ve Ollama isteğe bağlı
+        if not result["status"] and name in ["gpu", "ollama"]:
+            icon = "⚠️ "
+            color = Colors.YELLOW
+        print(f"{Colors.CYAN}│{Colors.RESET} {icon} {name:15} {color}{result['detail'][:25]:25}{Colors.RESET} {Colors.CYAN}│{Colors.RESET}")
+        if not result["status"] and name not in ["ollama", "gpu"]:
+            all_ok = False
+    
+    print(f"{Colors.CYAN}└─────────────────────────────────────────────┘{Colors.RESET}")
+    print()
+    
+    return {"results": results, "all_ok": all_ok}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# API TESTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def run_api_tests() -> Dict:
+    """Backend API'yi kapsamlı test et."""
+    if not REQUESTS_AVAILABLE:
+        return {"success": False, "message": "requests modülü yok"}
+    
+    log("🧪 Backend API testleri çalıştırılıyor...", "test")
+    
+    base_url = f"http://localhost:{ServicePort.API.value}"
+    
+    tests = [
+        # Health & Status
+        ("GET", "/health", "Health Check", None),
+        ("GET", "/api/health", "API Health", None),
+        ("GET", "/api/system/info", "System Info", None),
+        
+        # RAG
+        ("GET", "/api/rag/status", "RAG Status", None),
+        ("GET", "/api/rag/stats", "RAG Stats", None),
+        
+        # Sessions
+        ("GET", "/api/sessions", "Sessions", None),
+        ("GET", "/api/chat/sessions", "Chat Sessions", None),
+        
+        # Documents
+        ("GET", "/api/documents", "Documents", None),
+        
+        # Agents
+        ("GET", "/api/analytics/agents", "Agents Usage", None),
+        
+        # Learning
+        ("GET", "/api/learning/workspaces", "Workspaces", None),
+        ("GET", "/api/learning/documents/styles", "Doc Styles", None),
+        ("GET", "/api/learning/tests/types", "Test Types", None),
+        
+        # Premium
+        ("GET", "/api/premium/status", "Premium Status", None),
+        ("GET", "/api/premium/features", "Premium Features", None),
+        
+        # Visual Learning
+        ("POST", "/api/learning/visual/mindmap", "Visual Mindmap", 
+         {"topic": "Test", "content": "Test content"}),
+        
+        # Multimedia
+        ("POST", "/api/learning/multimedia/slides", "Multimedia Slides",
+         {"topic": "Test", "content": "Test content", "slide_count": 3}),
+        
+        # Linking
+        ("POST", "/api/learning/linking/prerequisites", "Linking Prerequisites",
+         {"topic": "Python", "content": "Programming basics"}),
+        
+        # WebSocket
+        ("GET", "/api/ws/stats", "WebSocket Stats", None),
+        
+        # Admin
+        ("GET", "/api/admin/stats", "Admin Stats", None),
+        
+        # Plugins
+        ("GET", "/api/plugins", "Plugins List", None),
+        ("GET", "/api/plugins/stats", "Plugins Stats", None),
+    ]
+    
+    results = []
+    passed = 0
+    failed = 0
+    
+    for method, path, name, data in tests:
+        try:
+            url = base_url + path
+            if method == "GET":
+                resp = requests.get(url, timeout=10)
+            else:
+                resp = requests.post(url, json=data, timeout=15)
+            
+            success = resp.status_code == 200
+            results.append({
+                "name": name,
+                "path": path,
+                "status": resp.status_code,
+                "success": success
+            })
+            
+            if success:
+                passed += 1
+            else:
+                failed += 1
+                
+        except Exception as e:
+            results.append({
+                "name": name,
+                "path": path,
+                "status": 0,
+                "success": False,
+                "error": str(e)[:50]
+            })
+            failed += 1
+    
+    # Sonuçları göster
+    print()
+    print(f"{Colors.CYAN}┌─────────────────────────────────────────────┐{Colors.RESET}")
+    print(f"{Colors.CYAN}│            API TEST SONUÇLARI               │{Colors.RESET}")
+    print(f"{Colors.CYAN}├─────────────────────────────────────────────┤{Colors.RESET}")
+    
+    for r in results:
+        icon = "✅" if r["success"] else "❌"
+        status = r["status"] if r["status"] else "ERR"
+        print(f"{Colors.CYAN}│{Colors.RESET} {icon} {r['name']:20} [{status:3}] {r['path'][:15]:15} {Colors.CYAN}│{Colors.RESET}")
+    
+    print(f"{Colors.CYAN}├─────────────────────────────────────────────┤{Colors.RESET}")
+    rate = (passed / len(tests)) * 100 if tests else 0
+    color = Colors.GREEN if rate >= 90 else Colors.YELLOW if rate >= 70 else Colors.RED
+    print(f"{Colors.CYAN}│{Colors.RESET} {color}TOPLAM: {passed}/{len(tests)} başarılı ({rate:.1f}%){Colors.RESET}          {Colors.CYAN}│{Colors.RESET}")
+    print(f"{Colors.CYAN}└─────────────────────────────────────────────┘{Colors.RESET}")
+    print()
+    
+    return {
+        "success": failed == 0,
+        "passed": passed,
+        "failed": failed,
+        "total": len(tests),
+        "rate": rate,
+        "results": results
+    }
+
+def run_frontend_test() -> bool:
+    """Frontend erişilebilir mi kontrol et."""
+    if not REQUESTS_AVAILABLE:
+        return False
+    
+    try:
+        resp = requests.get(f"http://localhost:{ServicePort.NEXTJS.value}", timeout=5)
+        return resp.status_code == 200
+    except:
+        return False
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SERVICE MANAGEMENT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def stream_output(proc: subprocess.Popen, service_name: str):
-    """Process çıktısını izle (sadece loglama amaçlı)."""
-    try:
-        while not state.shutdown_requested:
-            if proc.poll() is not None:
-                break  # Process bitti
-            
-            try:
-                line = proc.stdout.readline()
-                if line:
-                    decoded = line.decode('utf-8', errors='ignore').strip()
-                    # Önemli hataları logla
-                    if any(word in decoded.lower() for word in ['error', 'exception', 'failed', 'critical']):
-                        # Çok uzun satırları kısalt
-                        log(decoded[:100], "warning", service_name)
-                elif proc.stdout.closed:
-                    break  # stdout kapandı
-            except:
-                break
-    except:
-        pass
-
-def wait_for_health(url: str, timeout: int = 45) -> bool:
+def wait_for_service(port: int, endpoint: str = "/", timeout: int = 60) -> bool:
     """Servisin hazır olmasını bekle."""
-    import requests
+    if not REQUESTS_AVAILABLE:
+        time.sleep(5)
+        return not is_port_available(port)
     
     start = time.time()
     while time.time() - start < timeout:
         try:
-            response = requests.get(url, timeout=3)
-            if response.status_code in [200, 304]:
+            resp = requests.get(f"http://localhost:{port}{endpoint}", timeout=3)
+            if resp.status_code in [200, 304]:
                 return True
         except:
             pass
-        time.sleep(1)
+        time.sleep(2)
+    
     return False
 
-# ═══════════════════════════════════════════════════════════════
-# API SERVICE
-# ═══════════════════════════════════════════════════════════════
-
-def start_api():
+def start_api() -> bool:
     """FastAPI backend'i başlat."""
     config = SERVICES["api"]
     
-    if not ensure_port_available(config.port):
+    if not ensure_port_free(config.port):
         state.processes["api"].status = ServiceStatus.ERROR
-        state.processes["api"].last_error = "Port unavailable"
+        state.processes["api"].last_error = "Port kullanılamıyor"
         return False
     
     log(f"API başlatılıyor (port {config.port})...", "loading", "api")
@@ -781,880 +1065,616 @@ def start_api():
         "--log-level", "warning"
     ]
     
-    # Log dosyasına yönlendir - DEBUG için önemli
-    log_file = get_log_file("api")
-    write_to_service_log("api", f"API starting on port {config.port}", "INFO")
+    # Log dosyası
+    log_file = LOG_DIR / f"api_{datetime.now().strftime('%Y%m%d')}.log"
     
-    with open(log_file, "a", encoding="utf-8") as api_log:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(PROJECT_ROOT),
-            env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0,
-            stdout=api_log,
-            stderr=api_log,
-            start_new_session=True if sys.platform != 'win32' else False,
+    # Log dosyasını aç (subprocess devam ederken açık kalmalı)
+    log_handle = open(log_file, "a", encoding="utf-8")
+    log_handle.write(f"\n{'='*60}\n")
+    log_handle.write(f"API Starting at {datetime.now()}\n")
+    log_handle.write(f"Command: {' '.join(cmd)}\n")
+    log_handle.write(f"{'='*60}\n")
+    log_handle.flush()
+    
+    # Windows'ta subprocess'i tamamen izole et
+    # CREATE_NEW_PROCESS_GROUP: Yeni process grubu oluştur
+    # DETACHED_PROCESS: Ana process'ten bağımsız çalışsın
+    # CREATE_NO_WINDOW: Console penceresi açmasın
+    if sys.platform == 'win32':
+        creation_flags = (
+            subprocess.CREATE_NEW_PROCESS_GROUP |
+            subprocess.DETACHED_PROCESS |
+            subprocess.CREATE_NO_WINDOW
         )
+    else:
+        creation_flags = 0
+    
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(PROJECT_ROOT),
+        env=env,
+        stdout=log_handle,
+        stderr=log_handle,
+        creationflags=creation_flags,
+        start_new_session=True if sys.platform != 'win32' else False,
+    )
+    
+    # Log handle'ı sakla (cleanup'ta kapatılacak)
+    state.processes["api"].log_handle = log_handle
     
     state.processes["api"].process = proc
     state.processes["api"].started_at = datetime.now()
     
     # Health check
-    if wait_for_health(f"http://localhost:{config.port}/health", config.startup_timeout):
+    if wait_for_service(config.port, config.health_endpoint, config.startup_timeout):
         state.processes["api"].status = ServiceStatus.RUNNING
         log(f"API hazır (port {config.port})", "success", "api")
         return True
     else:
         state.processes["api"].status = ServiceStatus.ERROR
         state.processes["api"].last_error = "Health check timeout"
-        log("API health check başarısız", "warning", "api")
+        log("API başlatılamadı!", "error", "api")
         return False
 
-# ═══════════════════════════════════════════════════════════════
-# NEXT.JS SERVICE
-# ═══════════════════════════════════════════════════════════════
-
-def check_node_installed() -> tuple:
-    """
-    Node.js kurulu mu ve sürümü uygun mu?
-    
-    Returns:
-        (installed: bool, version: str, npm_available: bool)
-    """
-    try:
-        # Node.js version check
-        result = subprocess.run(
-            ["node", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
-            shell=True if sys.platform == 'win32' else False
-        )
-        if result.returncode != 0:
-            return False, "", False
-        
-        node_version = result.stdout.strip()
-        
-        # npm check
-        npm_result = subprocess.run(
-            ["npm", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
-            shell=True if sys.platform == 'win32' else False
-        )
-        npm_available = npm_result.returncode == 0
-        
-        return True, node_version, npm_available
-    except Exception as e:
-        return False, "", False
-
-
-def verify_npm_cache() -> bool:
-    """npm cache'i temiz mi kontrol et."""
-    try:
-        result = subprocess.run(
-            ["npm", "cache", "verify"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            shell=True if sys.platform == 'win32' else False,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        )
-        return result.returncode == 0
-    except:
-        return True  # Hata olursa devam et
-
-def ensure_nextjs_deps() -> bool:
-    """
-    Next.js bağımlılıklarını kontrol et/yükle.
-    
-    BULLET-PROOF versiyon:
-    - node_modules varlık kontrolü
-    - Kritik paketlerin varlık kontrolü
-    - npm install with --legacy-peer-deps fallback
-    - npm cache clean on failure
-    """
-    nextjs_dir = PROJECT_ROOT / "frontend-next"
-    node_modules = nextjs_dir / "node_modules"
-    
-    # Kritik paketlerin varlığını kontrol et
-    critical_packages = ["next", "react", "react-dom", "socket.io-client"]
-    all_present = True
-    
-    if node_modules.exists():
-        for pkg in critical_packages:
-            if not (node_modules / pkg).exists():
-                all_present = False
-                log(f"Eksik paket: {pkg}", "warning", "nextjs")
-                break
-    else:
-        all_present = False
-    
-    if all_present:
-        log("Tüm Next.js bağımlılıkları mevcut ✓", "success", "nextjs")
-        return True
-    
-    log("Next.js bağımlılıkları yükleniyor...", "loading", "nextjs")
-    
-    # Ortam değişkenleri
-    env = os.environ.copy()
-    env['npm_config_legacy_peer_deps'] = 'true'  # Peer dep hatalarını önle
-    
-    try:
-        # İlk deneme: normal npm install
-        result = subprocess.run(
-            "npm install",
-            cwd=str(nextjs_dir),
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 dakika timeout
-            shell=True,
-            env=env,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        )
-        
-        if result.returncode == 0:
-            log("Bağımlılıklar yüklendi ✓", "success", "nextjs")
-            return True
-        
-        # İkinci deneme: legacy-peer-deps ile
-        log("npm install tekrar deneniyor (legacy-peer-deps)...", "loading", "nextjs")
-        result = subprocess.run(
-            "npm install --legacy-peer-deps",
-            cwd=str(nextjs_dir),
-            capture_output=True,
-            text=True,
-            timeout=600,
-            shell=True,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        )
-        
-        if result.returncode == 0:
-            log("Bağımlılıklar yüklendi (legacy mode) ✓", "success", "nextjs")
-            return True
-        
-        # Hata detayını logla
-        error_msg = result.stderr[:200] if result.stderr else "Bilinmeyen hata"
-        log(f"npm install hatası: {error_msg}", "error", "nextjs")
-        write_to_service_log("nextjs", f"npm install failed: {result.stderr}", "ERROR")
-        
-        return False
-        
-    except subprocess.TimeoutExpired:
-        log("npm install zaman aşımı (10 dakika)!", "error", "nextjs")
-        return False
-    except Exception as e:
-        log(f"npm install exception: {e}", "error", "nextjs")
-        return False
-
-def ensure_nextjs_build() -> bool:
-    """Next.js production build kontrol et/yap."""
-    nextjs_dir = PROJECT_ROOT / "frontend-next"
-    next_build = nextjs_dir / ".next"
-    
-    if next_build.exists() and (next_build / "BUILD_ID").exists():
-        return True
-    
-    log("Next.js production build yapılıyor...", "loading", "nextjs")
-    
-    try:
-        result = subprocess.run(
-            ["npm", "run", "build"],
-            cwd=str(nextjs_dir),
-            capture_output=True,
-            text=True,
-            timeout=300,
-            shell=True if sys.platform == 'win32' else False
-        )
-        if result.returncode == 0:
-            log("Production build tamamlandı", "success", "nextjs")
-            return True
-        else:
-            log(f"Build hatası: {result.stderr[:150]}", "warning", "nextjs")
-            return False
-    except Exception as e:
-        log(f"Build exception: {e}", "error", "nextjs")
-        return False
-
-def check_websocket_compatibility() -> bool:
-    """
-    WebSocket bağlantısı için gerekli kontrolleri yap.
-    
-    Socket.io-client frontend'de, backend WebSocket endpoint'i API'de.
-    """
-    try:
-        # API WebSocket endpoint kontrolü
-        import requests
-        response = requests.get(
-            f"http://localhost:{ServicePort.API.value}/ws/health",
-            timeout=3
-        )
-        return response.status_code in [200, 404, 426]  # 426 = Upgrade Required (normal)
-    except:
-        return True  # API henüz başlamadıysa sorun yok
-
-
-def start_nextjs(dev_mode: bool = False):
-    """Next.js frontend'i başlat - HIZLI ve GÜVENILIR versiyon."""
+def start_nextjs() -> bool:
+    """Next.js frontend'i başlat."""
     config = SERVICES["nextjs"]
     nextjs_dir = PROJECT_ROOT / "frontend-next"
     
     if not nextjs_dir.exists():
-        log("Next.js klasörü bulunamadı!", "error", "nextjs")
+        log("Next.js dizini bulunamadı!", "error", "nextjs")
         return False
     
-    # Node.js kontrolü - geliştirilmiş
-    node_ok, node_version, npm_ok = check_node_installed()
+    # Node.js kontrolü
+    node_ok, node_version = check_node_installed()
     if not node_ok:
         log("Node.js kurulu değil! https://nodejs.org", "error", "nextjs")
-        log("💡 Node.js LTS sürümünü indirin: https://nodejs.org/en/download/", "info")
         return False
     
-    if not npm_ok:
-        log("npm bulunamadı! Node.js kurulumunu kontrol edin.", "error", "nextjs")
-        return False
+    log(f"Node.js {node_version} ✓", "success", "nextjs")
     
-    log(f"Node.js {node_version} tespit edildi ✓", "success", "nextjs")
-    
-    # ═══════ ADIM 1: HIZLI PORT TEMİZLİĞİ ═══════
-    log(f"Port {config.port} hazırlanıyor...", "loading", "nextjs")
-    
-    # Port zaten boşsa temizlik atla (FAST PATH)
-    if not is_port_available(config.port):
-        # Sadece gerekirse node process'lerini öldür
-        kill_processes_by_name('node.exe')
-        time.sleep(1)  # 3s -> 1s
+    # ═══════════════════════════════════════════════════════════════════
+    # NEXT.JS CACHE CLEANUP - Module not found hatalarını önler
+    # ═══════════════════════════════════════════════════════════════════
+    next_cache = nextjs_dir / ".next"
+    if next_cache.exists():
+        # Cache'in boyutunu kontrol et
+        cache_size = sum(f.stat().st_size for f in next_cache.rglob('*') if f.is_file()) / (1024 * 1024)
         
-        # Port'u hızlıca temizle
-        if not ensure_port_available(config.port, max_attempts=5):  # 15 -> 5
-            state.processes["nextjs"].status = ServiceStatus.ERROR
-            state.processes["nextjs"].last_error = f"Port {config.port} temizlenemedi"
-            return False
+        # Cache bozuk olabilir mi kontrol et
+        cache_corrupted = False
         
-        time.sleep(1)  # 5s -> 1s (Windows port release için minimal bekleme)
+        # 817.js gibi chunk dosyaları eksikse cache bozuk
+        cache_chunks = list(next_cache.glob("**/*.js"))
+        if len(cache_chunks) > 0:
+            # Chunk reference hatası olabilir mi?
+            build_manifest = next_cache / "build-manifest.json"
+            if build_manifest.exists():
+                try:
+                    import json
+                    with open(build_manifest, 'r') as f:
+                        manifest = json.load(f)
+                    # Manifest'teki dosyaların varlığını kontrol et
+                    for page, chunks in manifest.get("pages", {}).items():
+                        for chunk in chunks[:3]:  # İlk 3 chunk'ı kontrol et
+                            chunk_path = nextjs_dir / ".next" / chunk
+                            if not chunk_path.exists():
+                                cache_corrupted = True
+                                log(f"Eksik chunk tespit edildi: {chunk}", "warning", "nextjs")
+                                break
+                        if cache_corrupted:
+                            break
+                except Exception:
+                    pass
+        
+        if cache_corrupted:
+            log("⚠️ Bozuk Next.js cache tespit edildi, temizleniyor...", "warning", "nextjs")
+            try:
+                shutil.rmtree(next_cache)
+                log("✅ Next.js cache temizlendi", "success", "nextjs")
+            except Exception as e:
+                log(f"Cache temizleme hatası: {e}", "warning", "nextjs")
     
-    log(f"Port {config.port} hazır ✓", "success", "nextjs")
-    
-    # ═══════ ADIM 2: BAĞIMLILIK KONTROLÜ ═══════
-    if not ensure_nextjs_deps():
+    # Port temizle
+    if not ensure_port_free(config.port):
         state.processes["nextjs"].status = ServiceStatus.ERROR
-        state.processes["nextjs"].last_error = "npm install failed"
+        state.processes["nextjs"].last_error = "Port kullanılamıyor"
         return False
     
-    # ═══════ ADIM 3: NEXT.JS BAŞLATMA ═══════
+    # node_modules kontrolü
+    node_modules = nextjs_dir / "node_modules"
+    if not node_modules.exists() or not (node_modules / "next").exists():
+        log("npm install çalıştırılıyor...", "loading", "nextjs")
+        try:
+            result = subprocess.run(
+                "npm install --legacy-peer-deps",
+                cwd=str(nextjs_dir),
+                shell=True,
+                capture_output=True,
+                timeout=300,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            )
+            if result.returncode != 0:
+                log("npm install başarısız!", "error", "nextjs")
+                return False
+            log("npm install tamamlandı", "success", "nextjs")
+        except Exception as e:
+            log(f"npm install hatası: {e}", "error", "nextjs")
+            return False
+    
     log(f"Next.js başlatılıyor (port {config.port})...", "loading", "nextjs")
     state.processes["nextjs"].status = ServiceStatus.STARTING
     
-    # Development mode - en güvenilir seçenek
-    mode = "development"
-    log(f"Next.js {mode} mode başlatılıyor...", "rocket", "nextjs")
-    
-    # ═══════ ADIM 4: ENVIRONMENT HAZIRLA ═══════
     env = os.environ.copy()
     env['NEXT_PUBLIC_API_URL'] = f'http://localhost:{ServicePort.API.value}'
-    env['NEXT_PUBLIC_WS_URL'] = f'ws://localhost:{ServicePort.API.value}'  # WebSocket URL
     env['PORT'] = str(config.port)
     env['NODE_ENV'] = 'development'
-    env['NEXT_TELEMETRY_DISABLED'] = '1'  # Telemetry kapat
+    env['NEXT_TELEMETRY_DISABLED'] = '1'
     
-    # Log dosyasına yönlendir
-    log_file = get_log_file("nextjs")
-    write_to_service_log("nextjs", f"Next.js starting on port {config.port}", "INFO")
-    write_to_service_log("nextjs", f"API URL: http://localhost:{ServicePort.API.value}", "INFO")
-    write_to_service_log("nextjs", f"WS URL: ws://localhost:{ServicePort.API.value}", "INFO")
+    # Log dosyası
+    log_file = LOG_DIR / f"nextjs_{datetime.now().strftime('%Y%m%d')}.log"
     
-    # ═══════ ADIM 5: PROCESS BAŞLAT ═══════
-    with open(log_file, "a", encoding="utf-8") as nextjs_log:
-        # Windows'ta cmd /c ile başlat - en güvenilir yöntem
+    # Log dosyasını aç (subprocess devam ederken açık kalmalı)
+    log_handle = open(log_file, "a", encoding="utf-8")
+    log_handle.write(f"\n{'='*60}\n")
+    log_handle.write(f"Next.js Starting at {datetime.now()}\n")
+    log_handle.write(f"{'='*60}\n")
+    log_handle.flush()
+    
+    # Windows'ta VBScript wrapper kullan - %100 gizli çalışır
+    # Node.js subprocess'leri CREATE_NO_WINDOW flag'ini miras almıyor
+    # Bu yüzden VBScript ile tamamen gizli başlatıyoruz
+    if sys.platform == 'win32':
+        node_exe = shutil.which("node.exe") or shutil.which("node") or "node.exe"
+        next_cli = nextjs_dir / "node_modules" / "next" / "dist" / "bin" / "next"
+        
+        if not next_cli.exists():
+            # Fallback path
+            next_cli = nextjs_dir / "node_modules" / ".bin" / "next"
+        
+        # Geçici VBS dosyası oluştur - daha güvenli escape yöntemi
+        vbs_file = PROJECT_ROOT / ".nextjs_launcher.vbs"
+        
+        # Yolları string olarak al (VBS'te backslash escape gerekmez)
+        node_path = str(node_exe)
+        next_path = str(next_cli)
+        nextjs_path = str(nextjs_dir)
+        
+        vbs_content = f'''On Error Resume Next
+Set objShell = CreateObject("WScript.Shell")
+objShell.CurrentDirectory = "{nextjs_path}"
+
+' Environment variables
+Set objEnv = objShell.Environment("Process")
+objEnv("NEXT_PUBLIC_API_URL") = "http://localhost:{ServicePort.API.value}"
+objEnv("PORT") = "{config.port}"
+objEnv("NODE_ENV") = "development"
+objEnv("NEXT_TELEMETRY_DISABLED") = "1"
+
+' Node.js ile Next.js başlat - 0 = gizli pencere
+strNode = "{node_path}"
+strNext = "{next_path}"
+strCmd = Chr(34) & strNode & Chr(34) & " " & Chr(34) & strNext & Chr(34) & " dev -p {config.port}"
+objShell.Run strCmd, 0, False
+'''
+        
+        with open(vbs_file, 'w', encoding='utf-8') as f:
+            f.write(vbs_content)
+        
+        # VBS dosyasını wscript ile çalıştır
         proc = subprocess.Popen(
-            ["cmd", "/c", "npm run dev"],
+            ['wscript.exe', str(vbs_file)],
+            cwd=str(nextjs_dir),
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        
+        log_handle.write(f"VBS launcher kullanıldı: {vbs_file}\n")
+        log_handle.flush()
+    else:
+        proc = subprocess.Popen(
+            ["npm", "run", "dev"],
             cwd=str(nextjs_dir),
             env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            stdout=nextjs_log,
-            stderr=nextjs_log,
+            stdout=log_handle,
+            stderr=log_handle,
+            start_new_session=True,
         )
+    
+    # Log handle'ı sakla
+    state.processes["nextjs"].log_handle = log_handle
     
     state.processes["nextjs"].process = proc
     state.processes["nextjs"].started_at = datetime.now()
     
-    # ═══════ ADIM 6: HEALTH CHECK ═══════
-    # Dev mode için akıllı bekleme
-    wait_time = 120  # 3 dakika -> 2 dakika (yeterli)
-    log(f"Next.js hazır olması bekleniyor (max {wait_time}s)...", "loading", "nextjs")
+    # Health check - Next.js için daha uzun bekle
+    log("Next.js derleniyor, bu birkaç dakika sürebilir...", "loading", "nextjs")
     
-    # İlk başlangıç için bekle - 15s -> 5s (process başlaması için yeterli)
-    time.sleep(5)
-    
-    # Progressive health check - her 3 saniyede kontrol et (5s -> 3s)
-    start_check = time.time()
-    health_ok = False
-    last_status = ""
-    
-    while time.time() - start_check < wait_time:
-        # Process hala çalışıyor mu?
-        if proc.poll() is not None:
-            log("Next.js process beklenmedik şekilde sonlandı!", "error", "nextjs")
-            # Log dosyasından hatayı oku
-            try:
-                with open(log_file, "r", encoding="utf-8") as f:
-                    last_lines = f.readlines()[-20:]
-                    error_lines = [l for l in last_lines if 'error' in l.lower()]
-                    if error_lines:
-                        log(f"Hata: {error_lines[-1].strip()[:100]}", "error", "nextjs")
-            except:
-                pass
-            state.processes["nextjs"].status = ServiceStatus.ERROR
-            state.processes["nextjs"].last_error = "Process terminated unexpectedly"
-            return False
-        
-        # HTTP health check
-        try:
-            import requests
-            response = requests.get(f"http://localhost:{config.port}", timeout=3)  # 5s -> 3s
-            if response.status_code in [200, 304]:
-                health_ok = True
-                break
-            else:
-                current_status = f"status {response.status_code}"
-        except requests.exceptions.ConnectionError:
-            current_status = "bağlantı bekleniyor..."
-        except requests.exceptions.Timeout:
-            current_status = "timeout..."
-        except Exception as e:
-            current_status = str(e)[:50]
-        
-        # Status değiştiyse logla
-        if current_status != last_status:
-            log(f"Next.js: {current_status}", "loading", "nextjs")
-            last_status = current_status
-        
-        time.sleep(3)  # 5s -> 3s (daha sık kontrol)
-    
-    if health_ok:
+    if wait_for_service(config.port, config.health_endpoint, config.startup_timeout):
         state.processes["nextjs"].status = ServiceStatus.RUNNING
-        elapsed = int(time.time() - start_check)
-        log(f"Next.js hazır (port {config.port}) - {elapsed}s [{mode}]", "success", "nextjs")
+        log(f"Next.js hazır (port {config.port})", "success", "nextjs")
         return True
     else:
-        # Process hala çalışıyor mu kontrol et
+        # Process çalışıyor mu kontrol et
         if proc.poll() is None:
-            # Process çalışıyor ama henüz ready değil - devam et
-            log("Next.js henüz tam hazır değil ama process çalışıyor, devam ediliyor...", "warning", "nextjs")
+            log("Next.js henüz derlenmiyor ama process çalışıyor", "warning", "nextjs")
             state.processes["nextjs"].status = ServiceStatus.RUNNING
             return True
-        else:
-            state.processes["nextjs"].status = ServiceStatus.ERROR
-            state.processes["nextjs"].last_error = "Health check timeout"
-            log("Next.js başlatılamadı!", "error", "nextjs")
-            return False
-
-# ═══════════════════════════════════════════════════════════════
-# STREAMLIT SERVICE
-# ═══════════════════════════════════════════════════════════════
-
-def start_streamlit():
-    """Streamlit frontend'i başlat."""
-    config = SERVICES["streamlit"]
-    frontend_path = PROJECT_ROOT / "frontend" / "app.py"
-    
-    if not frontend_path.exists():
-        log(f"Streamlit app.py bulunamadı: {frontend_path}", "error", "streamlit")
-        return False
-    
-    if not ensure_port_available(config.port):
-        state.processes["streamlit"].status = ServiceStatus.ERROR
-        return False
-    
-    log(f"Streamlit başlatılıyor (port {config.port})...", "loading", "streamlit")
-    state.processes["streamlit"].status = ServiceStatus.STARTING
-    
-    env = os.environ.copy()
-    env['API_BASE_URL'] = f'http://localhost:{ServicePort.API.value}'
-    env['STREAMLIT_SERVER_PORT'] = str(config.port)
-    env['PYTHONUNBUFFERED'] = '1'
-    
-    cmd = [
-        sys.executable, "-m", "streamlit", "run", str(frontend_path),
-        "--server.port", str(config.port),
-        "--server.headless", "true",
-        "--browser.gatherUsageStats", "false",
-        "--theme.primaryColor", "#667eea",
-    ]
-    
-    # Log dosyasına yönlendir - DEBUG için önemli
-    log_file = get_log_file("streamlit")
-    write_to_service_log("streamlit", f"Streamlit starting on port {config.port}", "INFO")
-    
-    with open(log_file, "a", encoding="utf-8") as streamlit_log:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(PROJECT_ROOT),
-            env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0,
-            stdout=streamlit_log,
-            stderr=streamlit_log,
-            start_new_session=True if sys.platform != 'win32' else False,
-        )
-    
-    state.processes["streamlit"].process = proc
-    state.processes["streamlit"].started_at = datetime.now()
-    
-    # Health check
-    time.sleep(2)
-    if wait_for_health(f"http://localhost:{config.port}", config.startup_timeout):
-        state.processes["streamlit"].status = ServiceStatus.RUNNING
-        log(f"Streamlit hazır (port {config.port})", "success", "streamlit")
-        return True
-    else:
-        state.processes["streamlit"].status = ServiceStatus.ERROR
-        log("Streamlit health check başarısız", "warning", "streamlit")
-        return False
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PROCESS MONITORING
-# ══════════════════════════════════════════════════════════════════════════════
-
-def is_service_healthy(service_name: str) -> bool:
-    """Servisin gerçekten sağlıklı olup olmadığını kontrol et."""
-    config = SERVICES.get(service_name)
-    if not config:
-        return False
-    
-    # Port dinleniyor mu?
-    if is_port_available(config.port):
-        return False  # Port boşsa servis çalışmıyor
-    
-    # Health endpoint varsa kontrol et
-    if config.health_endpoint:
-        try:
-            import requests
-            url = f"http://localhost:{config.port}{config.health_endpoint}"
-            response = requests.get(url, timeout=3)
-            return response.status_code in [200, 304]
-        except:
-            # Health check başarısız ama port dinleniyor - servis muhtemelen başlıyor
-            return True
-    
-    return True  # Port dinleniyor, health endpoint yok
-
-def monitor_services(services: List[str], dev_mode: bool = False):
-    """
-    Servisleri izle ve gerekirse yeniden başlat.
-    
-    ÖNEMLİ DEĞİŞİKLİKLER:
-    - 60 saniye stabilizasyon süresi (30'dan artırıldı)
-    - Sadece process GERÇEKTEN ölmüşse yeniden başlat
-    - Port dinleniyorsa ASLA yeniden başlatma
-    - 10 saniye aralıklarla kontrol (5'ten artırıldı)
-    """
-    error_logged = set()
-    stable_count = {s: 0 for s in services}
-    
-    # 60 saniye stabilizasyon - KRITIK: ilk compile uzun sürer
-    initial_stabilization = 60
-    start_time = time.time()
-    
-    log("Servisler izleniyor... (Ctrl+C ile çıkış)", "info")
-    
-    while not state.shutdown_requested:
-        elapsed = time.time() - start_time
         
-        for service_name in services:
-            proc_info = state.processes.get(service_name)
-            if not proc_info:
-                continue
-            
-            # Zaten hata durumundaysa atla
-            if proc_info.status == ServiceStatus.ERROR:
-                continue
-            
-            config = SERVICES[service_name]
-            
-            # KRITIK: Port dinleniyorsa servis çalışıyor demektir - ASLA dokunma
-            if not is_port_available(config.port):
-                # Port kullanılıyor = servis çalışıyor
-                if proc_info.status != ServiceStatus.RUNNING:
-                    proc_info.status = ServiceStatus.RUNNING
-                stable_count[service_name] = 0
-                continue
-            
-            # İlk stabilizasyon süresinde yeniden başlatma yapma
-            if elapsed < initial_stabilization:
-                continue
-            
-            # Port boş VE process ölmüş mü kontrol et
-            process_dead = proc_info.process is None or proc_info.process.poll() is not None
-            
-            if not process_dead:
-                # Process çalışıyor ama port boş - henüz başlıyor olabilir
-                stable_count[service_name] += 1
-                if stable_count[service_name] < 6:  # 60 saniye bekle (6 * 10s)
-                    continue
-            
-            # Yeniden başlatma gerekiyor - SADECE process ölmüşse
-            if process_dead and proc_info.restart_count < config.max_restarts:
-                log(f"{config.name} durdu, yeniden başlatılıyor...", "warning", service_name)
-                proc_info.restart_count += 1
-                proc_info.status = ServiceStatus.RESTARTING
-                stable_count[service_name] = 0
-                
-                # Eski process'i temizle
-                if proc_info.process:
-                    try:
-                        proc_info.process.terminate()
-                        proc_info.process.wait(timeout=5)
-                    except:
-                        try:
-                            proc_info.process.kill()
-                        except:
-                            pass
-                
-                # Port temizlenmesi için bekle - UZUN bekle
-                time.sleep(5)
-                ensure_port_available(config.port)
-                time.sleep(3)
-                
-                if service_name == "api":
-                    start_api()
-                elif service_name == "nextjs":
-                    start_nextjs(dev_mode)
-                elif service_name == "streamlit":
-                    start_streamlit()
-            elif proc_info.restart_count >= config.max_restarts:
-                if service_name not in error_logged:
-                    log(f"{config.name} çok fazla yeniden başlatıldı, durduruldu.", "error", service_name)
-                    error_logged.add(service_name)
-                proc_info.status = ServiceStatus.ERROR
-        
-        time.sleep(10)  # 10 saniye aralıklarla kontrol (5'ten artırıldı)
+        state.processes["nextjs"].status = ServiceStatus.ERROR
+        state.processes["nextjs"].last_error = "Health check timeout"
+        log("Next.js başlatılamadı!", "error", "nextjs")
+        return False
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CLEANUP - Enhanced Edition
+# CLEANUP
 # ══════════════════════════════════════════════════════════════════════════════
 
 _cleanup_done = False
+_cleanup_reason = "unknown"
 
-def cleanup():
-    """Tüm process'leri temiz bir şekilde kapat ve lock'u serbest bırak."""
-    global _cleanup_done
-    
-    # Cleanup zaten yapıldıysa tekrar yapma
+def cleanup(reason: str = None):
+    """Tüm process'leri temiz kapat."""
+    global _cleanup_done, _cleanup_reason
     if _cleanup_done:
         return
     _cleanup_done = True
     
+    if reason:
+        _cleanup_reason = reason
+    
     state.shutdown_requested = True
     
+    # Cleanup sebebini logla - debug için önemli
+    import traceback
+    stack = ''.join(traceback.format_stack()[-5:-1])
+    log(f"Servisler durduruluyor... (sebep: {_cleanup_reason})", "loading")
+    
+    # Log dosyasına detaylı bilgi yaz
+    try:
+        cleanup_log = LOG_DIR / "cleanup_debug.log"
+        with open(cleanup_log, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"Cleanup called at {datetime.now()}\n")
+            f.write(f"Reason: {_cleanup_reason}\n")
+            f.write(f"Stack trace:\n{stack}\n")
+            f.write(f"{'='*60}\n")
+    except:
+        pass
+    
     for name, proc_info in state.processes.items():
+        # Log handle'ı kapat
+        if hasattr(proc_info, 'log_handle') and proc_info.log_handle:
+            try:
+                proc_info.log_handle.close()
+            except:
+                pass
+        
         if proc_info.process is not None:
             try:
-                config = SERVICES.get(name)
-                if config:
-                    log(f"{config.name} durduruluyor...", "loading", name)
-                
-                # Nazik kapatma
                 proc_info.process.terminate()
                 try:
                     proc_info.process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    # Agresif kapatma
-                    proc_info.process.kill()
-                    try:
-                        proc_info.process.wait(timeout=3)
-                    except:
-                        pass
-            except:
-                try:
-                    proc_info.process.kill()
                 except:
-                    pass
+                    proc_info.process.kill()
+            except:
+                pass
     
-    # Portları da temizle (kalıntı olmaması için)
-    for config in SERVICES.values():
-        pids = get_pids_using_port(config.port)
-        for pid in pids:
-            if pid != os.getpid():  # Kendimizi öldürme
-                kill_process_tree(pid)
-    
-    # Lock'u serbest bırak
-    release_lock()
+    # Lock dosyalarını temizle
+    try:
+        LOCK_FILE.unlink(missing_ok=True)
+        PID_FILE.unlink(missing_ok=True)
+    except:
+        pass
     
     log("Tüm servisler durduruldu", "success")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ARGUMENT PARSING
+# MONITORING
+# ══════════════════════════════════════════════════════════════════════════════
+
+def monitor_services(services: List[str]):
+    """Servisleri izle - Bullet-proof versiyon."""
+    log("Servisler izleniyor... (Ctrl+C ile çıkış)", "info")
+    
+    # Her servis için son restart zamanını takip et (flood protection)
+    last_restart: Dict[str, datetime] = {}
+    restart_cooldown = 60  # En az 60 saniye bekle her restart arasında
+    
+    # Başlangıç grace period - ilk 120 saniye kontrol etme
+    startup_time = datetime.now()
+    startup_grace_period = 120  # seconds
+    
+    while not state.shutdown_requested:
+        time.sleep(15)  # Her 15 saniyede bir kontrol
+        
+        # Grace period kontrolü
+        elapsed = (datetime.now() - startup_time).total_seconds()
+        if elapsed < startup_grace_period:
+            continue
+        
+        for service_name in services:
+            proc_info = state.processes.get(service_name)
+            if not proc_info or proc_info.status == ServiceStatus.ERROR:
+                continue
+            
+            # Servis zaten STARTING durumundaysa bekle
+            if proc_info.status == ServiceStatus.STARTING:
+                continue
+            
+            config = SERVICES[service_name]
+            
+            # Cooldown kontrolü - çok sık restart yapma
+            if service_name in last_restart:
+                since_last = (datetime.now() - last_restart[service_name]).total_seconds()
+                if since_last < restart_cooldown:
+                    continue
+            
+            # Servis gerçekten çalışıyor mu? (Port bağlantı testi)
+            service_responding = is_service_running(config.port)
+            
+            if not service_responding:
+                # Port boş VE process ölmüş mü kontrol et
+                process_dead = False
+                if proc_info.process:
+                    poll_result = proc_info.process.poll()
+                    process_dead = poll_result is not None
+                
+                # Windows'ta CMD alt process'leri için ekstra kontrol
+                port_available = is_port_available(config.port)
+                
+                # Sadece hem port boş hem de process ölmüşse restart yap
+                if port_available and process_dead:
+                    log(f"{config.name} durdu, yeniden başlatılıyor...", "warning", service_name)
+                    last_restart[service_name] = datetime.now()
+                    
+                    if service_name == "api":
+                        start_api()
+                    elif service_name == "nextjs":
+                        start_nextjs()
+                elif not service_responding and not port_available:
+                    # Port kullanılıyor ama yanıt vermiyor - bekle
+                    log(f"{config.name} başlatılıyor, lütfen bekleyin...", "loading", service_name)
+
+def print_success():
+    """Başarılı başlatma mesajı."""
+    api_running = state.processes["api"].status == ServiceStatus.RUNNING
+    nextjs_running = state.processes["nextjs"].status == ServiceStatus.RUNNING
+    
+    print()
+    print(f"{Colors.GREEN}╔══════════════════════════════════════════════════════════════╗")
+    print(f"║   ✅ SERVİSLER BAŞARIYLA BAŞLATILDI!                         ║")
+    print(f"╠══════════════════════════════════════════════════════════════╣")
+    print(f"║                                                              ║")
+    if api_running:
+        print(f"║   📡 API:          http://localhost:{ServicePort.API.value}                    ║")
+        print(f"║   📚 API Docs:     http://localhost:{ServicePort.API.value}/docs               ║")
+    if nextjs_running:
+        print(f"║   ⚛️  Frontend:     http://localhost:{ServicePort.NEXTJS.value}                     ║")
+    print(f"║                                                              ║")
+    print(f"║   ⌨️  Durdurmak için: Ctrl+C                                  ║")
+    print(f"║                                                              ║")
+    print(f"╚══════════════════════════════════════════════════════════════╝{Colors.RESET}")
+    print()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ARGUMENTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def parse_args():
-    """Komut satırı argümanlarını parse et."""
+    """Argümanları parse et."""
     parser = argparse.ArgumentParser(
-        description="Enterprise AI Assistant - Çoklu Servis Başlatıcı",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"""
-╔══════════════════════════════════════════════════════════════╗
-║ KULLANIM ÖRNEKLERİ:                                          ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║   python run.py              → API + Next.js (varsayılan)    ║
-║   python run.py --all        → API + Next.js + Streamlit     ║
-║   python run.py --streamlit  → API + Streamlit               ║
-║   python run.py --next       → API + Next.js                 ║
-║   python run.py --api-only   → Sadece API                    ║
-║   python run.py --dev        → Development mode              ║
-║   python run.py --skip-ollama                                ║
-║                                                              ║
-║ PORTLAR:                                                     ║
-║   📡 API:       {ServicePort.API.value}                                      ║
-║   ⚛️  Next.js:   {ServicePort.NEXTJS.value}                                      ║
-║   🎨 Streamlit: {ServicePort.STREAMLIT.value}                                      ║
-╚══════════════════════════════════════════════════════════════╝
-        """
+        description="Enterprise AI Assistant - Bullet-Proof Runner v3.0"
     )
     
-    mode_group = parser.add_mutually_exclusive_group()
-    mode_group.add_argument("--all", "-a", action="store_true",
-                           help="Tüm frontend'leri başlat (Next.js + Streamlit)")
-    mode_group.add_argument("--next", "-n", action="store_true",
-                           help="Sadece Next.js frontend (varsayılan)")
-    mode_group.add_argument("--streamlit", "-s", action="store_true",
-                           help="Sadece Streamlit frontend")
-    mode_group.add_argument("--api-only", action="store_true",
-                           help="Sadece API sunucusu")
-    
-    parser.add_argument("--dev", "-d", action="store_true",
-                       help="Development mode (hot reload)")
-    parser.add_argument("--no-browser", action="store_true",
-                       help="Tarayıcıyı otomatik açma")
-    parser.add_argument("--skip-ollama", action="store_true",
-                       help="Ollama kontrolünü atla")
+    parser.add_argument("--api-only", action="store_true",
+                       help="Sadece API başlat")
+    parser.add_argument("--skip-frontend", action="store_true",
+                       help="Frontend başlatmayı atla")
+    parser.add_argument("--test", action="store_true",
+                       help="Önce testleri çalıştır, sonra başlat")
+    parser.add_argument("--test-only", action="store_true",
+                       help="Sadece testleri çalıştır, başlatma")
     parser.add_argument("--clean", action="store_true",
-                       help="Başlamadan önce tüm portları temizle")
-    parser.add_argument("--skip-health", action="store_true",
-                       help="Startup sağlık kontrollerini atla (hızlı başlatma)")
-    parser.add_argument("--health-only", action="store_true",
-                       help="Sadece sağlık kontrolü yap, servisleri başlatma")
+                       help="Portları temizle ve başlat")
+    parser.add_argument("--no-browser", action="store_true",
+                       help="Tarayıcı açma")
+    parser.add_argument("--status", action="store_true",
+                       help="Servislerin durumunu kontrol et")
+    parser.add_argument("--stop", action="store_true",
+                       help="Çalışan servisleri durdur")
+    parser.add_argument("--no-hide", action="store_true",
+                       help="Gizli modda yeniden başlatmayı atla (dahili kullanım)")
     
     return parser.parse_args()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STARTUP HEALTH CHECK INTEGRATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-def run_startup_health_checks(verbose: bool = True) -> bool:
-    """
-    Kapsamlı startup sağlık kontrolü.
-    
-    Returns:
-        True if system is ready to start services
-    """
-    try:
-        from core.startup_health import StartupHealthChecker
-        
-        log("🏥 Kapsamlı sağlık kontrolü başlatılıyor...", "loading")
-        
-        checker = StartupHealthChecker(project_dir=PROJECT_ROOT)
-        report = checker.run_all_checks(verbose=verbose)
-        
-        # Raporu kaydet
-        try:
-            checker.save_report()
-        except:
-            pass
-        
-        if report.is_ready:
-            log(f"✅ Sistem hazır ({report.passed_checks}/{report.total_checks} kontrol başarılı)", "success")
-            return True
-        else:
-            log(f"❌ Sistem hazır değil ({report.failed_checks} kritik hata)", "error")
-            
-            # Kritik hataları göster
-            for result in report.results:
-                if result.is_critical and result.status.value == "failed":
-                    log(f"  → {result.name}: {result.message}", "error")
-                    if result.fix_suggestion:
-                        log(f"    💡 Çözüm: {result.fix_suggestion}", "info")
-            
-            return False
-            
-    except ImportError:
-        log("⚠️ Sağlık kontrolü modülü yüklenemedi, basit kontrol yapılıyor...", "warning")
-        return run_basic_health_check()
-    except Exception as e:
-        log(f"⚠️ Sağlık kontrolü hatası: {e}", "warning")
-        return run_basic_health_check()
-
-
-def run_basic_health_check() -> bool:
-    """Basit sağlık kontrolü (fallback)."""
-    log("Temel kontroller yapılıyor...", "loading")
-    
-    # Python version check
-    major, minor = sys.version_info[:2]
-    if major < 3 or (major == 3 and minor < 10):
-        log(f"❌ Python {major}.{minor} çok eski (min: 3.10)", "error")
-        return False
-    
-    if major == 3 and minor > 13:
-        log(f"⚠️ Python {major}.{minor} çok yeni, sorunlar olabilir", "warning")
-    
-    # Data directory check
-    data_dir = PROJECT_ROOT / "data"
-    try:
-        data_dir.mkdir(parents=True, exist_ok=True)
-        (data_dir / "chroma_db").mkdir(parents=True, exist_ok=True)
-        (data_dir / "sessions").mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        log(f"❌ Dizin oluşturulamadı: {e}", "error")
-        return False
-    
-    log("✅ Temel kontroller tamamlandı", "success")
-    return True
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    """Ana çalıştırma fonksiyonu - Self-Healing Edition."""
+    """Ana çalıştırma fonksiyonu."""
     args = parse_args()
     
-    # Cleanup handler
+    # Cleanup handler - sadece atexit kullan, signal handler probleme yol açıyor
     atexit.register(cleanup)
     
-    # Signal handler
-    def signal_handler(sig, frame):
-        print("\n")
-        log("Kapatılıyor...", "loading")
-        cleanup()
-        log("Güle güle! 👋", "success")
+    # Windows'ta SIGINT handling - daha güvenli yaklaşım
+    def graceful_shutdown(signum, frame):
+        """Graceful shutdown handler."""
+        log(f"Sinyal alındı: {signum}, kapatılıyor...", "warning")
+        state.shutdown_requested = True
+        # cleanup() burada çağırma, atexit halledecek
         sys.exit(0)
     
-    signal.signal(signal.SIGINT, signal_handler)
-    if hasattr(signal, 'SIGTERM'):
-        signal.signal(signal.SIGTERM, signal_handler)
+    # Sadece SIGINT için handler (CTRL+C)
+    try:
+        signal.signal(signal.SIGINT, graceful_shutdown)
+        # Windows'ta SIGBREAK de yakala
+        if sys.platform == 'win32':
+            signal.signal(signal.SIGBREAK, graceful_shutdown)
+    except (AttributeError, ValueError):
+        pass  # Signal desteklenmiyorsa geç
     
     # Banner
     print_banner()
     state.start_time = datetime.now()
     
-    # ═══════ STEP 0: HEALTH CHECKS ═══════
-    if args.health_only:
-        log("Sadece sağlık kontrolü modu", "info")
-        is_ready = run_startup_health_checks(verbose=True)
-        sys.exit(0 if is_ready else 1)
+    # ═══════ ÖNCEKI INSTANCE KONTROLÜ ═══════
+    # Status ve stop modları hariç, önceki instance'ı otomatik kapat
+    if not args.status and not args.stop and not args.test_only:
+        if kill_previous_instance():
+            log("Önceki instance temizlendi, yeni başlatma yapılıyor...", "info")
+            time.sleep(2)  # Process'lerin tamamen kapanması için bekle
     
-    if not args.skip_health:
-        log("Startup sağlık kontrolü başlatılıyor...", "loading")
-        if not run_startup_health_checks(verbose=True):
-            log("❌ Sağlık kontrolü başarısız!", "error")
-            log("💡 Hataları düzeltin veya --skip-health ile atlayın", "info")
+    # Mevcut PID'i kaydet
+    save_current_pid()
+    
+    # ═══════ STATUS CHECK MODE ═══════
+    if args.status:
+        log("Servis durumları kontrol ediliyor...", "info")
+        api_ok = is_service_running(ServicePort.API.value)
+        frontend_ok = is_service_running(ServicePort.NEXTJS.value)
+        ollama_ok = is_service_running(11434)
+        
+        # GPU durumu
+        detect_gpu()
+        
+        print(f"\n{Colors.CYAN}┌─────────────────────────────────────────────────────┐{Colors.RESET}")
+        print(f"{Colors.CYAN}│              SERVİS DURUMU                          │{Colors.RESET}")
+        print(f"{Colors.CYAN}├─────────────────────────────────────────────────────┤{Colors.RESET}")
+        print(f"{Colors.CYAN}│{Colors.RESET} {'✅' if api_ok else '❌'} API (8001):      {'ONLINE' if api_ok else 'OFFLINE':10}                {Colors.CYAN}│{Colors.RESET}")
+        print(f"{Colors.CYAN}│{Colors.RESET} {'✅' if frontend_ok else '❌'} Frontend (3000): {'ONLINE' if frontend_ok else 'OFFLINE':10}                {Colors.CYAN}│{Colors.RESET}")
+        print(f"{Colors.CYAN}│{Colors.RESET} {'✅' if ollama_ok else '⚠️ '} Ollama (11434):  {'ONLINE' if ollama_ok else 'OFFLINE':10}                {Colors.CYAN}│{Colors.RESET}")
+        print(f"{Colors.CYAN}├─────────────────────────────────────────────────────┤{Colors.RESET}")
+        print(f"{Colors.CYAN}│              GPU DURUMU                             │{Colors.RESET}")
+        print(f"{Colors.CYAN}├─────────────────────────────────────────────────────┤{Colors.RESET}")
+        if GPU_INFO["available"]:
+            cuda_icon = "✅" if GPU_INFO["cuda_available"] else "❌"
+            mem_used = GPU_INFO["memory_total"] - GPU_INFO["memory_free"]
+            print(f"{Colors.CYAN}│{Colors.RESET} 🎮 {GPU_INFO['name'][:40]:40}     {Colors.CYAN}│{Colors.RESET}")
+            print(f"{Colors.CYAN}│{Colors.RESET}    Memory: {mem_used}/{GPU_INFO['memory_total']} MB ({GPU_INFO['utilization']}% kullanım)        {Colors.CYAN}│{Colors.RESET}")
+            print(f"{Colors.CYAN}│{Colors.RESET}    {cuda_icon} CUDA: {'Aktif' if GPU_INFO['cuda_available'] else 'Pasif'}  PyTorch: {GPU_INFO['pytorch_version'] or 'N/A':15}  {Colors.CYAN}│{Colors.RESET}")
+        else:
+            print(f"{Colors.CYAN}│{Colors.RESET} ❌ GPU bulunamadı                                   {Colors.CYAN}│{Colors.RESET}")
+        print(f"{Colors.CYAN}└─────────────────────────────────────────────────────┘{Colors.RESET}\n")
+        sys.exit(0)
+    
+    # ═══════ STOP MODE ═══════
+    if args.stop:
+        log("Çalışan servisler durduruluyor...", "loading")
+        stopped = 0
+        for port in [ServicePort.API.value, ServicePort.NEXTJS.value]:
+            if not is_port_available(port):
+                pids = get_pids_using_port(port)
+                for pid in pids:
+                    kill_process(pid)
+                    stopped += 1
+        if stopped > 0:
+            log(f"{stopped} servis durduruldu", "success")
+        else:
+            log("Çalışan servis bulunamadı", "info")
+        sys.exit(0)
+    
+    # ═══════ STEP 0: TEST-ONLY MODE (before cleaning) ═══════
+    if args.test_only:
+        log("Test-only mod", "info")
+        
+        # API zaten çalışıyor mu kontrol et (servise bağlanmayı dene)
+        if is_service_running(ServicePort.API.value):
+            log("API çalışıyor, testler başlatılıyor...", "success")
+            test_results = run_api_tests()
+            sys.exit(0 if test_results["success"] else 1)
+        else:
+            log("API çalışmıyor, önce başlatın: python run.py", "error")
             sys.exit(1)
-    else:
-        log("⚠️ Sağlık kontrolü atlandı (--skip-health)", "warning")
     
-    # Hangi servisleri başlatacağımızı belirle
-    services_to_start = ["api"]  # API her zaman
+    # ═══════ STEP 1: CHECK AND CLEAN PORTS (only if needed) ═══════
+    ports_to_clean = []
+    for config in SERVICES.values():
+        if not is_port_available(config.port):
+            ports_to_clean.append(config.port)
     
-    if args.all:
-        services_to_start.extend(["nextjs", "streamlit"])
-    elif args.streamlit:
-        services_to_start.append("streamlit")
-    elif args.api_only:
-        pass  # Sadece API
-    else:
-        # Varsayılan: Next.js
-        services_to_start.append("nextjs")
+    if ports_to_clean:
+        log(f"Dolu portlar temizleniyor: {ports_to_clean}", "loading")
+        for port in ports_to_clean:
+            ensure_port_free(port)
     
-    log(f"Başlatılacak servisler: {', '.join([SERVICES[s].name for s in services_to_start])}", "info")
+    # ═══════ STEP 2: PRE-FLIGHT TESTS ═══════
+    preflight = run_preflight_tests()
     
-    # ═══════ STEP 1: PREFLIGHT CLEANUP - THE MAGIC ═══════
-    # Bu adım tüm port çakışmalarını ve zombie process'leri otomatik temizler
-    if not preflight_cleanup():
-        log("❌ Pre-flight temizlik başarısız!", "error")
-        log("💡 Bilgisayarı yeniden başlatmayı deneyin", "info")
+    if not preflight["all_ok"]:
+        log("Pre-flight testler başarısız!", "error")
         sys.exit(1)
     
-    # Ekstra bekleme - Windows port release YAVAŞ
-    time.sleep(3)
+    # ═══════ STEP 3: DETERMINE SERVICES ═══════
+    services_to_start = ["api"]
     
-    # ═══════ STEP 2: OLLAMA ═══════
-    if not args.skip_ollama:
-        log("Ollama kontrol ediliyor...", "loading")
-        if not start_ollama():
-            log("Ollama başlatılamadı (isteğe bağlı)", "warning")
-    else:
-        log("Ollama kontrolü atlandı", "info")
+    if not args.api_only and not args.skip_frontend:
+        services_to_start.append("nextjs")
     
-    # ═══════ STEP 3: DIRECTORIES ═══════
-    log("Klasörler hazırlanıyor...", "loading")
-    try:
-        from core.config import settings
-        settings.ensure_directories()
-        log("Klasörler hazır", "success")
-    except Exception as e:
-        log(f"Klasör hatası (devam ediliyor): {e}", "warning")
+    log(f"Başlatılacak servisler: {', '.join(services_to_start)}", "info")
     
-    # ═══════ STEP 4: START SERVICES ═══════
-    log("Servisler başlatılıyor...", "rocket")
+    # ═══════ STEP 4: START API ═══════
+    api_started = False
+    for attempt in range(3):
+        if start_api():
+            api_started = True
+            break
+        log(f"API başlatma denemesi {attempt + 1}/3 başarısız, yeniden deneniyor...", "warning")
+        ensure_port_free(ServicePort.API.value)
+        time.sleep(1)
     
-    success = True
-    
-    # API - önce API başlamalı
-    if "api" in services_to_start:
-        if not start_api():
-            log("API başlatılamadı!", "error")
-            success = False
-        else:
-            # API'nin tam hazır olması için bekle
-            time.sleep(5)
-    
-    # Next.js
-    if "nextjs" in services_to_start and success:
-        if not start_nextjs(args.dev):
-            log("Next.js başlatılamadı (API hala çalışıyor)", "warning")
-    
-    # Streamlit
-    if "streamlit" in services_to_start and success:
-        if not start_streamlit():
-            log("Streamlit başlatılamadı!", "warning")
-    
-    if not success:
-        log("Kritik servis başlatılamadı, çıkılıyor...", "error")
+    if not api_started:
+        log("API başlatılamadı!", "error")
         cleanup()
-        return
+        sys.exit(1)
     
-    # ═══════ STEP 5: SUCCESS ═══════
-    active_services = [s for s in services_to_start 
-                      if state.processes[s].status == ServiceStatus.RUNNING]
+    # API tamamen hazır olana kadar bekle
+    time.sleep(2)
     
-    if not active_services:
-        log("Hiçbir servis başlatılamadı!", "error")
-        cleanup()
-        return
-        
-    print_success_panel(active_services)
-    
-    # ═══════ STEP 6: OPEN BROWSER ═══════
-    if not args.no_browser:
-        time.sleep(2)  # Servislerin tamamen hazır olması için bekle
+    # ═══════ STEP 5: RUN API TESTS (if requested) ═══════
+    if args.test:
         try:
-            if "nextjs" in active_services:
+            test_results = run_api_tests()
+            if not test_results["success"]:
+                log(f"API testleri başarısız ({test_results['failed']} hata)", "warning")
+            else:
+                log(f"API testleri başarılı ({test_results['passed']}/{test_results['total']})", "success")
+        except Exception as e:
+            log(f"API testleri çalıştırılamadı: {e}", "warning")
+    
+    # ═══════ STEP 6: START FRONTEND ═══════
+    if "nextjs" in services_to_start:
+        frontend_started = False
+        for attempt in range(2):
+            if start_nextjs():
+                frontend_started = True
+                break
+            log(f"Frontend başlatma denemesi {attempt + 1}/2 başarısız...", "warning")
+            ensure_port_free(ServicePort.NEXTJS.value)
+            time.sleep(1)
+        
+        if not frontend_started:
+            log("Frontend başlatılamadı (API çalışmaya devam ediyor)", "warning")
+    
+    # ═══════ STEP 7: SUCCESS ═══════
+    print_success()
+    
+    # ═══════ STEP 8: OPEN BROWSER ═══════
+    if not args.no_browser:
+        time.sleep(2)
+        try:
+            import webbrowser
+            if state.processes["nextjs"].status == ServiceStatus.RUNNING:
                 webbrowser.open(f"http://localhost:{ServicePort.NEXTJS.value}")
-            elif "streamlit" in active_services:
-                webbrowser.open(f"http://localhost:{ServicePort.STREAMLIT.value}")
-            elif "api" in active_services:
+            else:
                 webbrowser.open(f"http://localhost:{ServicePort.API.value}/docs")
         except:
             pass
     
-    # ═══════ STEP 7: MONITOR ═══════
+    # ═══════ STEP 9: MONITOR ═══════
     try:
-        monitor_services(services_to_start, args.dev)
+        monitor_services(services_to_start)
     except KeyboardInterrupt:
         pass
     finally:

@@ -346,6 +346,10 @@ class LLMManager:
                 options={
                     "temperature": temperature,
                     "num_predict": max_tokens,
+                    # GPU optimization settings from config
+                    "num_gpu": settings.OLLAMA_NUM_GPU,  # All layers on GPU
+                    "num_ctx": settings.OLLAMA_NUM_CTX,  # Context window
+                    "num_batch": settings.OLLAMA_NUM_BATCH,  # Batch size for prompt
                 },
             )
             
@@ -432,6 +436,10 @@ class LLMManager:
                 options={
                     "temperature": temperature,
                     "num_predict": max_tokens,
+                    # GPU optimization settings from config
+                    "num_gpu": settings.OLLAMA_NUM_GPU,
+                    "num_ctx": settings.OLLAMA_NUM_CTX,
+                    "num_batch": settings.OLLAMA_NUM_BATCH,
                 },
                 stream=True,
             )
@@ -466,11 +474,19 @@ class LLMManager:
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 65536,
+        model: Optional[str] = None,  # Model routing desteği
     ) -> AsyncGenerator[str, None]:
         """
         Async streaming LLM yanıtı üret.
         
         Async context'te streaming için kullanın.
+        
+        Args:
+            prompt: Kullanıcı mesajı
+            system_prompt: Sistem prompt'u (opsiyonel)
+            temperature: Sıcaklık parametresi (0.0-1.0)
+            max_tokens: Maksimum token sayısı
+            model: Kullanılacak model (None ise _current_model)
         
         Yields:
             Token parçaları
@@ -481,6 +497,9 @@ class LLMManager:
         start_time = time.time()
         self._metrics["total_requests"] += 1
         
+        # Model seçimi - parametre verilmediyse mevcut modeli kullan
+        target_model = model or self._current_model
+        
         messages = []
         
         if system_prompt:
@@ -489,7 +508,7 @@ class LLMManager:
         messages.append({"role": "user", "content": prompt})
         
         # Context window management
-        messages = ContextWindowManager.truncate_messages(messages, self._current_model)
+        messages = ContextWindowManager.truncate_messages(messages, target_model)
         
         # Queue for thread-safe communication
         import queue
@@ -500,11 +519,15 @@ class LLMManager:
             """Thread'de streaming yap."""
             try:
                 stream = self.client.chat(
-                    model=self._current_model,
+                    model=target_model,
                     messages=messages,
                     options={
                         "temperature": temperature,
                         "num_predict": max_tokens,
+                        # GPU optimization settings from config
+                        "num_gpu": settings.OLLAMA_NUM_GPU,
+                        "num_ctx": settings.OLLAMA_NUM_CTX,
+                        "num_batch": settings.OLLAMA_NUM_BATCH,
                     },
                     stream=True,
                 )

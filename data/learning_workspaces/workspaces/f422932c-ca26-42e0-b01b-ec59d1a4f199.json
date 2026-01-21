@@ -1,0 +1,17 @@
+{
+  "id": "f422932c-ca26-42e0-b01b-ec59d1a4f199",
+  "name": "Analysis Test 2026-01-20T00:34:57.957942",
+  "description": "",
+  "topic": "System Analysis",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "8f58f4dc-8ff4-4437-a50a-af4922131b9c"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "deleted",
+  "created_at": "2026-01-20T00:34:58.213469",
+  "updated_at": "2026-01-20T00:34:58.489907",
+  "settings": {}
+}

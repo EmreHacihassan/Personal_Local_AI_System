@@ -34,15 +34,18 @@ import {
   ChevronUp,
   HelpCircle,
   Search,
-  Keyboard
+  Keyboard,
+  Cpu
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { useStore, Message } from '@/store/useStore';
-import { sendChatMessage, streamChatMessage } from '@/lib/api';
+import { sendChatMessage } from '@/lib/api';
 import { cn, generateId, formatDate } from '@/lib/utils';
+import { useChatWebSocket } from '@/hooks/useWebSocket';
+import { ModelBadge, ComparisonView } from '@/components/chat/ModelBadge';
 
 // Sample questions with multi-language support
 const sampleQuestions = {
@@ -100,6 +103,13 @@ const responseLengths = [
   { id: 'very_long', tr: '📚 Çok Uzun', en: '📚 Very Long', de: '📚 Sehr Lang' },
 ];
 
+// Model Selection (Manual Override)
+const modelOptions = [
+  { id: 'auto', tr: '🤖 Otomatik', en: '🤖 Auto', de: '🤖 Automatisch', desc: { tr: 'AI karar verir', en: 'AI decides', de: 'KI entscheidet' }, color: 'bg-gradient-to-r from-violet-500 to-purple-500' },
+  { id: 'qwen-8b', tr: '🚀 Qwen 8B', en: '🚀 Qwen 8B', de: '🚀 Qwen 8B', desc: { tr: 'Büyük model - Detaylı', en: 'Large model - Detailed', de: 'Großes Modell - Detailliert' }, color: 'bg-gradient-to-r from-blue-500 to-cyan-500' },
+  { id: 'qwen-4b', tr: '⚡ Qwen 4B', en: '⚡ Qwen 4B', de: '⚡ Qwen 4B', desc: { tr: 'Küçük model - Hızlı', en: 'Small model - Fast', de: 'Kleines Modell - Schnell' }, color: 'bg-gradient-to-r from-emerald-500 to-green-500' },
+];
+
 export function ChatPage() {
   const {
     messages,
@@ -116,6 +126,8 @@ export function ChatPage() {
     setComplexityLevel,
     responseLength,
     setResponseLength,
+    selectedModel,
+    setSelectedModel,
     toggleMessageFavorite,
     editMessage,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -128,12 +140,37 @@ export function ChatPage() {
     templates,
     showTimestamps,
     autoScroll,
+    // Session management - for conversation persistence
+    currentSessionId,
+    setCurrentSession,
   } = useStore();
+
+  // WebSocket hook for real-time streaming with Model Routing
+  const {
+    isConnected: wsConnected,
+    status: wsStatus,
+    streamingResponse: wsStreamingResponse,
+    isStreaming: wsIsStreaming,
+    streamError: wsStreamError,
+    sources: wsSources,
+    statusMessage: wsStatusMessage,
+    sendChatMessage: wsSendChatMessage,
+    sendRoutedMessage: wsSendRoutedMessage,
+    stopStream: wsStopStream,
+    // Model Routing
+    routingInfo: wsRoutingInfo,
+    comparisonRouting: wsComparisonRouting,
+    sendFeedback: wsSendFeedback,
+    requestComparison: wsRequestComparison,
+    confirmFeedback: wsConfirmFeedback,
+    resetRoutingState: wsResetRoutingState,
+  } = useChatWebSocket(currentSessionId || undefined);
 
   const [inputValue, setInputValue] = useState('');
   const [showModeSelector, setShowModeSelector] = useState(false);
   const [showComplexitySelector, setShowComplexitySelector] = useState(false);
   const [showLengthSelector, setShowLengthSelector] = useState(false);
+  const [showModelSelector, setShowModelSelector] = useState(false);
   const [showWebSearchSelector, setShowWebSearchSelector] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showAttachmentTooltip, setShowAttachmentTooltip] = useState(false);
@@ -176,6 +213,28 @@ export function ChatPage() {
     };
   }, [isTyping]);
 
+  // Sync WebSocket streaming response with store
+  useEffect(() => {
+    if (wsStreamingResponse) {
+      setStreamingContent(wsStreamingResponse);
+    }
+  }, [wsStreamingResponse, setStreamingContent]);
+
+  // Sync WebSocket streaming state with store
+  useEffect(() => {
+    setIsStreaming(wsIsStreaming);
+    if (wsIsStreaming) {
+      setIsTyping(true);
+    }
+  }, [wsIsStreaming, setIsStreaming, setIsTyping]);
+
+  // Handle WebSocket errors
+  useEffect(() => {
+    if (wsStreamError) {
+      console.error('WebSocket Error:', wsStreamError);
+    }
+  }, [wsStreamError]);
+
   // Auto-hide attachment tooltip after 2 seconds
   useEffect(() => {
     if (showAttachmentTooltip) {
@@ -196,6 +255,7 @@ export function ChatPage() {
         setShowModeSelector(false);
         setShowComplexitySelector(false);
         setShowLengthSelector(false);
+        setShowModelSelector(false);
         setShowWebSearchSelector(false);
       }
     };
@@ -223,13 +283,69 @@ export function ChatPage() {
   };
 
   const stopGeneration = () => {
+    // Stop WebSocket streaming
+    wsStopStream();
     setIsTyping(false);
     setIsStreaming(false);
     abortControllerRef.current?.abort();
   };
 
-  // Abort controller for streaming
+  // Abort controller for streaming (fallback)
   const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Track pending message for WebSocket response
+  const pendingMessageRef = useRef<{
+    userMessage: Message;
+    startTime: number;
+  } | null>(null);
+
+  // State for comparison modal
+  const [comparisonModal, setComparisonModal] = useState<{
+    isOpen: boolean;
+    responseId: string;
+    originalQuery: string;
+    originalResponse: string;
+    comparisonResponse: string;
+  } | null>(null);
+
+  // Handle WebSocket streaming completion
+  useEffect(() => {
+    // When streaming stops and we have content, add the assistant message
+    if (!wsIsStreaming && wsStreamingResponse && pendingMessageRef.current) {
+      const { startTime } = pendingMessageRef.current;
+      const responseTime = (Date.now() - startTime) / 1000;
+      
+      const assistantMessage: Message = {
+        id: wsRoutingInfo?.response_id || generateId(),
+        role: 'assistant',
+        content: wsStreamingResponse,
+        timestamp: new Date(),
+        metadata: wsSources ? { sources: wsSources } : {},
+        responseTime: responseTime,
+        wordCount: wsStreamingResponse.split(/\s+/).filter(Boolean).length,
+        // Add model routing info
+        modelInfo: wsRoutingInfo ? {
+          model_size: wsRoutingInfo.model_size,
+          model_name: wsRoutingInfo.model_name,
+          model_icon: wsRoutingInfo.model_icon,
+          model_display_name: wsRoutingInfo.model_display_name,
+          confidence: wsRoutingInfo.confidence,
+          decision_source: wsRoutingInfo.decision_source,
+          response_id: wsRoutingInfo.response_id,
+          attempt_number: wsRoutingInfo.attempt_number,
+          reasoning: wsRoutingInfo.reasoning,
+          matched_pattern: wsRoutingInfo.matched_pattern,
+        } : undefined,
+      };
+      addMessage(assistantMessage);
+      
+      // Clear pending and streaming state
+      pendingMessageRef.current = null;
+      setIsTyping(false);
+      setStreamingContent('');
+      wsResetRoutingState?.();
+    }
+  }, [wsIsStreaming, wsStreamingResponse, wsSources, wsRoutingInfo, addMessage, setIsTyping, setStreamingContent, wsResetRoutingState]);
 
   const handleSend = async () => {
     if (!inputValue.trim() || isTyping) return;
@@ -248,6 +364,33 @@ export function ChatPage() {
     setIsStreaming(true);
     setStreamingContent('');
     removeImage();
+
+    // Store pending message for when streaming completes
+    pendingMessageRef.current = { userMessage, startTime };
+
+    // Try WebSocket first if connected
+    if (wsConnected) {
+      console.log('🔌 Using WebSocket for chat');
+      
+      // Check if manual model is selected
+      if (selectedModel !== 'auto') {
+        // Use routed message with forced model
+        const forceModel = selectedModel === 'qwen-8b' ? 'large' : 'small';
+        console.log('🎯 Manual model override:', selectedModel, '→', forceModel);
+        wsSendRoutedMessage(userMessage.content, {
+          sessionId: currentSessionId || undefined,
+          useRouting: true,
+          forceModel: forceModel,
+        });
+      } else {
+        // Auto mode - let AI decide
+        wsSendChatMessage(userMessage.content, currentSessionId || undefined);
+      }
+      return; // WebSocket handles the response via effects
+    }
+
+    // Fallback to HTTP if WebSocket not connected
+    console.log('📡 WebSocket not connected, using HTTP fallback');
 
     // Create abort controller for this request
     abortControllerRef.current = new AbortController();
@@ -288,43 +431,26 @@ export function ChatPage() {
       let fullContent = '';
       let metadata: Record<string, unknown> = {};
       
-      // Try streaming first
-      try {
-        for await (const chunk of streamChatMessage({
-          message: userMessage.content,
-          web_search: apiWebSearch,
-          response_mode: apiResponseMode as 'normal' | 'detailed',
-          complexity_level: apiComplexity as 'auto' | 'simple' | 'moderate' | 'advanced' | 'comprehensive',
-          response_length: apiLength as 'short' | 'normal' | 'detailed' | 'comprehensive',
-        }, abortControllerRef.current.signal)) {
-          if (chunk.type === 'token') {
-            fullContent += chunk.content;
-            setStreamingContent(fullContent);
-          } else if (chunk.type === 'done') {
-            if (chunk.content) fullContent = chunk.content;
-            if (chunk.metadata) metadata = chunk.metadata;
-            break;
-          } else if (chunk.type === 'error') {
-            throw new Error(chunk.content);
-          }
-        }
-      } catch (streamError) {
-        // Fallback to non-streaming if streaming fails
-        console.log('Streaming failed, falling back to regular request:', streamError);
-        const response = await sendChatMessage({
-          message: userMessage.content,
-          web_search: apiWebSearch,
-          response_mode: apiResponseMode as 'normal' | 'detailed',
-          complexity_level: apiComplexity as 'auto' | 'simple' | 'moderate' | 'advanced' | 'comprehensive',
-          response_length: apiLength as 'short' | 'normal' | 'detailed' | 'comprehensive',
-        });
+      // Use non-streaming HTTP request as fallback
+      const response = await sendChatMessage({
+        message: userMessage.content,
+        session_id: currentSessionId || undefined,
+        web_search: apiWebSearch,
+        response_mode: apiResponseMode as 'normal' | 'detailed',
+        complexity_level: apiComplexity as 'auto' | 'simple' | 'moderate' | 'advanced' | 'comprehensive',
+        response_length: apiLength as 'short' | 'normal' | 'detailed' | 'comprehensive',
+      });
 
-        if (response.success && response.data) {
-          fullContent = response.data.response;
-          metadata = response.data.metadata || {};
-        } else {
-          throw new Error(response.error || 'Unknown error');
+      if (response.success && response.data) {
+        fullContent = response.data.response;
+        metadata = response.data.metadata || {};
+        // Capture session_id from response
+        if (response.data.session_id) {
+          setCurrentSession(response.data.session_id);
+          console.log('📌 Session ID from HTTP:', response.data.session_id);
         }
+      } else {
+        throw new Error(response.error || 'Unknown error');
       }
 
       const responseTime = (Date.now() - startTime) / 1000;
@@ -441,6 +567,7 @@ export function ChatPage() {
         response_mode: apiResponseMode as 'normal' | 'detailed',
         complexity_level: apiComplexity as 'auto' | 'simple' | 'moderate' | 'advanced' | 'comprehensive',
         response_length: apiLength as 'short' | 'normal' | 'detailed' | 'comprehensive',
+        session_id: currentSessionId || undefined, // Maintain session continuity
       });
 
       if (response.success && response.data) {
@@ -475,6 +602,53 @@ export function ChatPage() {
     inputRef.current?.focus();
   };
 
+  // Model Routing Feedback Handlers
+  const handleModelFeedback = useCallback((responseId: string, feedbackType: 'correct' | 'downgrade' | 'upgrade') => {
+    if (wsConnected && wsSendFeedback) {
+      console.log('📝 Sending model feedback:', { responseId, feedbackType });
+      wsSendFeedback(responseId, feedbackType);
+    }
+  }, [wsConnected, wsSendFeedback]);
+
+  const handleRequestComparison = useCallback((responseId: string, originalContent: string) => {
+    if (wsConnected && wsRequestComparison) {
+      // Find the original user query
+      const messageIndex = messages.findIndex(m => m.id === responseId);
+      const originalQuery = messageIndex > 0 ? messages[messageIndex - 1]?.content : '';
+      
+      console.log('🔄 Requesting comparison:', { responseId, originalQuery });
+      
+      // Store for comparison modal
+      setComparisonModal({
+        isOpen: true,
+        responseId,
+        originalQuery: originalQuery || '',
+        originalResponse: originalContent,
+        comparisonResponse: '',
+      });
+      
+      wsRequestComparison(responseId, originalQuery);
+    }
+  }, [wsConnected, wsRequestComparison, messages]);
+
+  // Handle comparison response from WebSocket
+  useEffect(() => {
+    if (wsComparisonRouting && wsStreamingResponse && comparisonModal?.isOpen) {
+      setComparisonModal(prev => prev ? {
+        ...prev,
+        comparisonResponse: wsStreamingResponse,
+      } : null);
+    }
+  }, [wsComparisonRouting, wsStreamingResponse, comparisonModal?.isOpen]);
+
+  // Handle comparison confirmation
+  const handleConfirmComparison = useCallback((selectedModel: 'small' | 'large') => {
+    if (comparisonModal && wsConnected && wsConfirmFeedback) {
+      wsConfirmFeedback(comparisonModal.responseId, selectedModel);
+      setComparisonModal(null);
+    }
+  }, [comparisonModal, wsConnected, wsConfirmFeedback]);
+
   const t = {
     title: { tr: 'AI Asistan', en: 'AI Assistant', de: 'KI-Assistent' },
     subtitle: { tr: 'Sorularınızı yanıtlamaya hazırım', en: 'Ready to answer your questions', de: 'Bereit, Ihre Fragen zu beantworten' },
@@ -495,6 +669,7 @@ export function ChatPage() {
   const currentLength = responseLengths.find(l => l.id === responseLength);
   const currentMode = responseModes.find(m => m.id === responseMode);
   const currentWebSearch = webSearchModes.find(w => w.id === webSearchMode);
+  const currentModel = modelOptions.find(m => m.id === selectedModel);
 
   // Control bar labels
   const controlLabels = {
@@ -507,7 +682,7 @@ export function ChatPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header with Controls on Right */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/50 backdrop-blur-sm">
+      <header className="relative z-50 flex items-center justify-between px-4 py-3 border-b border-border bg-card/50 backdrop-blur-sm">
         {/* Left: Title */}
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-primary-500 to-primary-700 text-white">
@@ -516,6 +691,26 @@ export function ChatPage() {
           <div>
             <h1 className="text-base font-semibold">{t.title[language]}</h1>
             <p className="text-[10px] text-muted-foreground hidden sm:block">{t.subtitle[language]}</p>
+          </div>
+          {/* WebSocket Status Indicator */}
+          <div 
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium",
+              wsConnected 
+                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800"
+                : wsStatus === 'connecting' || wsStatus === 'reconnecting'
+                ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800"
+                : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
+            )}
+            title={wsConnected ? 'WebSocket Connected' : `WebSocket: ${wsStatus}`}
+          >
+            <span className={cn(
+              "w-1.5 h-1.5 rounded-full",
+              wsConnected ? "bg-green-500" : wsStatus === 'connecting' || wsStatus === 'reconnecting' ? "bg-yellow-500 animate-pulse" : "bg-red-500"
+            )} />
+            <span className="hidden sm:inline">
+              {wsConnected ? 'Live' : wsStatus === 'connecting' ? 'Connecting...' : wsStatus === 'reconnecting' ? 'Reconnecting...' : 'Offline'}
+            </span>
           </div>
         </div>
 
@@ -531,6 +726,7 @@ export function ChatPage() {
                 setShowModeSelector(false);
                 setShowComplexitySelector(false);
                 setShowLengthSelector(false);
+                setShowModelSelector(false);
               }}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
@@ -589,6 +785,7 @@ export function ChatPage() {
                 setShowWebSearchSelector(false);
                 setShowComplexitySelector(false);
                 setShowLengthSelector(false);
+                setShowModelSelector(false);
               }}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
@@ -647,6 +844,7 @@ export function ChatPage() {
                 setShowWebSearchSelector(false);
                 setShowModeSelector(false);
                 setShowLengthSelector(false);
+                setShowModelSelector(false);
               }}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
@@ -705,6 +903,7 @@ export function ChatPage() {
                 setShowWebSearchSelector(false);
                 setShowModeSelector(false);
                 setShowComplexitySelector(false);
+                setShowModelSelector(false);
               }}
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
@@ -751,6 +950,65 @@ export function ChatPage() {
             )}
           </div>
 
+          {/* Model Selector (Manual Override) */}
+          <div className="relative" data-dropdown-container>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowModelSelector(!showModelSelector);
+                setShowWebSearchSelector(false);
+                setShowModeSelector(false);
+                setShowComplexitySelector(false);
+                setShowLengthSelector(false);
+              }}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all text-xs font-medium",
+                selectedModel !== 'auto'
+                  ? "bg-cyan-500/10 text-cyan-600 border border-cyan-500/20"
+                  : "bg-muted text-foreground hover:bg-muted/80"
+              )}
+              title={language === 'tr' ? 'Model Seçimi' : language === 'de' ? 'Modellauswahl' : 'Model Selection'}
+            >
+              <Cpu className="w-3.5 h-3.5 text-cyan-500" />
+              <span className="hidden sm:inline">{currentModel?.[language]?.replace(/^[^\s]+\s/, '') || 'Otomatik'}</span>
+              <ChevronDown className="w-3 h-3 opacity-60" />
+            </button>
+
+            {/* Model dropdown */}
+            {showModelSelector && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-visible"
+                style={{ zIndex: 9999 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-1.5">
+                  {modelOptions.map((model) => (
+                    <div
+                      key={model.id}
+                      onClick={() => {
+                        console.log('Setting model:', model.id);
+                        setSelectedModel(model.id as typeof selectedModel);
+                        setShowModelSelector(false);
+                      }}
+                      className={cn(
+                        "w-full px-2.5 py-2.5 text-left rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer select-none",
+                        selectedModel === model.id && "bg-cyan-500/10 text-cyan-600"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-medium">{model[language]}</div>
+                          <div className="text-[10px] text-muted-foreground">{model.desc[language]}</div>
+                        </div>
+                        {selectedModel === model.id && <Check className="w-3 h-3 text-cyan-500 flex-shrink-0" />}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Divider */}
           {messages.length > 0 && <div className="h-5 w-px bg-border mx-1" />}
 
@@ -760,6 +1018,7 @@ export function ChatPage() {
               onClick={() => {
                 if (confirm(language === 'tr' ? 'Tüm mesajları silmek istediğinize emin misiniz?' : 'Are you sure you want to clear all messages?')) {
                   clearMessages();
+                  setCurrentSession(null); // Start a new session when clearing messages
                 }
               }}
               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors text-xs"
@@ -781,35 +1040,143 @@ export function ChatPage() {
               className="text-center py-8"
             >
               {/* Hero Section */}
-              <div className="relative mb-8">
-                {/* Animated Background Rings */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <motion.div
-                    animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.1, 0.3] }}
-                    transition={{ duration: 3, repeat: Infinity }}
-                    className="absolute w-32 h-32 rounded-full bg-gradient-to-br from-primary-500/20 to-violet-500/20"
-                  />
-                  <motion.div
-                    animate={{ scale: [1, 1.3, 1], opacity: [0.2, 0.05, 0.2] }}
-                    transition={{ duration: 4, repeat: Infinity, delay: 0.5 }}
-                    className="absolute w-48 h-48 rounded-full bg-gradient-to-br from-primary-500/10 to-violet-500/10"
-                  />
-                </div>
+              <div className="relative mb-6 flex items-center justify-center" style={{ height: '220px' }}>
                 
-                {/* Main Icon */}
+                {/* Subtle Background Glow */}
                 <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", stiffness: 200, damping: 15 }}
-                  className="relative inline-flex items-center justify-center w-24 h-24 rounded-3xl bg-gradient-to-br from-primary-500 via-violet-500 to-purple-600 text-white shadow-2xl shadow-primary-500/30"
-                >
-                  <Sparkles className="w-12 h-12" />
+                  animate={{ opacity: [0.15, 0.25, 0.15], scale: [0.95, 1.05, 0.95] }}
+                  transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+                  className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-gradient-radial from-violet-400/15 via-purple-300/5 to-transparent blur-3xl"
+                />
+
+                {/* Subtle Floating Stars - Just 4 */}
+                <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                  {[
+                    { top: '15%', left: '15%', size: 8, delay: 0 },
+                    { top: '25%', right: '18%', size: 10, delay: 1.5 },
+                    { bottom: '20%', left: '20%', size: 7, delay: 0.8 },
+                    { bottom: '25%', right: '15%', size: 9, delay: 2 },
+                  ].map((star, i) => (
+                    <motion.div
+                      key={`star-${i}`}
+                      className="absolute"
+                      style={{ top: star.top, left: star.left, right: star.right, bottom: star.bottom }}
+                      animate={{ opacity: [0.15, 0.4, 0.15] }}
+                      transition={{ duration: 3, repeat: Infinity, delay: star.delay, ease: "easeInOut" }}
+                    >
+                      <svg width={star.size} height={star.size} viewBox="0 0 12 12">
+                        <path d="M6 0 L7 4.5 L12 6 L7 7.5 L6 12 L5 7.5 L0 6 L5 4.5 Z" fill="rgba(167, 139, 250, 0.5)" />
+                      </svg>
+                    </motion.div>
+                  ))}
+                </div>
+
+                {/* Main Logo Container */}
+                <div className="relative flex items-center justify-center" style={{ transformStyle: 'preserve-3d' }}>
+                  
+                  {/* Simple Orbital Ring System */}
+                  <div className="absolute" style={{ width: '220px', height: '220px', transformStyle: 'preserve-3d' }}>
+                    {/* Ring 1 - Main */}
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 30, repeat: Infinity, ease: "linear" }}
+                      className="absolute inset-0"
+                      style={{ transform: 'rotateX(75deg)' }}
+                    >
+                      <div className="absolute inset-0 rounded-full border border-violet-400/20" />
+                      <div 
+                        className="absolute w-3 h-3 rounded-full bg-gradient-to-br from-amber-300 to-orange-400"
+                        style={{ 
+                          top: '-6px', 
+                          left: '50%', 
+                          marginLeft: '-6px',
+                          boxShadow: '0 0 12px rgba(251, 191, 36, 0.6)'
+                        }}
+                      />
+                    </motion.div>
+                    
+                    {/* Ring 2 - Counter rotate */}
+                    <motion.div
+                      animate={{ rotate: -360 }}
+                      transition={{ duration: 22, repeat: Infinity, ease: "linear" }}
+                      className="absolute"
+                      style={{ 
+                        width: '170px', 
+                        height: '170px',
+                        top: '25px',
+                        left: '25px',
+                        transform: 'rotateX(70deg) rotateY(20deg)' 
+                      }}
+                    >
+                      <div className="absolute inset-0 rounded-full border border-purple-400/15" />
+                      <div 
+                        className="absolute w-2.5 h-2.5 rounded-full bg-gradient-to-br from-cyan-300 to-blue-500"
+                        style={{ 
+                          bottom: '-5px', 
+                          left: '50%', 
+                          marginLeft: '-5px',
+                          boxShadow: '0 0 10px rgba(34, 211, 238, 0.5)'
+                        }}
+                      />
+                    </motion.div>
+                  </div>
+
+                  {/* Central Logo */}
                   <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                    className="absolute inset-0 rounded-3xl border-2 border-dashed border-white/20"
-                  />
-                </motion.div>
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
+                    className="relative z-10"
+                    style={{ transform: 'translateZ(0)' }}
+                  >
+                    {/* Subtle glow */}
+                    <motion.div
+                      animate={{ opacity: [0.3, 0.5, 0.3] }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                      className="absolute inset-[-12px] rounded-[36px] bg-violet-500/25 blur-2xl"
+                    />
+                    
+                    {/* Logo Box */}
+                    <div 
+                      className="relative w-[100px] h-[100px] rounded-[26px] bg-gradient-to-br from-violet-500 via-purple-500 to-indigo-600 flex items-center justify-center overflow-hidden"
+                      style={{ 
+                        boxShadow: '0 20px 50px -15px rgba(139, 92, 246, 0.5), 0 0 0 1px rgba(255,255,255,0.1) inset'
+                      }}
+                    >
+                      {/* Glass overlay */}
+                      <div className="absolute inset-x-0 top-0 h-1/2 rounded-t-[26px] bg-gradient-to-b from-white/20 to-transparent" />
+                      
+                      {/* Shine sweep */}
+                      <motion.div
+                        animate={{ x: ['-200%', '200%'] }}
+                        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", repeatDelay: 6 }}
+                        className="absolute inset-0 overflow-hidden rounded-[26px]"
+                      >
+                        <div 
+                          className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/25 to-transparent"
+                          style={{ transform: 'skewX(-20deg)' }}
+                        />
+                      </motion.div>
+                      
+                      {/* Original Sparkles Icon */}
+                      <svg viewBox="0 0 100 100" className="w-14 h-14 relative z-10 drop-shadow-lg">
+                        <path d="M50 10 L56 38 L84 44 L56 50 L50 78 L44 50 L16 44 L44 38 Z" fill="white" />
+                        <path d="M72 18 L75 26 L83 29 L75 32 L72 40 L69 32 L61 29 L69 26 Z" fill="white" opacity="0.9" />
+                        <rect x="80" y="18" width="14" height="4" rx="2" fill="white" />
+                        <rect x="85" y="13" width="4" height="14" rx="2" fill="white" />
+                        <motion.circle
+                          cx="28"
+                          cy="72"
+                          r="4"
+                          fill="white"
+                          opacity="0.7"
+                          animate={{ opacity: [0.4, 0.9, 0.4], r: [3, 5, 3] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                        />
+                      </svg>
+                    </div>
+                  </motion.div>
+                </div>
               </div>
 
               {/* Title & Subtitle */}
@@ -955,6 +1322,8 @@ export function ChatPage() {
                 onEdit={editMessage}
                 onFollowUpClick={handleFollowUpClick}
                 onRelatedQueryClick={handleRelatedQueryClick}
+                onModelFeedback={handleModelFeedback}
+                onRequestComparison={handleRequestComparison}
                 language={language}
                 showTimestamps={showTimestamps}
               />
@@ -1011,6 +1380,13 @@ export function ChatPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-3 mt-2">
+                  {/* WebSocket Status Message */}
+                  {wsStatusMessage && (
+                    <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      {wsStatusMessage}
+                    </span>
+                  )}
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     {elapsedTime.toFixed(1)}s
@@ -1197,6 +1573,28 @@ export function ChatPage() {
           </p>
         </div>
       </div>
+
+      {/* Comparison Modal */}
+      {comparisonModal?.isOpen && (
+        <ComparisonView
+          originalResponse={comparisonModal.originalResponse}
+          comparisonResponse={comparisonModal.comparisonResponse}
+          originalModel={{
+            name: 'small',
+            icon: '⚡',
+            displayName: language === 'tr' ? 'Hızlı Model' : 'Fast Model',
+          }}
+          comparisonModel={{
+            name: 'large',
+            icon: '🧠',
+            displayName: language === 'tr' ? 'Güçlü Model' : 'Power Model',
+          }}
+          isLoading={wsIsStreaming}
+          onSelect={handleConfirmComparison}
+          onClose={() => setComparisonModal(null)}
+          language={language}
+        />
+      )}
     </div>
   );
 }
@@ -1209,11 +1607,13 @@ interface MessageBubbleProps {
   onEdit: (id: string, content: string) => void;
   onFollowUpClick?: (question: string) => void;
   onRelatedQueryClick?: (query: string) => void;
+  onModelFeedback?: (responseId: string, feedbackType: 'correct' | 'downgrade' | 'upgrade') => void;
+  onRequestComparison?: (responseId: string, query: string) => void;
   language: 'tr' | 'en' | 'de';
   showTimestamps?: boolean;
 }
 
-function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFollowUpClick, onRelatedQueryClick, language, showTimestamps = true }: MessageBubbleProps) {
+function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFollowUpClick, onRelatedQueryClick, onModelFeedback, onRequestComparison, language, showTimestamps = true }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -1492,12 +1892,28 @@ function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFoll
           {/* Assistant-only actions */}
           {!isUser && !message.isError && (
             <>
-              <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                <ThumbsUp className="w-4 h-4" />
-              </button>
-              <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                <ThumbsDown className="w-4 h-4" />
-              </button>
+              {/* Model Badge with feedback - only shown if modelInfo exists */}
+              {message.modelInfo && (
+                <ModelBadge
+                  modelInfo={message.modelInfo}
+                  onFeedback={onModelFeedback ? (feedbackType) => onModelFeedback(message.modelInfo!.response_id, feedbackType) : undefined}
+                  onCompare={onRequestComparison ? () => onRequestComparison(message.modelInfo!.response_id, message.content) : undefined}
+                  showFeedback={true}
+                  compact={true}
+                  language={language}
+                />
+              )}
+              {/* Fallback ThumbsUp/Down for messages without modelInfo */}
+              {!message.modelInfo && (
+                <>
+                  <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                    <ThumbsUp className="w-4 h-4" />
+                  </button>
+                  <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
+                    <ThumbsDown className="w-4 h-4" />
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => onRegenerate(message.id)}
                 className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"

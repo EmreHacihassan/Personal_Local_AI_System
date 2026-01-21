@@ -1,0 +1,198 @@
+{
+  "timestamp": "2026-01-19T23:02:36.651714",
+  "status": "healthy",
+  "issues": [],
+  "recommendations": [],
+  "version": {
+    "installed_version": "1.1.1",
+    "is_compatible": true,
+    "notes": [
+      "v1.1+ uses Rust bindings - incompatible with old data",
+      "⚠️ Data format changed from v0.x/v1.0"
+    ]
+  },
+  "filesystem": {
+    "chroma_exists": true,
+    "files": [
+      {
+        "name": "chroma.sqlite3",
+        "path": "chroma.sqlite3",
+        "size": 1118208,
+        "modified": "2026-01-19T23:02:26.982269"
+      },
+      {
+        "name": "data_level0.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\data_level0.bin",
+        "size": 321200,
+        "modified": "2026-01-19T23:02:26.448310"
+      },
+      {
+        "name": "header.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\header.bin",
+        "size": 100,
+        "modified": "2026-01-19T23:02:26.447308"
+      },
+      {
+        "name": "length.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\length.bin",
+        "size": 400,
+        "modified": "2026-01-19T23:02:26.448310"
+      },
+      {
+        "name": "link_lists.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\link_lists.bin",
+        "size": 0,
+        "modified": "2026-01-19T23:02:26.447308"
+      }
+    ],
+    "total_size": 1439908,
+    "sqlite_files": [
+      {
+        "name": "chroma.sqlite3",
+        "path": "chroma.sqlite3",
+        "size": 1118208,
+        "modified": "2026-01-19T23:02:26.982269"
+      }
+    ],
+    "parquet_files": [],
+    "lock_files": [],
+    "other_files": [
+      {
+        "name": "data_level0.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\data_level0.bin",
+        "size": 321200,
+        "modified": "2026-01-19T23:02:26.448310"
+      },
+      {
+        "name": "header.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\header.bin",
+        "size": 100,
+        "modified": "2026-01-19T23:02:26.447308"
+      },
+      {
+        "name": "length.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\length.bin",
+        "size": 400,
+        "modified": "2026-01-19T23:02:26.448310"
+      },
+      {
+        "name": "link_lists.bin",
+        "path": "2b9c5176-b01d-4314-ad47-d96a2703e3b7\\link_lists.bin",
+        "size": 0,
+        "modified": "2026-01-19T23:02:26.447308"
+      }
+    ]
+  },
+  "sqlite": {
+    "exists": true,
+    "integrity_ok": true,
+    "tables": [
+      "migrations",
+      "acquire_write",
+      "collection_metadata",
+      "segment_metadata",
+      "tenants",
+      "databases",
+      "collections",
+      "maintenance_log",
+      "segments",
+      "embeddings",
+      "embedding_metadata",
+      "max_seq_id",
+      "embedding_fulltext_search",
+      "embedding_fulltext_search_data",
+      "embedding_fulltext_search_idx",
+      "embedding_fulltext_search_content",
+      "embedding_fulltext_search_docsize",
+      "embedding_fulltext_search_config",
+      "embeddings_queue",
+      "embeddings_queue_config"
+    ],
+    "journal_mode": "wal",
+    "page_size": 4096,
+    "page_count": 273,
+    "errors": [],
+    "table_counts": {
+      "migrations": 16,
+      "acquire_write": 4,
+      "collection_metadata": 1,
+      "segment_metadata": 0,
+      "tenants": 1,
+      "databases": 1,
+      "collections": 1,
+      "maintenance_log": 0,
+      "segments": 2,
+      "embeddings": 76,
+      "embedding_metadata": 1274,
+      "max_seq_id": 1,
+      "embedding_fulltext_search": 76,
+      "embedding_fulltext_search_data": 57,
+      "embedding_fulltext_search_idx": 55,
+      "embedding_fulltext_search_content": 76,
+      "embedding_fulltext_search_docsize": 76,
+      "embedding_fulltext_search_config": 1,
+      "embeddings_queue": 76,
+      "embeddings_queue_config": 1
+    }
+  },
+  "connection": {
+    "can_connect": true,
+    "collections": [
+      "enterprise_knowledge"
+    ],
+    "document_counts": {
+      "enterprise_knowledge": 76
+    },
+    "errors": []
+  },
+  "backups": {
+    "backup_dir_exists": true,
+    "backups": [
+      {
+        "name": "backup_startup_20260119_230226",
+        "size": 163939,
+        "size_formatted": "160.10 KB",
+        "modified": "2026-01-19T23:02:26.261104"
+      },
+      {
+        "name": "backup_startup_20260119_230138",
+        "size": 163939,
+        "size_formatted": "160.10 KB",
+        "modified": "2026-01-19T23:01:38.844988"
+      },
+      {
+        "name": "backup_startup_20260119_225129",
+        "size": 168035,
+        "size_formatted": "164.10 KB",
+        "modified": "2026-01-19T22:51:29.118711"
+      },
+      {
+        "name": "backup_startup_20260119_224414",
+        "size": 168035,
+        "size_formatted": "164.10 KB",
+        "modified": "2026-01-19T22:44:14.619214"
+      },
+      {
+        "name": "backup_startup_20260119_224240",
+        "size": 168035,
+        "size_formatted": "164.10 KB",
+        "modified": "2026-01-19T22:42:40.948923"
+      },
+      {
+        "name": "[OLD] chroma_db_backup",
+        "size": 167936,
+        "size_formatted": "164.00 KB",
+        "modified": "2026-01-12T23:23:55.416895",
+        "location": "c:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\data\\chroma_db_backup"
+      },
+      {
+        "name": "[OLD] chroma_db_backup_old",
+        "size": 167936,
+        "size_formatted": "164.00 KB",
+        "modified": "2026-01-19T22:57:35.943713",
+        "location": "c:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\data\\chroma_db_backup_old"
+      }
+    ],
+    "total_backup_size": 831983
+  }
+}

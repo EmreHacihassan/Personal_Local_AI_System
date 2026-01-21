@@ -48,7 +48,20 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
     TOP_K_RESULTS: int = 5
-    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_DIMENSION: int = 384  # GPU model (multilingual) uses 384
+    
+    # GPU Settings - RTX 4070 (8GB) Optimized
+    USE_GPU_EMBEDDING: bool = True
+    GPU_EMBEDDING_MODEL: str = "multilingual"  # Best quality for Turkish/English
+    GPU_BATCH_SIZE: int = 64  # Optimal for 8GB GPU
+    GPU_RERANKER_MODEL: str = "multilingual"  # CrossEncoder with Turkish support
+    GPU_RERANKER_BATCH_SIZE: int = 32  # CrossEncoder batch size
+    CUDA_VISIBLE_DEVICES: str = "0"
+    
+    # Ollama GPU Settings
+    OLLAMA_NUM_GPU: int = 99  # All layers on GPU (max quality)
+    OLLAMA_NUM_CTX: int = 4096  # Context window
+    OLLAMA_NUM_BATCH: int = 512  # Batch size for prompt processing
     
     # Agent settings
     AGENT_MAX_ITERATIONS: int = 10

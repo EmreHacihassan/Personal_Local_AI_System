@@ -416,7 +416,7 @@ export function FloatingWidget() {
   
   const fetchSystemStats = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/v1/health`);
+      const response = await fetch(`${API_BASE}/health`);
       const data = await response.json();
       setSystemStats({
         cpu: Math.round(Math.random() * 30 + 20),
@@ -432,10 +432,10 @@ export function FloatingWidget() {
 
   const fetchDocuments = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/v1/documents`);
+      const response = await fetch(`${API_BASE}/api/documents`);
       if (response.ok) {
         const data = await response.json();
-        setDocuments(data.documents || []);
+        setDocuments(data.documents || data || []);
       }
     } catch (error) {
       console.error('Failed to fetch documents:', error);
@@ -444,10 +444,10 @@ export function FloatingWidget() {
 
   const fetchConversationHistory = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/v1/conversations`);
+      const response = await fetch(`${API_BASE}/api/sessions`);
       if (response.ok) {
         const data = await response.json();
-        setConversationHistory(data.conversations || []);
+        setConversationHistory(data.sessions || []);
       }
     } catch (error) {
       console.error('Failed to fetch history:', error);
@@ -552,7 +552,7 @@ export function FloatingWidget() {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch(`${API_BASE}/api/v1/documents/upload`, {
+        const response = await fetch(`${API_BASE}/api/documents/upload`, {
           method: 'POST',
           body: formData
         });
@@ -576,7 +576,7 @@ export function FloatingWidget() {
     
     setIsSearching(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/search?q=${encodeURIComponent(searchQuery)}`);
+      const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(searchQuery)}`);
       if (response.ok) {
         const data = await response.json();
         setSearchResults(data.results || []);
@@ -590,7 +590,7 @@ export function FloatingWidget() {
 
   const deleteDocument = async (docId: string) => {
     try {
-      await fetch(`${API_BASE}/api/v1/documents/${docId}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/api/documents/${docId}`, { method: 'DELETE' });
       await fetchDocuments();
     } catch (error) {
       console.error('Delete failed:', error);

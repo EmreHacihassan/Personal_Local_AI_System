@@ -72,8 +72,10 @@ class VisionResponse(BaseModel):
     description: Optional[str] = None
     objects_detected: List[str] = []
     confidence: Optional[float] = None
-    model_used: Optional[str] = None
+    llm_model_used: Optional[str] = None
     message: Optional[str] = None
+    
+    model_config = {"protected_namespaces": ()}
 
 
 class MultimodalChatRequest(BaseModel):
@@ -311,7 +313,7 @@ async def analyze_image(request: VisionRequest):
             description=result.description,
             objects_detected=result.objects_detected,
             confidence=result.confidence,
-            model_used=request.model
+            llm_model_used=request.model
         )
         
     except Exception as e:
@@ -351,7 +353,7 @@ async def analyze_uploaded_image(
             description=result.description,
             objects_detected=result.objects_detected,
             confidence=result.confidence,
-            model_used=model
+            llm_model_used=model
         )
         
     except Exception as e:

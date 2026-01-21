@@ -1,3 +1,8 @@
+# ╔═══════════════════════════════════════════════════════════════════════════════════╗
+# ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
+# ║  📁  Konum: .\venv\Scripts\python.exe                                           ║
+# ╚═══════════════════════════════════════════════════════════════════════════════════╝
+#
 # Enterprise AI Assistant - Core Module v2.0
 # Endüstri Standartlarında Kurumsal AI Çözümü
 # 12 İleri Düzey Teknoloji Entegrasyonu
@@ -43,6 +48,39 @@ def __getattr__(name):
     if name == "vector_store":
         from .vector_store import vector_store
         return vector_store
+    
+    # Enterprise Vector Store (NEW)
+    if name == "EnterpriseVectorStore":
+        from .enterprise_vector_store import EnterpriseVectorStore
+        return EnterpriseVectorStore
+    if name == "enterprise_vector_store":
+        from .enterprise_vector_store import get_enterprise_vector_store
+        return get_enterprise_vector_store()
+    if name in ("DuplicateConfig", "ContentQualityConfig", "DocumentStats"):
+        from .enterprise_vector_store import DuplicateConfig, ContentQualityConfig, DocumentStats
+        mapping = {
+            "DuplicateConfig": DuplicateConfig,
+            "ContentQualityConfig": ContentQualityConfig,
+            "DocumentStats": DocumentStats,
+        }
+        return mapping[name]
+    
+    # Premium Features (NEW)
+    if name == "PremiumFeaturesManager":
+        from .premium_features import PremiumFeaturesManager
+        return PremiumFeaturesManager
+    if name == "get_premium_features":
+        from .premium_features import get_premium_features
+        return get_premium_features
+    if name in ("SmartAutoTagger", "RealTimeAnalytics", "SemanticReranker", "KnowledgeGraph"):
+        from .premium_features import SmartAutoTagger, RealTimeAnalytics, SemanticReranker, KnowledgeGraph
+        mapping = {
+            "SmartAutoTagger": SmartAutoTagger,
+            "RealTimeAnalytics": RealTimeAnalytics,
+            "SemanticReranker": SemanticReranker,
+            "KnowledgeGraph": KnowledgeGraph,
+        }
+        return mapping[name]
     
     # Session Manager
     if name in ("SessionManager", "session_manager"):
@@ -500,6 +538,11 @@ __all__ = [
     "embedding_manager",
     "VectorStore",
     "vector_store",
+    "EnterpriseVectorStore",
+    "enterprise_vector_store",
+    "DuplicateConfig",
+    "ContentQualityConfig",
+    "DocumentStats",
     "SessionManager",
     "session_manager",
     "AnalyticsManager",

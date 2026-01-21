@@ -252,6 +252,67 @@ class SessionManager:
         self._list_cache = None
         self._list_cache_time = 0
     
+    def cleanup_old_sessions(self, days: int = 7, keep_pinned: bool = True) -> Dict[str, Any]:
+        """
+        Eski session'ları temizle.
+        
+        Args:
+            days: Kaç günden eski session'lar silinsin
+            keep_pinned: Sabitlenmiş session'ları koru (default: True)
+            
+        Returns:
+            Temizleme raporu
+        """
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        deleted_count = 0
+        kept_count = 0
+        deleted_ids = []
+        
+        for file_path in self.storage_dir.glob("*.json"):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                # Skip pinned sessions
+                if keep_pinned and data.get("is_pinned", False):
+                    kept_count += 1
+                    continue
+                
+                # Check last update date
+                updated_at = data.get("updated_at", data.get("created_at", ""))
+                if updated_at:
+                    try:
+                        session_date = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                        # Make naive for comparison
+                        if session_date.tzinfo:
+                            session_date = session_date.replace(tzinfo=None)
+                        
+                        if session_date < cutoff_date:
+                            # Delete old session
+                            session_id = data.get("id", "")
+                            if session_id in self._cache:
+                                del self._cache[session_id]
+                            file_path.unlink()
+                            deleted_count += 1
+                            deleted_ids.append(session_id)
+                    except Exception:
+                        pass
+                        
+            except Exception:
+                continue
+        
+        # Invalidate cache
+        self.invalidate_list_cache()
+        
+        return {
+            "deleted_count": deleted_count,
+            "kept_pinned": kept_count,
+            "cutoff_days": days,
+            "deleted_ids": deleted_ids[:10],  # First 10 for reference
+        }
+    
     def delete_session(self, session_id: str) -> bool:
         """Session'ı sil."""
         # Cache'den kaldır

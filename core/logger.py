@@ -7,12 +7,48 @@ Endüstri standardı logging implementasyonu.
 
 import logging
 import sys
+import io
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from logging.handlers import RotatingFileHandler
 
 from core.config import settings
+
+# ══════════════════════════════════════════════════════════════════════════════
+# UTF-8 CONSOLE FIX - Windows emoji/unicode hataları için
+# ══════════════════════════════════════════════════════════════════════════════
+if sys.platform == 'win32':
+    try:
+        # Windows console için UTF-8 encoding zorla
+        if not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != 'utf-8':
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        if not isinstance(sys.stderr, io.TextIOWrapper) or sys.stderr.encoding != 'utf-8':
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except Exception:
+        pass  # Zaten wrapper ise veya hata varsa atla
+
+
+class SafeStreamHandler(logging.StreamHandler):
+    """
+    Unicode-safe stream handler.
+    Windows console'da emoji/unicode hatalarını önler.
+    """
+    
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            # Emoji'leri güvenli şekilde yaz
+            try:
+                stream.write(msg + self.terminator)
+            except UnicodeEncodeError:
+                # Encode edilemeyen karakterleri ? ile değiştir
+                safe_msg = msg.encode('ascii', errors='replace').decode('ascii')
+                stream.write(safe_msg + self.terminator)
+            self.flush()
+        except Exception:
+            self.handleError(record)
 
 
 class LoggerSetup:
@@ -49,8 +85,8 @@ class LoggerSetup:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
         
-        # Console handler
-        console_handler = logging.StreamHandler(sys.stdout)
+        # Console handler - Unicode-safe
+        console_handler = SafeStreamHandler(sys.stdout)
         console_handler.setLevel(logging.DEBUG)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)

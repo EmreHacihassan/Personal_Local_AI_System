@@ -493,26 +493,130 @@ class StartupHealthChecker:
         return True, f"Environment: {env_vars['ENVIRONMENT']}", details
     
     def check_nodejs_npm(self) -> Tuple[bool, str, Optional[Dict]]:
-        """Node.js ve npm kontrolü."""
+        """Node.js ve npm kontrolü - SELF-HEALING VERSION."""
         details = {}
         
+        def _refresh_path():
+            """Windows PATH'ini yenile."""
+            if sys.platform != 'win32':
+                return
+            try:
+                machine_path = subprocess.run(
+                    ['powershell', '-Command', '[System.Environment]::GetEnvironmentVariable("Path","Machine")'],
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                ).stdout.strip()
+                
+                user_path = subprocess.run(
+                    ['powershell', '-Command', '[System.Environment]::GetEnvironmentVariable("Path","User")'],
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                ).stdout.strip()
+                
+                os.environ['PATH'] = f"{machine_path};{user_path}"
+            except:
+                pass
+        
+        def _check_node():
+            """Node.js'i kontrol et."""
+            try:
+                node_result = subprocess.run(
+                    ["node", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    shell=True if sys.platform == 'win32' else False,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+                )
+                
+                if node_result.returncode != 0:
+                    return None, None
+                
+                node_version = node_result.stdout.strip()
+                
+                npm_result = subprocess.run(
+                    ["npm", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    shell=True if sys.platform == 'win32' else False,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+                )
+                
+                npm_version = npm_result.stdout.strip() if npm_result.returncode == 0 else None
+                return node_version, npm_version
+            except:
+                return None, None
+        
+        def _auto_install_nodejs():
+            """Node.js'i otomatik kur."""
+            if sys.platform != 'win32':
+                return False
+            try:
+                logger.info("🔧 Node.js otomatik kurulum deneniyor...")
+                result = subprocess.run(
+                    ['winget', 'install', 'OpenJS.NodeJS.LTS', 
+                     '--accept-source-agreements', '--accept-package-agreements', '--silent'],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                if result.returncode == 0 or 'Successfully installed' in result.stdout:
+                    logger.info("✅ Node.js başarıyla kuruldu!")
+                    time.sleep(3)
+                    _refresh_path()
+                    return True
+                return False
+            except:
+                return False
+        
+        def _find_nodejs_in_known_paths():
+            """Bilinen konumlarda Node.js ara."""
+            known_paths = [
+                r"C:\Program Files\nodejs",
+                r"C:\Program Files (x86)\nodejs",
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\nodejs"),
+            ]
+            
+            for path in known_paths:
+                node_exe = os.path.join(path, "node.exe")
+                if os.path.exists(node_exe):
+                    os.environ['PATH'] = f"{path};{os.environ.get('PATH', '')}"
+                    return path
+            return None
+        
         try:
-            # Node.js version
-            node_result = subprocess.run(
-                ["node", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                shell=True if sys.platform == 'win32' else False,
-            )
+            # İlk deneme
+            node_version, npm_version = _check_node()
             
-            if node_result.returncode != 0:
-                return False, "Node.js not installed", None
+            if not node_version:
+                # PATH yenile ve tekrar dene
+                _refresh_path()
+                node_version, npm_version = _check_node()
             
-            node_version = node_result.stdout.strip()
+            if not node_version:
+                # Bilinen konumlarda ara
+                found_path = _find_nodejs_in_known_paths()
+                if found_path:
+                    node_version, npm_version = _check_node()
+                    if node_version:
+                        details["found_at"] = found_path
+            
+            if not node_version:
+                # Otomatik kurulum dene
+                details["auto_install_attempted"] = True
+                if _auto_install_nodejs():
+                    node_version, npm_version = _check_node()
+                    if node_version:
+                        details["auto_installed"] = True
+            
+            if not node_version:
+                return False, "Node.js not installed", details
+            
             details["node_version"] = node_version
             
-            # Node version check (v18+ recommended)
+            # Version kontrolü
             try:
                 major = int(node_version.lstrip('v').split('.')[0])
                 if major < 16:
@@ -522,19 +626,9 @@ class StartupHealthChecker:
             except:
                 pass
             
-            # npm version
-            npm_result = subprocess.run(
-                ["npm", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                shell=True if sys.platform == 'win32' else False,
-            )
-            
-            if npm_result.returncode != 0:
+            if not npm_version:
                 return False, "npm not found", details
             
-            npm_version = npm_result.stdout.strip()
             details["npm_version"] = npm_version
             
             return True, f"Node.js {node_version}, npm {npm_version}", details

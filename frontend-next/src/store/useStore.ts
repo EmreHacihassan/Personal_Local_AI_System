@@ -1,6 +1,27 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+// Model Routing Types
+export interface ModelRoutingInfo {
+  model_size: 'small' | 'large';
+  model_name: string;
+  model_icon: string;
+  model_display_name: string;
+  confidence: number;
+  decision_source: string;  // 'rule_based' | 'ai_router' | 'learned' | 'similarity' | 'default'
+  response_id: string;
+  attempt_number: number;
+  reasoning?: string;
+  matched_pattern?: string;
+}
+
+export interface ModelFeedback {
+  feedback_type: 'correct' | 'downgrade' | 'upgrade';
+  status: 'pending' | 'confirmed' | 'cancelled';
+  timestamp: string;
+  learning_applied?: boolean;
+}
+
 // Types
 export interface Message {
   id: string;
@@ -22,6 +43,10 @@ export interface Message {
   confidenceScore?: number;
   followUpQuestions?: string[];
   relatedQueries?: string[];
+  // Model Routing fields
+  modelInfo?: ModelRoutingInfo;
+  feedback?: ModelFeedback;
+  comparisonResponse?: string;  // Alternative response for comparison
 }
 
 export interface Source {
@@ -135,6 +160,10 @@ interface AppState {
   setResponseLength: (length: 'auto' | 'short' | 'medium' | 'long' | 'very_long') => void;
   complexityLevel: 'simple' | 'normal' | 'comprehensive' | 'research';
   setComplexityLevel: (level: 'simple' | 'normal' | 'comprehensive' | 'research') => void;
+  
+  // Model Selection (Manual Override)
+  selectedModel: 'auto' | 'qwen-8b' | 'qwen-4b';
+  setSelectedModel: (model: 'auto' | 'qwen-8b' | 'qwen-4b') => void;
 
   // Notifications
   notificationsEnabled: boolean;
@@ -210,7 +239,7 @@ export const useStore = create<AppState>()(
       addMessage: (message: Message) => set((state) => ({ 
         messages: [...state.messages, message] 
       })),
-      clearMessages: () => set({ messages: [] as Message[] }),
+      clearMessages: () => set({ messages: [] as Message[], currentSessionId: null }), // Also clear session ID
       isTyping: false,
       setIsTyping: (typing: boolean) => set({ isTyping: typing }),
       webSearchMode: 'auto' as 'auto' | 'off' | 'on',
@@ -251,7 +280,38 @@ export const useStore = create<AppState>()(
       })),
 
       // Notes
-      notes: [] as Note[],
+      notes: [
+        {
+          id: 'initial-todo-note',
+          title: 'Projeye Eklenebilecekler',
+          content: `# Gelecek Geliştirmeler
+
+## 1. Gelişmiş AI ile Öğren Bölümü
+- Daha interaktif öğrenme deneyimi
+- Kişiselleştirilmiş öğrenme yolları
+- İlerleme takibi ve başarı rozetleri
+
+## 2. Model Seçici Özelliği
+Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçici eklenecek.
+
+### Model Tipleri:
+1. **Otomatik** - Sistem soruya göre en uygun modeli otomatik seçer
+2. **Qwen 8B (Büyük)** - Daha detaylı ve kapsamlı yanıtlar için
+3. **Qwen 4B (Küçük)** - Hızlı ve basit yanıtlar için
+
+### Özellikler:
+- [ ] Üst toolbar'a model dropdown ekle
+- [ ] Seçilen modeli localStorage'da sakla
+- [ ] Her sohbette farklı model kullanabilme
+- [ ] Model performans karşılaştırması gösterimi`,
+          folder: undefined,
+          color: 'purple',
+          isPinned: true,
+          tags: ['geliştirme', 'yapılacaklar', 'özellikler'],
+          createdAt: new Date('2026-01-21'),
+          updatedAt: new Date('2026-01-21'),
+        }
+      ] as Note[],
       addNote: (note: Note) => set((state) => ({ 
         notes: [note, ...state.notes] 
       })),
@@ -281,6 +341,10 @@ export const useStore = create<AppState>()(
       setResponseLength: (length: 'auto' | 'short' | 'medium' | 'long' | 'very_long') => set({ responseLength: length }),
       complexityLevel: 'normal' as 'simple' | 'normal' | 'comprehensive' | 'research',
       setComplexityLevel: (level: 'simple' | 'normal' | 'comprehensive' | 'research') => set({ complexityLevel: level }),
+      
+      // Model Selection (Manual Override)
+      selectedModel: 'auto' as 'auto' | 'qwen-8b' | 'qwen-4b',
+      setSelectedModel: (model: 'auto' | 'qwen-8b' | 'qwen-4b') => set({ selectedModel: model }),
 
       // Notifications
       notificationsEnabled: true,
@@ -386,7 +450,8 @@ export const useStore = create<AppState>()(
       partialize: (state) => ({
         theme: state.theme,
         sidebarCollapsed: state.sidebarCollapsed,
-        sessions: state.sessions,
+        // sessions: state.sessions,  // REMOVED - sessions are now synced from backend API
+        currentSessionId: state.currentSessionId, // Keep current session ID for navigation
         notes: state.notes,
         templates: state.templates,
         widgetEnabled: state.widgetEnabled,

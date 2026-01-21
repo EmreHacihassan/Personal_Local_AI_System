@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
+import {
   GraduationCap,
   BookOpen,
   Trophy,
@@ -42,11 +42,42 @@ import {
   Check,
   XCircle,
   Zap,
-  List
+  List,
+  // Visual Learning & Premium Features
+  Network,
+  GitBranch,
+  Calendar,
+  Video,
+  Mic,
+  Link2,
+  Route,
+  Layers,
+  // Image - unused
+  Music,
+  Film,
+  Share2,
+  // ChevronDown - unused
+  Copy,
+  // Stats & Archive
+  BarChart3,
+  Archive,
+  TrendingUp,
+  Award,
+  // New Premium Features
+  Bot,
+  Repeat,
+  Theater,
+  PieChart,
+  Flame,
+  Star,
+  ThumbsUp,
+  ThumbsDown,
+  RotateCcw
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
+import { DeepScholarCreator } from '@/components/learning/DeepScholarCreator';
 
 // Types
 interface LearningWorkspace {
@@ -165,7 +196,7 @@ async function apiPut(endpoint: string, data?: Record<string, unknown>) {
 }
 
 type LearningView = 'list' | 'create' | 'workspace' | 'generating' | 'reading';
-type WorkspaceTab = 'sources' | 'documents' | 'tests' | 'chat';
+type WorkspaceTab = 'sources' | 'documents' | 'tests' | 'chat' | 'tutor' | 'flashcards' | 'simulations' | 'analytics' | 'stats' | 'visual' | 'multimedia' | 'linking';
 
 // Document styles
 const DOCUMENT_STYLES = [
@@ -252,6 +283,9 @@ export function LearningPage() {
   const [docStyle, setDocStyle] = useState('detailed');
   const [docWebSearch, setDocWebSearch] = useState<'off' | 'auto' | 'on'>('auto');
   const [docCustomInstructions, setDocCustomInstructions] = useState('');
+  
+  // DeepScholar Premium Mode
+  const [useDeepScholar, setUseDeepScholar] = useState(false);
 
   // Form state - Create test
   const [testTitle, setTestTitle] = useState('');
@@ -369,7 +403,237 @@ export function LearningPage() {
     sourcesUsed: { tr: 'Kaynaklar', en: 'Sources', de: 'Quellen' },
     content: { tr: 'İçerik', en: 'Content', de: 'Inhalt' },
     contentNotGenerated: { tr: 'İçerik henüz oluşturulmamış', en: 'Content not generated yet', de: 'Inhalt noch nicht generiert' },
+    // Premium Feature Tabs
+    visual: { tr: 'Görsel Araçlar', en: 'Visual Tools', de: 'Visuelle Tools' },
+    multimedia: { tr: 'Multimedya', en: 'Multimedia', de: 'Multimedia' },
+    linking: { tr: 'Akıllı Bağlantı', en: 'Smart Linking', de: 'Intelligente Verknüpfung' },
+    // Visual Learning
+    mindMap: { tr: 'Zihin Haritası', en: 'Mind Map', de: 'Gedankenkarte' },
+    conceptMap: { tr: 'Kavram Haritası', en: 'Concept Map', de: 'Konzeptkarte' },
+    timeline: { tr: 'Zaman Çizelgesi', en: 'Timeline', de: 'Zeitleiste' },
+    flowchart: { tr: 'Akış Şeması', en: 'Flowchart', de: 'Flussdiagramm' },
+    infographic: { tr: 'İnfografik', en: 'Infographic', de: 'Infografik' },
+    generateVisual: { tr: 'Görsel Oluştur', en: 'Generate Visual', de: 'Visuell generieren' },
+    // Multimedia
+    videoScript: { tr: 'Video Senaryosu', en: 'Video Script', de: 'Videoskript' },
+    slidesDeck: { tr: 'Slayt Sunumu', en: 'Slide Deck', de: 'Folienpräsentation' },
+    podcastScript: { tr: 'Podcast Metni', en: 'Podcast Script', de: 'Podcast-Skript' },
+    audioSummary: { tr: 'Sesli Özet', en: 'Audio Summary', de: 'Audio-Zusammenfassung' },
+    generateMultimedia: { tr: 'Multimedya Oluştur', en: 'Generate Multimedia', de: 'Multimedia generieren' },
+    // Smart Linking
+    prerequisites: { tr: 'Ön Koşullar', en: 'Prerequisites', de: 'Voraussetzungen' },
+    relatedContent: { tr: 'İlgili İçerik', en: 'Related Content', de: 'Verwandte Inhalte' },
+    learningPath: { tr: 'Öğrenme Yolu', en: 'Learning Path', de: 'Lernpfad' },
+    nextTopics: { tr: 'Sonraki Konular', en: 'Next Topics', de: 'Nächste Themen' },
+    analyzeContent: { tr: 'İçeriği Analiz Et', en: 'Analyze Content', de: 'Inhalt analysieren' },
+    depth: { tr: 'Derinlik', en: 'Depth', de: 'Tiefe' },
+    copyToClipboard: { tr: 'Panoya Kopyala', en: 'Copy to Clipboard', de: 'In Zwischenablage kopieren' },
+    copied: { tr: 'Kopyalandı!', en: 'Copied!', de: 'Kopiert!' },
+    // Stats & Archive
+    stats: { tr: 'İstatistikler', en: 'Statistics', de: 'Statistiken' },
+    archive: { tr: 'Arşivle', en: 'Archive', de: 'Archivieren' },
+    totalDocuments: { tr: 'Toplam Döküman', en: 'Total Documents', de: 'Gesamte Dokumente' },
+    completedDocuments: { tr: 'Tamamlanan Döküman', en: 'Completed Documents', de: 'Fertige Dokumente' },
+    totalTests: { tr: 'Toplam Test', en: 'Total Tests', de: 'Gesamte Tests' },
+    completedTests: { tr: 'Tamamlanan Test', en: 'Completed Tests', de: 'Abgeschlossene Tests' },
+    averageScore: { tr: 'Ortalama Puan', en: 'Average Score', de: 'Durchschnittsnote' },
+    progressOverview: { tr: 'İlerleme Özeti', en: 'Progress Overview', de: 'Fortschrittsübersicht' },
+    noStatsYet: { tr: 'Henüz istatistik yok', en: 'No statistics yet', de: 'Noch keine Statistiken' },
+    // New Premium Features
+    tutor: { tr: 'AI Öğretmen', en: 'AI Tutor', de: 'KI-Tutor' },
+    flashcards: { tr: 'Hafıza Kartları', en: 'Flashcards', de: 'Karteikarten' },
+    simulations: { tr: 'Simülasyonlar', en: 'Simulations', de: 'Simulationen' },
+    analytics: { tr: 'Analitik', en: 'Analytics', de: 'Analytik' },
+    // AI Tutor
+    startTutorSession: { tr: 'Oturum Başlat', en: 'Start Session', de: 'Sitzung starten' },
+    tutorModes: { tr: 'Öğretim Modu', en: 'Teaching Mode', de: 'Lehrmodus' },
+    socratic: { tr: 'Sokratik', en: 'Socratic', de: 'Sokratisch' },
+    explanatory: { tr: 'Açıklayıcı', en: 'Explanatory', de: 'Erklärend' },
+    challenging: { tr: 'Zorlayıcı', en: 'Challenging', de: 'Herausfordernd' },
+    adaptive: { tr: 'Adaptif', en: 'Adaptive', de: 'Adaptiv' },
+    questionsAsked: { tr: 'Soru Soruldu', en: 'Questions Asked', de: 'Gestellte Fragen' },
+    correctAnswers: { tr: 'Doğru Cevap', en: 'Correct Answers', de: 'Richtige Antworten' },
+    endSession: { tr: 'Oturumu Bitir', en: 'End Session', de: 'Sitzung beenden' },
+    // Flashcards
+    createCard: { tr: 'Kart Oluştur', en: 'Create Card', de: 'Karte erstellen' },
+    generateCards: { tr: 'Otomatik Oluştur', en: 'Auto Generate', de: 'Auto generieren' },
+    dueToday: { tr: 'Bugün Tekrar', en: 'Due Today', de: 'Heute fällig' },
+    startReview: { tr: 'Tekrara Başla', en: 'Start Review', de: 'Überprüfung starten' },
+    showAnswer: { tr: 'Cevabı Göster', en: 'Show Answer', de: 'Antwort anzeigen' },
+    again: { tr: 'Tekrar', en: 'Again', de: 'Nochmal' },
+    hard: { tr: 'Zor', en: 'Hard', de: 'Schwer' },
+    good: { tr: 'İyi', en: 'Good', de: 'Gut' },
+    easy: { tr: 'Kolay', en: 'Easy', de: 'Leicht' },
+    newCards: { tr: 'Yeni', en: 'New', de: 'Neu' },
+    learningCards: { tr: 'Öğreniliyor', en: 'Learning', de: 'Lernend' },
+    reviewCards: { tr: 'Tekrar', en: 'Review', de: 'Überprüfung' },
+    graduated: { tr: 'Tamamlandı', en: 'Graduated', de: 'Abgeschlossen' },
+    retentionRate: { tr: 'Hatırlama Oranı', en: 'Retention Rate', de: 'Behaltensrate' },
+    // Simulations
+    startSimulation: { tr: 'Simülasyon Başlat', en: 'Start Simulation', de: 'Simulation starten' },
+    scenarioType: { tr: 'Senaryo Türü', en: 'Scenario Type', de: 'Szenario-Typ' },
+    interview: { tr: 'Mülakat', en: 'Interview', de: 'Interview' },
+    presentation: { tr: 'Sunum', en: 'Presentation', de: 'Präsentation' },
+    problemSolving: { tr: 'Problem Çözme', en: 'Problem Solving', de: 'Problemlösung' },
+    debate: { tr: 'Tartışma', en: 'Debate', de: 'Debatte' },
+    caseStudy: { tr: 'Vaka Analizi', en: 'Case Study', de: 'Fallstudie' },
+    rolePlay: { tr: 'Rol Yapma', en: 'Role Play', de: 'Rollenspiel' },
+    examSimulation: { tr: 'Sınav Simülasyonu', en: 'Exam Simulation', de: 'Prüfungssimulation' },
+    scenarioObjectives: { tr: 'Hedefler', en: 'Objectives', de: 'Ziele' },
+    turnCount: { tr: 'Tur Sayısı', en: 'Turn Count', de: 'Rundenanzahl' },
+    // Analytics
+    studyTime: { tr: 'Çalışma Süresi', en: 'Study Time', de: 'Lernzeit' },
+    streakDays: { tr: 'Seri', en: 'Streak', de: 'Serie' },
+    performanceTrend: { tr: 'Performans Trendi', en: 'Performance Trend', de: 'Leistungstrend' },
+    improving: { tr: 'Yükseliyor', en: 'Improving', de: 'Verbessernd' },
+    stable: { tr: 'Sabit', en: 'Stable', de: 'Stabil' },
+    declining: { tr: 'Düşüyor', en: 'Declining', de: 'Abnehmend' },
+    insights: { tr: 'İçgörüler', en: 'Insights', de: 'Einblicke' },
+    weakAreas: { tr: 'Zayıf Alanlar', en: 'Weak Areas', de: 'Schwache Bereiche' },
+    weeklyActivity: { tr: 'Haftalık Aktivite', en: 'Weekly Activity', de: 'Wöchentliche Aktivität' },
+    minutes: { tr: 'dakika', en: 'minutes', de: 'Minuten' },
   };
+
+  // Premium Features State
+  const [visualTopic, setVisualTopic] = useState('');
+  const [visualContent, setVisualContent] = useState('');
+  const [visualLoading, setVisualLoading] = useState(false);
+  const [visualResult, setVisualResult] = useState<{type: string; mermaid: string; nodes?: number; edges?: number} | null>(null);
+  
+  const [multimediaTopic, setMultimediaTopic] = useState('');
+  const [multimediaContent, setMultimediaContent] = useState('');
+  const [multimediaDuration, setMultimediaDuration] = useState(10);
+  const [multimediaSlideCount, setMultimediaSlideCount] = useState(10);
+  const [multimediaLoading, setMultimediaLoading] = useState(false);
+  const [multimediaResult, setMultimediaResult] = useState<{type: string; content: string | object} | null>(null);
+  
+  const [linkingTopic, setLinkingTopic] = useState('');
+  const [linkingContent, setLinkingContent] = useState('');
+  const [linkingCurrentKnowledge, setLinkingCurrentKnowledge] = useState('');
+  const [linkingLoading, setLinkingLoading] = useState(false);
+  const [linkingResult, setLinkingResult] = useState<{type: string; data: unknown} | null>(null);
+  
+  const [copied, setCopied] = useState(false);
+  
+  // Stats State
+  const [stats, setStats] = useState<{
+    total_documents: number;
+    completed_documents: number;
+    total_tests: number;
+    completed_tests: number;
+    average_score: number;
+  } | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  
+  // Document Integration State
+  const [selectedDocForVisual, setSelectedDocForVisual] = useState<string | null>(null);
+  const [selectedVisualTypes, setSelectedVisualTypes] = useState<string[]>(['mindmap', 'timeline']);
+  const [docVisualLoading, setDocVisualLoading] = useState(false);
+  const [docVisualResult, setDocVisualResult] = useState<Record<string, unknown> | null>(null);
+  
+  const [selectedDocForMultimedia, setSelectedDocForMultimedia] = useState<string | null>(null);
+  const [selectedMultimediaType, setSelectedMultimediaType] = useState('slides');
+  const [docMultimediaLoading, setDocMultimediaLoading] = useState(false);
+  const [docMultimediaResult, setDocMultimediaResult] = useState<Record<string, unknown> | null>(null);
+
+  // 🤖 AI Tutor State
+  const [tutorSessionId, setTutorSessionId] = useState<string | null>(null);
+  const [tutorTopic, setTutorTopic] = useState('');
+  const [tutorMode, setTutorMode] = useState('adaptive');
+  const [tutorMessages, setTutorMessages] = useState<{role: string; content: string}[]>([]);
+  const [tutorInput, setTutorInput] = useState('');
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorSession, setTutorSession] = useState<{
+    questions_asked: number;
+    correct_answers: number;
+    accuracy: number;
+    current_difficulty: string;
+  } | null>(null);
+
+  // 📚 Flashcards (SRS) State
+  type FlashcardType = {
+    id: string;
+    front: string;
+    back: string;
+    status: string;
+    ease_factor: number;
+    interval: number;
+    next_review: string;
+    streak: number;
+    accuracy: number;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [flashcards, setFlashcards] = useState<FlashcardType[]>([]);
+  const [dueCards, setDueCards] = useState<FlashcardType[]>([]);
+  const [flashcardStats, setFlashcardStats] = useState<{
+    total: number;
+    new: number;
+    learning: number;
+    review: number;
+    graduated: number;
+    due_today: number;
+    retention_rate: number;
+  } | null>(null);
+  const [flashcardFront, setFlashcardFront] = useState('');
+  const [flashcardBack, setFlashcardBack] = useState('');
+  const [flashcardContent, setFlashcardContent] = useState('');
+  const [flashcardLoading, setFlashcardLoading] = useState(false);
+  const [reviewingCard, setReviewingCard] = useState<FlashcardType | null>(null);
+  const [showCardBack, setShowCardBack] = useState(false);
+
+  // 🎭 Simulations State
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [scenarioTypes, setScenarioTypes] = useState<{id: string; name: string; icon: string}[]>([]);
+  const [scenarios, setScenarios] = useState<{
+    id: string;
+    title: string;
+    scenario_type: string;
+    status: string;
+    difficulty: string;
+    turn_count: number;
+    evaluation?: {overall_score: number; grade: string};
+  }[]>([]);
+  const [activeScenario, setActiveScenario] = useState<{
+    id: string;
+    title: string;
+    description: string;
+    objectives: string[];
+    conversation: {role: string; content: string}[];
+    status: string;
+    evaluation?: Record<string, unknown>;
+  } | null>(null);
+  const [scenarioTopic, setScenarioTopic] = useState('');
+  const [scenarioType, setScenarioType] = useState('interview');
+  const [scenarioDifficulty, setScenarioDifficulty] = useState('medium');
+  const [scenarioInput, setScenarioInput] = useState('');
+  const [scenarioLoading, setScenarioLoading] = useState(false);
+
+  // 📊 Analytics State
+  const [analyticsData, setAnalyticsData] = useState<{
+    total_study_time: number;
+    session_count: number;
+    documents_read: number;
+    tests_completed: number;
+    cards_reviewed: number;
+    average_score: number;
+    streak_days: number;
+    performance_trend: string;
+  } | null>(null);
+  const [weeklyActivity, setWeeklyActivity] = useState<{
+    date: string;
+    day_name: string;
+    minutes: number;
+    events: number;
+  }[]>([]);
+  const [learningInsights, setLearningInsights] = useState<{
+    insight_type: string;
+    title: string;
+    description: string;
+    importance: string;
+    action_items: string[];
+  }[]>([]);
+  const [weakAreas, setWeakAreas] = useState<{topic: string; average_score: number}[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -936,15 +1200,27 @@ export function LearningPage() {
                     {ws.topic && <p className="text-xs text-muted-foreground">📌 {ws.topic}</p>}
                   </div>
                 </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteWorkspace(ws.id);
-                  }}
-                  className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-destructive transition-all"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleArchiveWorkspace(ws.id);
+                    }}
+                    className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-amber-500/10 text-amber-600 transition-all"
+                    title={t.archive[language]}
+                  >
+                    <Archive className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteWorkspace(ws.id);
+                    }}
+                    className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-destructive transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               
               {ws.description && (
@@ -1493,28 +1769,83 @@ export function LearningPage() {
 
   const renderDocumentsTab = () => (
     <div className="space-y-6">
-      {/* Create Document Form */}
-      <details className="bg-card border border-border rounded-2xl overflow-hidden" open>
-        <summary className="px-4 py-3 cursor-pointer hover:bg-accent font-medium flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          ➕ {t.createDocument[language]}
-        </summary>
-        <div className="p-4 border-t border-border space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">{language === 'tr' ? 'Başlık' : 'Title'} *</label>
-              <input
-                type="text"
-                value={docTitle}
-                onChange={(e) => setDocTitle(e.target.value)}
-                placeholder={language === 'tr' ? 'Örn: ML Temelleri' : 'E.g., ML Basics'}
-                className="w-full px-4 py-2 bg-background border border-border rounded-xl"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">{t.topic[language]} *</label>
-              <input
-                type="text"
+      {/* Mode Toggle - Premium/Standard */}
+      <div className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-500/10 via-blue-500/10 to-emerald-500/10 border border-purple-500/30 rounded-2xl">
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "p-2 rounded-xl transition-all",
+            useDeepScholar ? "bg-gradient-to-br from-purple-500 to-blue-500 text-white" : "bg-muted"
+          )}>
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-semibold flex items-center gap-2">
+              🚀 DeepScholar v2.0
+              <span className="text-xs px-2 py-0.5 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-full">
+                PREMIUM
+              </span>
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {language === 'tr' 
+                ? 'Çoklu ajan, akademik kaynak, PDF export, canlı izleme' 
+                : 'Multi-agent, academic sources, PDF export, live tracking'}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setUseDeepScholar(!useDeepScholar)}
+          className={cn(
+            "relative w-14 h-7 rounded-full transition-all duration-300",
+            useDeepScholar 
+              ? "bg-gradient-to-r from-purple-500 to-blue-500" 
+              : "bg-muted"
+          )}
+        >
+          <div className={cn(
+            "absolute top-1 w-5 h-5 rounded-full bg-white shadow-lg transition-all duration-300",
+            useDeepScholar ? "left-8" : "left-1"
+          )} />
+        </button>
+      </div>
+
+      {/* DeepScholar or Standard Form */}
+      {useDeepScholar ? (
+        <DeepScholarCreator
+          workspaceId={currentWorkspaceId || ''}
+          language={language as 'tr' | 'en'}
+          onClose={() => setUseDeepScholar(false)}
+          onComplete={async (documentId) => {
+            setUseDeepScholar(false);
+            // Reload workspace data to get new document
+            if (currentWorkspaceId) {
+              await loadWorkspaceData(currentWorkspaceId);
+            }
+          }}
+        />
+      ) : (
+        <>
+          {/* Standard Create Document Form */}
+          <details className="bg-card border border-border rounded-2xl overflow-hidden" open>
+            <summary className="px-4 py-3 cursor-pointer hover:bg-accent font-medium flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              ➕ {t.createDocument[language]}
+            </summary>
+            <div className="p-4 border-t border-border space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">{language === 'tr' ? 'Başlık' : 'Title'} *</label>
+                  <input
+                    type="text"
+                    value={docTitle}
+                    onChange={(e) => setDocTitle(e.target.value)}
+                    placeholder={language === 'tr' ? 'Örn: ML Temelleri' : 'E.g., ML Basics'}
+                    className="w-full px-4 py-2 bg-background border border-border rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">{t.topic[language]} *</label>
+                  <input
+                    type="text"
                 value={docTopic}
                 onChange={(e) => setDocTopic(e.target.value)}
                 placeholder={language === 'tr' ? 'Örn: Supervised Learning' : 'E.g., Supervised Learning'}
@@ -1599,6 +1930,8 @@ export function LearningPage() {
           </button>
         </div>
       </details>
+        </>
+      )}
 
       {/* Documents List */}
       <h3 className="font-semibold flex items-center gap-2">
@@ -2126,6 +2459,1685 @@ export function LearningPage() {
     </div>
   );
 
+  // ==================== PREMIUM FEATURES - VISUAL LEARNING ====================
+  const handleGenerateVisual = async (type: string) => {
+    if (!visualTopic.trim() || !visualContent.trim()) return;
+    
+    setVisualLoading(true);
+    setVisualResult(null);
+    
+    try {
+      const endpoint = `/api/learning/visual/${type}`;
+      const response = await apiPost(endpoint, { 
+        topic: visualTopic, 
+        content: visualContent 
+      });
+      
+      if (!response.error && response.success) {
+        setVisualResult({
+          type,
+          mermaid: response.mermaid || response.diagram || '',
+          nodes: response.nodes,
+          edges: response.edges
+        });
+      }
+    } catch (err) {
+      console.error('Visual generation error:', err);
+    }
+    
+    setVisualLoading(false);
+  };
+  
+  // Document Visual Generation
+  const handleDocumentVisualize = async () => {
+    if (!selectedDocForVisual || selectedVisualTypes.length === 0) return;
+    
+    setDocVisualLoading(true);
+    setDocVisualResult(null);
+    
+    try {
+      const response = await apiPost(`/api/learning/documents/${selectedDocForVisual}/visualize`, {
+        visual_types: selectedVisualTypes
+      });
+      
+      if (!response.error && response.success) {
+        setDocVisualResult(response.visuals);
+      }
+    } catch (err) {
+      console.error('Document visualize error:', err);
+    }
+    
+    setDocVisualLoading(false);
+  };
+  
+  // Document Multimedia Generation
+  const handleDocumentMultimedia = async () => {
+    if (!selectedDocForMultimedia) return;
+    
+    setDocMultimediaLoading(true);
+    setDocMultimediaResult(null);
+    
+    try {
+      const response = await apiPost(`/api/learning/documents/${selectedDocForMultimedia}/multimedia`, {
+        content_type: selectedMultimediaType
+      });
+      
+      if (!response.error && response.success) {
+        setDocMultimediaResult(response);
+      }
+    } catch (err) {
+      console.error('Document multimedia error:', err);
+    }
+    
+    setDocMultimediaLoading(false);
+  };
+  
+  // Load Stats
+  const loadStats = async () => {
+    if (!currentWorkspaceId) return;
+    
+    setStatsLoading(true);
+    try {
+      const response = await apiGet(`/api/learning/workspaces/${currentWorkspaceId}/stats`);
+      if (!response.error) {
+        setStats(response);
+      }
+    } catch (err) {
+      console.error('Stats load error:', err);
+    }
+    setStatsLoading(false);
+  };
+  
+  // Archive Workspace
+  const handleArchiveWorkspace = async (workspaceId: string) => {
+    const response = await apiPost(`/api/learning/workspaces/${workspaceId}/archive`, {});
+    if (response.success) {
+      await loadWorkspaces();
+      if (currentWorkspaceId === workspaceId) {
+        setCurrentWorkspaceId(null);
+        setView('list');
+      }
+    }
+  };
+
+  const handleCopyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const renderVisualTab = () => (
+    <div className="space-y-6">
+      {/* Premium Badge */}
+      <div className="bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-300 dark:border-violet-700 rounded-2xl p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+          <Sparkles className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-violet-700 dark:text-violet-300">🎨 {t.visual[language]} - Premium</h3>
+          <p className="text-sm text-muted-foreground">
+            {language === 'tr' ? 'Konularınızı görsel diyagramlara dönüştürün' : 'Transform your topics into visual diagrams'}
+          </p>
+        </div>
+      </div>
+
+      {/* Input Section */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">📌 {t.topic[language]}</label>
+          <input
+            type="text"
+            value={visualTopic}
+            onChange={(e) => setVisualTopic(e.target.value)}
+            placeholder={language === 'tr' ? 'Örn: Machine Learning, Python OOP, Neural Networks...' : 'E.g., Machine Learning, Python OOP, Neural Networks...'}
+            className="w-full px-4 py-3 bg-background border border-border rounded-xl"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium mb-2">� {t.content[language]} *</label>
+          <textarea
+            value={visualContent}
+            onChange={(e) => setVisualContent(e.target.value)}
+            placeholder={language === 'tr' ? 'Görselleştirmek istediğiniz içeriği buraya yazın veya yapıştırın. En az 10 karakter olmalıdır...' : 'Write or paste the content you want to visualize here. Must be at least 10 characters...'}
+            rows={6}
+            className="w-full px-4 py-3 bg-background border border-border rounded-xl resize-none"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            {visualContent.length}/100000 {language === 'tr' ? 'karakter' : 'characters'}
+          </p>
+        </div>
+      </div>
+
+      {/* Visual Type Buttons */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { id: 'mindmap', label: t.mindMap, icon: Brain, emoji: '🧠', color: 'from-blue-500 to-cyan-500' },
+          { id: 'conceptmap', label: t.conceptMap, icon: Network, emoji: '🔗', color: 'from-green-500 to-emerald-500' },
+          { id: 'timeline', label: t.timeline, icon: Calendar, emoji: '📅', color: 'from-orange-500 to-amber-500' },
+          { id: 'flowchart', label: t.flowchart, icon: GitBranch, emoji: '📊', color: 'from-purple-500 to-pink-500' },
+          { id: 'infographic', label: t.infographic, icon: Layers, emoji: '📈', color: 'from-red-500 to-rose-500' },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => handleGenerateVisual(item.id)}
+              disabled={!visualTopic.trim() || visualContent.length < 10 || visualLoading}
+              className={cn(
+                "flex flex-col items-center p-4 rounded-2xl border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+                "hover:scale-105 hover:shadow-lg",
+                `bg-gradient-to-br ${item.color} text-white border-transparent`
+              )}
+            >
+              <Icon className="w-6 h-6 mb-2" />
+              <span className="text-sm font-medium">{item.emoji} {item.label[language]}</span>
+            </button>
+          );
+        })}
+      </div>
+      
+      {/* Document Integration Section */}
+      {documents.length > 0 && (
+        <div className="bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-300 dark:border-blue-700 rounded-2xl p-6 space-y-4">
+          <h4 className="font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            📄 {language === 'tr' ? 'Dökümanlardan Görsel Oluştur' : 'Create Visuals from Documents'}
+          </h4>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">{language === 'tr' ? 'Döküman Seç' : 'Select Document'}</label>
+              <select
+                value={selectedDocForVisual || ''}
+                onChange={(e) => setSelectedDocForVisual(e.target.value || null)}
+                className="w-full px-4 py-2 bg-background border border-border rounded-xl"
+              >
+                <option value="">{language === 'tr' ? 'Döküman seçin...' : 'Select document...'}</option>
+                {documents.filter(d => d.status === 'completed' && d.content).map((doc) => (
+                  <option key={doc.id} value={doc.id}>{doc.title}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2">{language === 'tr' ? 'Görsel Türleri' : 'Visual Types'}</label>
+              <div className="flex flex-wrap gap-2">
+                {['mindmap', 'timeline', 'flowchart', 'conceptmap', 'infographic'].map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setSelectedVisualTypes(prev => 
+                      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+                    )}
+                    className={cn(
+                      "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                      selectedVisualTypes.includes(type)
+                        ? "bg-blue-500 text-white"
+                        : "bg-muted hover:bg-accent"
+                    )}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <button
+            onClick={handleDocumentVisualize}
+            disabled={!selectedDocForVisual || selectedVisualTypes.length === 0 || docVisualLoading}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:opacity-50 transition-colors"
+          >
+            {docVisualLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            🚀 {language === 'tr' ? 'Dökümanı Görselleştir' : 'Visualize Document'}
+          </button>
+          
+          {/* Document Visual Result */}
+          {docVisualResult && (
+            <div className="bg-card border border-border rounded-xl p-4 space-y-4 mt-4">
+              <h5 className="font-medium">✅ {language === 'tr' ? 'Oluşturulan Görseller' : 'Generated Visuals'}</h5>
+              {Object.entries(docVisualResult).map(([key, value]) => (
+                <details key={key} className="bg-muted/50 rounded-xl overflow-hidden">
+                  <summary className="px-4 py-3 cursor-pointer hover:bg-accent font-medium capitalize">{key}</summary>
+                  <pre className="p-4 text-xs font-mono whitespace-pre-wrap overflow-x-auto">
+                    {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                  </pre>
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {visualLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 animate-spin text-violet-500 mx-auto mb-4" />
+            <p className="text-muted-foreground">{language === 'tr' ? 'Görsel oluşturuluyor...' : 'Generating visual...'}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Result */}
+      {visualResult && (
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-green-500" />
+              <span className="font-medium">
+                {visualResult.type === 'mindmap' && t.mindMap[language]}
+                {visualResult.type === 'conceptmap' && t.conceptMap[language]}
+                {visualResult.type === 'timeline' && t.timeline[language]}
+                {visualResult.type === 'flowchart' && t.flowchart[language]}
+                {visualResult.type === 'infographic' && t.infographic[language]}
+              </span>
+              {visualResult.nodes && (
+                <span className="text-xs text-muted-foreground">
+                  ({visualResult.nodes} nodes, {visualResult.edges} edges)
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => handleCopyToClipboard(visualResult.mermaid)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? t.copied[language] : t.copyToClipboard[language]}
+            </button>
+          </div>
+          <div className="p-4">
+            <pre className="bg-muted/50 p-4 rounded-xl overflow-x-auto text-sm font-mono whitespace-pre-wrap">
+              {visualResult.mermaid}
+            </pre>
+            <p className="text-xs text-muted-foreground mt-3">
+              💡 {language === 'tr' 
+                ? 'Mermaid kodunu Mermaid Live Editor veya destekleyen herhangi bir editörde görselleştirebilirsiniz.'
+                : 'You can visualize this Mermaid code in Mermaid Live Editor or any supporting editor.'}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ==================== PREMIUM FEATURES - MULTIMEDIA ====================
+  const handleGenerateMultimedia = async (type: string) => {
+    if (!multimediaTopic.trim() || !multimediaContent.trim()) return;
+    
+    setMultimediaLoading(true);
+    setMultimediaResult(null);
+    
+    try {
+      const endpoint = `/api/learning/multimedia/${type}`;
+      const body: Record<string, unknown> = { 
+        topic: multimediaTopic, 
+        content: multimediaContent 
+      };
+      
+      // Add type-specific parameters
+      if (type === 'video-script' || type === 'podcast') {
+        body.duration_minutes = multimediaDuration;
+        body.style = 'educational';
+      }
+      if (type === 'slides') {
+        body.slide_count = multimediaSlideCount;
+        body.include_notes = true;
+      }
+      if (type === 'podcast') {
+        body.host_count = 1;
+      }
+      
+      const response = await apiPost(endpoint, body);
+      
+      if (!response.error && response.success) {
+        setMultimediaResult({
+          type,
+          content: response.script || response.slides || response.content || response
+        });
+      }
+    } catch (err) {
+      console.error('Multimedia generation error:', err);
+    }
+    
+    setMultimediaLoading(false);
+  };
+
+  const renderMultimediaTab = () => (
+    <div className="space-y-6">
+      {/* Premium Badge */}
+      <div className="bg-gradient-to-r from-pink-500/10 to-rose-500/10 border border-pink-300 dark:border-pink-700 rounded-2xl p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center">
+          <Film className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-pink-700 dark:text-pink-300">🎬 {t.multimedia[language]} - Premium</h3>
+          <p className="text-sm text-muted-foreground">
+            {language === 'tr' ? 'Video, slayt ve podcast içerikleri oluşturun' : 'Create video, slide and podcast content'}
+          </p>
+        </div>
+      </div>
+
+      {/* Input Section */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">📌 {t.topic[language]}</label>
+          <input
+            type="text"
+            value={multimediaTopic}
+            onChange={(e) => setMultimediaTopic(e.target.value)}
+            placeholder={language === 'tr' ? 'Örn: React Hooks, Python Decorators...' : 'E.g., React Hooks, Python Decorators...'}
+            className="w-full px-4 py-3 bg-background border border-border rounded-xl"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium mb-2">📝 {t.content[language]} *</label>
+          <textarea
+            value={multimediaContent}
+            onChange={(e) => setMultimediaContent(e.target.value)}
+            placeholder={language === 'tr' ? 'Multimedya içeriği oluşturmak istediğiniz metni buraya yazın veya yapıştırın. En az 10 karakter olmalıdır...' : 'Write or paste the text you want to convert to multimedia content here. Must be at least 10 characters...'}
+            rows={6}
+            className="w-full px-4 py-3 bg-background border border-border rounded-xl resize-none"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            {multimediaContent.length}/100000 {language === 'tr' ? 'karakter' : 'characters'}
+          </p>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">⏱️ {language === 'tr' ? 'Süre' : 'Duration'}: {multimediaDuration} {language === 'tr' ? 'dakika' : 'minutes'}</label>
+            <input
+              type="range"
+              min={3}
+              max={60}
+              value={multimediaDuration}
+              onChange={(e) => setMultimediaDuration(parseInt(e.target.value))}
+              className="w-full"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">📊 {language === 'tr' ? 'Slayt Sayısı' : 'Slide Count'}: {multimediaSlideCount}</label>
+            <input
+              type="range"
+              min={3}
+              max={30}
+              value={multimediaSlideCount}
+              onChange={(e) => setMultimediaSlideCount(parseInt(e.target.value))}
+              className="w-full"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Multimedia Type Buttons */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { id: 'video-script', label: t.videoScript, icon: Video, emoji: '🎥', color: 'from-red-500 to-pink-500' },
+          { id: 'slides', label: t.slidesDeck, icon: Presentation, emoji: '📊', color: 'from-blue-500 to-indigo-500' },
+          { id: 'podcast', label: t.podcastScript, icon: Mic, emoji: '🎙️', color: 'from-purple-500 to-violet-500' },
+          { id: 'audio-summary', label: t.audioSummary, icon: Music, emoji: '🔊', color: 'from-green-500 to-teal-500' },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => handleGenerateMultimedia(item.id)}
+              disabled={!multimediaTopic.trim() || multimediaContent.length < 10 || multimediaLoading}
+              className={cn(
+                "flex flex-col items-center p-4 rounded-2xl border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+                "hover:scale-105 hover:shadow-lg",
+                `bg-gradient-to-br ${item.color} text-white border-transparent`
+              )}
+            >
+              <Icon className="w-6 h-6 mb-2" />
+              <span className="text-sm font-medium">{item.emoji} {item.label[language]}</span>
+            </button>
+          );
+        })}
+      </div>
+      
+      {/* Document Integration Section */}
+      {documents.length > 0 && (
+        <div className="bg-gradient-to-r from-orange-500/10 to-amber-500/10 border border-orange-300 dark:border-orange-700 rounded-2xl p-6 space-y-4">
+          <h4 className="font-semibold text-orange-700 dark:text-orange-300 flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            📄 {language === 'tr' ? 'Dökümanlardan Multimedya Oluştur' : 'Create Multimedia from Documents'}
+          </h4>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">{language === 'tr' ? 'Döküman Seç' : 'Select Document'}</label>
+              <select
+                value={selectedDocForMultimedia || ''}
+                onChange={(e) => setSelectedDocForMultimedia(e.target.value || null)}
+                className="w-full px-4 py-2 bg-background border border-border rounded-xl"
+              >
+                <option value="">{language === 'tr' ? 'Döküman seçin...' : 'Select document...'}</option>
+                {documents.filter(d => d.status === 'completed' && d.content).map((doc) => (
+                  <option key={doc.id} value={doc.id}>{doc.title}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2">{language === 'tr' ? 'İçerik Türü' : 'Content Type'}</label>
+              <select
+                value={selectedMultimediaType}
+                onChange={(e) => setSelectedMultimediaType(e.target.value)}
+                className="w-full px-4 py-2 bg-background border border-border rounded-xl"
+              >
+                <option value="slides">📊 {t.slidesDeck[language]}</option>
+                <option value="video">🎥 {t.videoScript[language]}</option>
+                <option value="podcast">🎙️ {t.podcastScript[language]}</option>
+                <option value="audio">🔊 {t.audioSummary[language]}</option>
+              </select>
+            </div>
+          </div>
+          
+          <button
+            onClick={handleDocumentMultimedia}
+            disabled={!selectedDocForMultimedia || docMultimediaLoading}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 disabled:opacity-50 transition-colors"
+          >
+            {docMultimediaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            🚀 {language === 'tr' ? 'Dökümanı Dönüştür' : 'Convert Document'}
+          </button>
+          
+          {/* Document Multimedia Result */}
+          {docMultimediaResult && (
+            <div className="bg-card border border-border rounded-xl p-4 space-y-4 mt-4">
+              <div className="flex items-center justify-between">
+                <h5 className="font-medium">✅ {docMultimediaResult.content_type as string}</h5>
+                <button
+                  onClick={() => handleCopyToClipboard(
+                    typeof docMultimediaResult === 'string' 
+                      ? docMultimediaResult 
+                      : JSON.stringify(docMultimediaResult, null, 2)
+                  )}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied ? t.copied[language] : t.copyToClipboard[language]}
+                </button>
+              </div>
+              <pre className="bg-muted/50 p-4 rounded-xl text-xs font-mono whitespace-pre-wrap overflow-x-auto max-h-96 overflow-y-auto">
+                {JSON.stringify(docMultimediaResult, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {multimediaLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-4" />
+            <p className="text-muted-foreground">{language === 'tr' ? 'İçerik oluşturuluyor...' : 'Generating content...'}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Result */}
+      {multimediaResult && (
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-green-500" />
+              <span className="font-medium">
+                {multimediaResult.type === 'video-script' && t.videoScript[language]}
+                {multimediaResult.type === 'slides' && t.slidesDeck[language]}
+                {multimediaResult.type === 'podcast' && t.podcastScript[language]}
+                {multimediaResult.type === 'audio-summary' && t.audioSummary[language]}
+              </span>
+            </div>
+            <button
+              onClick={() => handleCopyToClipboard(
+                typeof multimediaResult.content === 'string' 
+                  ? multimediaResult.content 
+                  : JSON.stringify(multimediaResult.content, null, 2)
+              )}
+              className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? t.copied[language] : t.copyToClipboard[language]}
+            </button>
+          </div>
+          <div className="p-4 max-h-96 overflow-y-auto">
+            {typeof multimediaResult.content === 'string' ? (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown>{multimediaResult.content}</ReactMarkdown>
+              </div>
+            ) : (
+              <pre className="bg-muted/50 p-4 rounded-xl overflow-x-auto text-sm font-mono whitespace-pre-wrap">
+                {JSON.stringify(multimediaResult.content, null, 2)}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ==================== PREMIUM FEATURES - SMART LINKING ====================
+  const handleAnalyzeContent = async (type: string) => {
+    if (!linkingTopic.trim()) return;
+    
+    setLinkingLoading(true);
+    setLinkingResult(null);
+    
+    try {
+      const endpoint = `/api/learning/linking/${type}`;
+      let body: Record<string, unknown> = {};
+      
+      if (type === 'learning-path') {
+        // LearningPathRequest format
+        body = {
+          target_topic: linkingTopic,
+          current_knowledge: linkingCurrentKnowledge.split(',').map(s => s.trim()).filter(s => s),
+          max_steps: 10
+        };
+      } else if (type === 'next-topics') {
+        // NextTopicsRequest format
+        body = {
+          completed_topics: linkingCurrentKnowledge.split(',').map(s => s.trim()).filter(s => s),
+          interests: linkingTopic.split(',').map(s => s.trim()).filter(s => s)
+        };
+        // Ensure at least one completed topic
+        if ((body.completed_topics as string[]).length === 0) {
+          body.completed_topics = [linkingTopic];
+        }
+      } else {
+        // VisualContentRequest format (prerequisites, related)
+        body = {
+          topic: linkingTopic,
+          content: linkingContent.trim() || `${linkingTopic} - ${language === 'tr' ? 'Bu konu hakkında analiz yap' : 'Analyze this topic'}`
+        };
+      }
+      
+      const response = await apiPost(endpoint, body);
+      
+      if (!response.error && response.success) {
+        setLinkingResult({
+          type,
+          data: response.prerequisites || response.related || response.path || response.next_topics || response.steps || response
+        });
+      }
+    } catch (err) {
+      console.error('Linking analysis error:', err);
+    }
+    
+    setLinkingLoading(false);
+  };
+
+  const renderLinkingTab = () => (
+    <div className="space-y-6">
+      {/* Premium Badge */}
+      <div className="bg-gradient-to-r from-cyan-500/10 to-teal-500/10 border border-cyan-300 dark:border-cyan-700 rounded-2xl p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center">
+          <Link2 className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-cyan-700 dark:text-cyan-300">🔗 {t.linking[language]} - Premium</h3>
+          <p className="text-sm text-muted-foreground">
+            {language === 'tr' ? 'Konular arası bağlantıları ve öğrenme yollarını keşfedin' : 'Discover connections between topics and learning paths'}
+          </p>
+        </div>
+      </div>
+
+      {/* Input Section */}
+      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">📌 {t.topic[language]} / {language === 'tr' ? 'Hedef' : 'Target'}</label>
+          <input
+            type="text"
+            value={linkingTopic}
+            onChange={(e) => setLinkingTopic(e.target.value)}
+            placeholder={language === 'tr' ? 'Örn: Deep Learning, Kubernetes, Data Science...' : 'E.g., Deep Learning, Kubernetes, Data Science...'}
+            className="w-full px-4 py-3 bg-background border border-border rounded-xl"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium mb-2">📝 {t.content[language]} ({language === 'tr' ? 'İsteğe bağlı - Prerequisites/Related için' : 'Optional - for Prerequisites/Related'})</label>
+          <textarea
+            value={linkingContent}
+            onChange={(e) => setLinkingContent(e.target.value)}
+            placeholder={language === 'tr' ? 'Analiz edilecek içerik veya konu açıklaması...' : 'Content or topic description to analyze...'}
+            rows={4}
+            className="w-full px-4 py-3 bg-background border border-border rounded-xl resize-none"
+          />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium mb-2">📚 {language === 'tr' ? 'Mevcut Bilgiler' : 'Current Knowledge'} ({language === 'tr' ? 'virgülle ayırın' : 'comma separated'})</label>
+          <input
+            type="text"
+            value={linkingCurrentKnowledge}
+            onChange={(e) => setLinkingCurrentKnowledge(e.target.value)}
+            placeholder={language === 'tr' ? 'Örn: Python, Math, Statistics...' : 'E.g., Python, Math, Statistics...'}
+            className="w-full px-4 py-3 bg-background border border-border rounded-xl"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            {language === 'tr' ? 'Öğrenme yolu ve sonraki konular için mevcut bilgilerinizi girin' : 'Enter your current knowledge for learning path and next topics'}
+          </p>
+        </div>
+      </div>
+
+      {/* Linking Type Buttons */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { id: 'prerequisites', label: t.prerequisites, icon: ArrowLeft, emoji: '⬅️', color: 'from-amber-500 to-orange-500', desc: language === 'tr' ? 'Önceden bilinmesi gerekenler' : 'What you need to know first' },
+          { id: 'related', label: t.relatedContent, icon: Share2, emoji: '🔄', color: 'from-blue-500 to-cyan-500', desc: language === 'tr' ? 'İlgili konular' : 'Related topics' },
+          { id: 'learning-path', label: t.learningPath, icon: Route, emoji: '🛤️', color: 'from-green-500 to-emerald-500', desc: language === 'tr' ? 'Adım adım öğrenme yolu' : 'Step by step learning path' },
+          { id: 'next-topics', label: t.nextTopics, icon: ChevronRight, emoji: '➡️', color: 'from-purple-500 to-violet-500', desc: language === 'tr' ? 'Sonra ne öğrenilmeli' : 'What to learn next' },
+        ].map((item) => {
+          const Icon = item.icon;
+          const needsContent = ['prerequisites', 'related'].includes(item.id);
+          // const needsKnowledge = ['learning-path', 'next-topics'].includes(item.id);
+          const isDisabled = !linkingTopic.trim() || 
+            (needsContent && linkingContent.length < 10) ||
+            linkingLoading;
+          
+          return (
+            <button
+              key={item.id}
+              onClick={() => handleAnalyzeContent(item.id)}
+              disabled={isDisabled}
+              className={cn(
+                "flex flex-col items-center p-4 rounded-2xl border-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+                "hover:scale-105 hover:shadow-lg",
+                `bg-gradient-to-br ${item.color} text-white border-transparent`
+              )}
+            >
+              <Icon className="w-6 h-6 mb-2" />
+              <span className="text-sm font-medium">{item.emoji} {item.label[language]}</span>
+              <span className="text-xs opacity-80 mt-1">{item.desc}</span>
+            </button>
+          );
+        })}
+      </div>
+      
+      {/* Info Box */}
+      <div className="bg-muted/50 border border-border rounded-xl p-4">
+        <p className="text-sm text-muted-foreground">
+          💡 <strong>{language === 'tr' ? 'İpucu:' : 'Tip:'}</strong> {language === 'tr' 
+            ? 'Prerequisites ve Related için içerik alanını doldurun. Learning Path ve Next Topics için mevcut bilgilerinizi girin.'
+            : 'Fill in the content field for Prerequisites and Related. Enter your current knowledge for Learning Path and Next Topics.'}
+        </p>
+      </div>
+
+      {/* Loading State */}
+      {linkingLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 animate-spin text-cyan-500 mx-auto mb-4" />
+            <p className="text-muted-foreground">{language === 'tr' ? 'Analiz ediliyor...' : 'Analyzing...'}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Result */}
+      {linkingResult && (
+        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-green-500" />
+              <span className="font-medium">
+                {linkingResult.type === 'prerequisites' && t.prerequisites[language]}
+                {linkingResult.type === 'related' && t.relatedContent[language]}
+                {linkingResult.type === 'learning-path' && t.learningPath[language]}
+                {linkingResult.type === 'next-topics' && t.nextTopics[language]}
+              </span>
+            </div>
+            <button
+              onClick={() => handleCopyToClipboard(JSON.stringify(linkingResult.data, null, 2))}
+              className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? t.copied[language] : t.copyToClipboard[language]}
+            </button>
+          </div>
+          <div className="p-4">
+            {Array.isArray(linkingResult.data) ? (
+              <div className="space-y-2">
+                {(linkingResult.data as Array<{topic?: string; name?: string; title?: string; description?: string; order?: number; step?: number; reason?: string; importance?: string}>).map((item, idx) => (
+                  <div key={idx} className="flex items-start gap-3 p-3 bg-muted/50 rounded-xl">
+                    <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary-500 text-white text-xs font-bold shrink-0">
+                      {item.order || item.step || idx + 1}
+                    </span>
+                    <div className="flex-1">
+                      <p className="font-medium">{item.topic || item.name || item.title || String(item)}</p>
+                      {item.description && <p className="text-sm text-muted-foreground mt-1">{item.description}</p>}
+                      {item.reason && <p className="text-sm text-blue-600 dark:text-blue-400 mt-1">💡 {item.reason}</p>}
+                      {item.importance && <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">⭐ {item.importance}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <pre className="bg-muted/50 p-4 rounded-xl overflow-x-auto text-sm font-mono whitespace-pre-wrap">
+                {JSON.stringify(linkingResult.data, null, 2)}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ==================== PREMIUM DATA LOADING ====================
+  
+  const loadAnalytics = async () => {
+    if (!currentWorkspaceId) return;
+    setAnalyticsLoading(true);
+    try {
+      const [statsRes, weeklyRes, insightsRes, weakRes] = await Promise.all([
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/analytics/stats`),
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/analytics/weekly`),
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/analytics/insights`),
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/analytics/weak-areas`)
+      ]);
+      
+      if (statsRes.stats) setAnalyticsData(statsRes.stats);
+      if (weeklyRes.weekly_activity) setWeeklyActivity(weeklyRes.weekly_activity);
+      if (insightsRes.insights) setLearningInsights(insightsRes.insights);
+      if (weakRes.weak_areas) setWeakAreas(weakRes.weak_areas);
+    } catch (error) {
+      console.error('Analytics load error:', error);
+    }
+    setAnalyticsLoading(false);
+  };
+
+  const loadFlashcards = async () => {
+    if (!currentWorkspaceId) return;
+    setFlashcardLoading(true);
+    try {
+      const [cardsRes, dueRes, statsRes] = await Promise.all([
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/flashcards`),
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/flashcards/due`),
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/flashcards/stats`)
+      ]);
+      
+      if (cardsRes.cards) setFlashcards(cardsRes.cards);
+      if (dueRes.cards) setDueCards(dueRes.cards);
+      if (statsRes.stats) setFlashcardStats(statsRes.stats);
+    } catch (error) {
+      console.error('Flashcards load error:', error);
+    }
+    setFlashcardLoading(false);
+  };
+
+  const loadSimulations = async () => {
+    if (!currentWorkspaceId) return;
+    setScenarioLoading(true);
+    try {
+      const [typesRes, scenariosRes] = await Promise.all([
+        apiGet('/api/learning/simulations/types'),
+        apiGet(`/api/learning/workspaces/${currentWorkspaceId}/simulations`)
+      ]);
+      
+      if (typesRes.scenario_types) setScenarioTypes(typesRes.scenario_types);
+      if (scenariosRes.scenarios) setScenarios(scenariosRes.scenarios);
+    } catch (error) {
+      console.error('Simulations load error:', error);
+    }
+    setScenarioLoading(false);
+  };
+
+  // ==================== AI TUTOR TAB ====================
+  const renderTutorTab = () => (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Bot className="w-5 h-5" />
+          🤖 {t.tutor[language]}
+        </h3>
+        {tutorSessionId && (
+          <button
+            onClick={async () => {
+              await apiPost(`/api/learning/tutor/${tutorSessionId}/end`);
+              setTutorSessionId(null);
+              setTutorMessages([]);
+              setTutorSession(null);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600"
+          >
+            <X className="w-4 h-4" />
+            {t.endSession[language]}
+          </button>
+        )}
+      </div>
+
+      {!tutorSessionId ? (
+        // Start Session Form
+        <div className="bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-300 dark:border-violet-700 rounded-2xl p-6 space-y-4">
+          <div className="flex items-center gap-3 text-lg font-semibold">
+            <Bot className="w-6 h-6 text-violet-500" />
+            <span>{language === 'tr' ? 'AI Öğretmen ile Oturum Başlat' : 'Start Session with AI Tutor'}</span>
+          </div>
+          
+          <input
+            type="text"
+            value={tutorTopic}
+            onChange={(e) => setTutorTopic(e.target.value)}
+            placeholder={language === 'tr' ? 'Öğrenmek istediğiniz konu...' : 'Topic you want to learn...'}
+            className="w-full px-4 py-3 rounded-xl border border-border bg-card"
+          />
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {[
+              { id: 'adaptive', icon: '🎯', label: t.adaptive },
+              { id: 'socratic', icon: '🤔', label: t.socratic },
+              { id: 'explain', icon: '📖', label: t.explanatory },
+              { id: 'quiz', icon: '❓', label: { tr: 'Quiz', en: 'Quiz', de: 'Quiz' } }
+            ].map(mode => (
+              <button
+                key={mode.id}
+                onClick={() => setTutorMode(mode.id)}
+                className={cn(
+                  "p-3 rounded-xl border transition-all",
+                  tutorMode === mode.id
+                    ? "bg-violet-500 text-white border-violet-500"
+                    : "bg-card hover:bg-accent border-border"
+                )}
+              >
+                <span className="text-lg">{mode.icon}</span>
+                <span className="ml-2 text-sm">{mode.label[language]}</span>
+              </button>
+            ))}
+          </div>
+          
+          <button
+            onClick={async () => {
+              if (!tutorTopic.trim() || !currentWorkspaceId) return;
+              setTutorLoading(true);
+              const res = await apiPost(`/api/learning/workspaces/${currentWorkspaceId}/tutor/session`, {
+                topic: tutorTopic,
+                mode: tutorMode
+              });
+              if (res.session) {
+                setTutorSessionId(res.session.id);
+                setTutorMessages(res.session.messages || []);
+                setTutorSession(res.session);
+              }
+              setTutorLoading(false);
+            }}
+            disabled={!tutorTopic.trim() || tutorLoading}
+            className="w-full py-3 bg-violet-500 text-white rounded-xl hover:bg-violet-600 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {tutorLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+            {t.startTutorSession[language]}
+          </button>
+        </div>
+      ) : (
+        // Active Session
+        <div className="space-y-4">
+          {/* Session Stats */}
+          {tutorSession && (
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-blue-500/10 rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-blue-600">{tutorSession.questions_asked}</div>
+                <div className="text-sm text-muted-foreground">{t.questionsAsked[language]}</div>
+              </div>
+              <div className="bg-green-500/10 rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-green-600">{tutorSession.correct_answers}</div>
+                <div className="text-sm text-muted-foreground">{t.correctAnswers[language]}</div>
+              </div>
+              <div className="bg-purple-500/10 rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-purple-600">{tutorSession.accuracy}%</div>
+                <div className="text-sm text-muted-foreground">{language === 'tr' ? 'Başarı' : 'Accuracy'}</div>
+              </div>
+            </div>
+          )}
+          
+          {/* Messages */}
+          <div className="h-96 overflow-y-auto space-y-4 p-4 bg-muted/30 rounded-xl">
+            {tutorMessages.map((msg, idx) => (
+              <div key={idx} className={cn("flex", msg.role === 'student' ? "justify-end" : "justify-start")}>
+                <div className={cn(
+                  "max-w-[80%] rounded-2xl px-4 py-3",
+                  msg.role === 'student'
+                    ? "bg-primary-500 text-white"
+                    : "bg-card border border-border"
+                )}>
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* Input */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={tutorInput}
+              onChange={(e) => setTutorInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && !tutorLoading && sendTutorMessage()}
+              placeholder={language === 'tr' ? 'Mesajınızı yazın...' : 'Type your message...'}
+              className="flex-1 px-4 py-3 rounded-xl border border-border bg-card"
+            />
+            <button
+              onClick={sendTutorMessage}
+              disabled={!tutorInput.trim() || tutorLoading}
+              className="px-6 py-3 bg-violet-500 text-white rounded-xl hover:bg-violet-600 disabled:opacity-50"
+            >
+              {tutorLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const sendTutorMessage = async () => {
+    if (!tutorInput.trim() || !tutorSessionId) return;
+    const message = tutorInput;
+    setTutorInput('');
+    setTutorLoading(true);
+    
+    // Add user message immediately
+    setTutorMessages(prev => [...prev, { role: 'student', content: message }]);
+    
+    const res = await apiPost(`/api/learning/tutor/${tutorSessionId}/message`, { message });
+    
+    if (res.message) {
+      setTutorMessages(prev => [...prev, { role: 'tutor', content: res.message }]);
+      if (res.metadata) {
+        setTutorSession(prev => prev ? { ...prev, ...res.metadata } : null);
+      }
+    }
+    setTutorLoading(false);
+  };
+
+  // ==================== FLASHCARDS TAB ====================
+  const renderFlashcardsTab = () => (
+    <div className="space-y-6">
+      {/* Header & Stats */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Repeat className="w-5 h-5" />
+          📚 {t.flashcards[language]}
+        </h3>
+        <button
+          onClick={loadFlashcards}
+          disabled={flashcardLoading}
+          className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+        >
+          {flashcardLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+        </button>
+      </div>
+
+      {/* Stats Grid */}
+      {flashcardStats && (
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <div className="bg-blue-500/10 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold">{flashcardStats.total}</div>
+            <div className="text-xs text-muted-foreground">{language === 'tr' ? 'Toplam' : 'Total'}</div>
+          </div>
+          <div className="bg-green-500/10 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold">{flashcardStats.new}</div>
+            <div className="text-xs text-muted-foreground">{t.newCards[language]}</div>
+          </div>
+          <div className="bg-yellow-500/10 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold">{flashcardStats.learning}</div>
+            <div className="text-xs text-muted-foreground">{t.learningCards[language]}</div>
+          </div>
+          <div className="bg-orange-500/10 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold">{flashcardStats.due_today}</div>
+            <div className="text-xs text-muted-foreground">{t.dueToday[language]}</div>
+          </div>
+          <div className="bg-purple-500/10 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold">{flashcardStats.graduated}</div>
+            <div className="text-xs text-muted-foreground">{t.graduated[language]}</div>
+          </div>
+          <div className="bg-emerald-500/10 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold">{flashcardStats.retention_rate}%</div>
+            <div className="text-xs text-muted-foreground">{t.retentionRate[language]}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Mode */}
+      {reviewingCard ? (
+        <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-300 dark:border-amber-700 rounded-2xl p-6 space-y-6">
+          <div className="text-center">
+            <div className="text-sm text-muted-foreground mb-4">{language === 'tr' ? 'Kart' : 'Card'} {dueCards.findIndex(c => c.id === reviewingCard.id) + 1}/{dueCards.length}</div>
+            
+            {/* Front */}
+            <div className="bg-card rounded-xl p-6 mb-4 min-h-32 flex items-center justify-center">
+              <p className="text-lg font-medium">{reviewingCard.front}</p>
+            </div>
+            
+            {/* Back (conditionally shown) */}
+            {showCardBack ? (
+              <>
+                <div className="bg-green-500/10 rounded-xl p-6 min-h-32 flex items-center justify-center mb-4">
+                  <p className="text-lg">{reviewingCard.back}</p>
+                </div>
+                
+                {/* Rating Buttons */}
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { rating: 0, label: t.again, color: 'bg-red-500', icon: <RotateCcw className="w-4 h-4" /> },
+                    { rating: 1, label: t.hard, color: 'bg-orange-500', icon: <ThumbsDown className="w-4 h-4" /> },
+                    { rating: 2, label: t.good, color: 'bg-green-500', icon: <ThumbsUp className="w-4 h-4" /> },
+                    { rating: 3, label: t.easy, color: 'bg-blue-500', icon: <Star className="w-4 h-4" /> }
+                  ].map(btn => (
+                    <button
+                      key={btn.rating}
+                      onClick={async () => {
+                        await apiPost(`/api/learning/flashcards/${reviewingCard.id}/review`, { rating: btn.rating });
+                        const nextIndex = dueCards.findIndex(c => c.id === reviewingCard.id) + 1;
+                        if (nextIndex < dueCards.length) {
+                          setReviewingCard(dueCards[nextIndex]);
+                          setShowCardBack(false);
+                        } else {
+                          setReviewingCard(null);
+                          loadFlashcards();
+                        }
+                      }}
+                      className={cn("flex items-center justify-center gap-2 py-3 text-white rounded-xl", btn.color)}
+                    >
+                      {btn.icon}
+                      {btn.label[language]}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowCardBack(true)}
+                className="w-full py-4 bg-amber-500 text-white rounded-xl hover:bg-amber-600 flex items-center justify-center gap-2"
+              >
+                <Eye className="w-5 h-5" />
+                {t.showAnswer[language]}
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Start Review Button */}
+          {dueCards.length > 0 && (
+            <button
+              onClick={() => {
+                setReviewingCard(dueCards[0]);
+                setShowCardBack(false);
+              }}
+              className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl hover:from-amber-600 hover:to-orange-600 flex items-center justify-center gap-2"
+            >
+              <Play className="w-5 h-5" />
+              {t.startReview[language]} ({dueCards.length} {language === 'tr' ? 'kart' : 'cards'})
+            </button>
+          )}
+
+          {/* Create Card Form */}
+          <div className="bg-card rounded-2xl p-4 border border-border space-y-3">
+            <h4 className="font-medium">{t.createCard[language]}</h4>
+            <input
+              type="text"
+              value={flashcardFront}
+              onChange={(e) => setFlashcardFront(e.target.value)}
+              placeholder={language === 'tr' ? 'Ön yüz (soru)...' : 'Front (question)...'}
+              className="w-full px-4 py-2 rounded-lg border border-border bg-background"
+            />
+            <input
+              type="text"
+              value={flashcardBack}
+              onChange={(e) => setFlashcardBack(e.target.value)}
+              placeholder={language === 'tr' ? 'Arka yüz (cevap)...' : 'Back (answer)...'}
+              className="w-full px-4 py-2 rounded-lg border border-border bg-background"
+            />
+            <button
+              onClick={async () => {
+                if (!flashcardFront.trim() || !flashcardBack.trim() || !currentWorkspaceId) return;
+                await apiPost(`/api/learning/workspaces/${currentWorkspaceId}/flashcards`, {
+                  front: flashcardFront,
+                  back: flashcardBack
+                });
+                setFlashcardFront('');
+                setFlashcardBack('');
+                loadFlashcards();
+              }}
+              disabled={!flashcardFront.trim() || !flashcardBack.trim()}
+              className="w-full py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+            >
+              <Plus className="w-4 h-4 inline mr-2" />
+              {t.createCard[language]}
+            </button>
+          </div>
+
+          {/* Auto Generate */}
+          <div className="bg-card rounded-2xl p-4 border border-border space-y-3">
+            <h4 className="font-medium">{t.generateCards[language]}</h4>
+            <textarea
+              value={flashcardContent}
+              onChange={(e) => setFlashcardContent(e.target.value)}
+              placeholder={language === 'tr' ? 'İçerik yapıştırın, otomatik kartlar oluşturulsun...' : 'Paste content to auto-generate cards...'}
+              className="w-full px-4 py-3 rounded-lg border border-border bg-background h-32"
+            />
+            <button
+              onClick={async () => {
+                if (!flashcardContent.trim() || !currentWorkspaceId) return;
+                setFlashcardLoading(true);
+                await apiPost(`/api/learning/workspaces/${currentWorkspaceId}/flashcards/generate`, {
+                  content: flashcardContent
+                });
+                setFlashcardContent('');
+                loadFlashcards();
+              }}
+              disabled={!flashcardContent.trim() || flashcardLoading}
+              className="w-full py-2 bg-violet-500 text-white rounded-lg hover:bg-violet-600 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {flashcardLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {t.generateCards[language]}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  // ==================== SIMULATIONS TAB ====================
+  const renderSimulationsTab = () => (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <Theater className="w-5 h-5" />
+          🎭 {t.simulations[language]}
+        </h3>
+      </div>
+
+      {activeScenario ? (
+        // Active Scenario
+        <div className="space-y-4">
+          <div className="bg-gradient-to-br from-pink-500/10 to-rose-500/10 border border-pink-300 dark:border-pink-700 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-semibold">{activeScenario.title}</h4>
+              <span className={cn("px-2 py-1 rounded-full text-xs", 
+                activeScenario.status === 'completed' ? "bg-green-500/20 text-green-600" : "bg-blue-500/20 text-blue-600"
+              )}>
+                {activeScenario.status}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">{activeScenario.description}</p>
+            <div className="flex flex-wrap gap-2">
+              {activeScenario.objectives.map((obj, idx) => (
+                <span key={idx} className="px-2 py-1 bg-muted rounded-full text-xs">{obj}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Conversation */}
+          <div className="h-80 overflow-y-auto space-y-3 p-4 bg-muted/30 rounded-xl">
+            {activeScenario.conversation.map((msg, idx) => (
+              <div key={idx} className={cn("flex", msg.role === 'user' ? "justify-end" : "justify-start")}>
+                <div className={cn(
+                  "max-w-[80%] rounded-2xl px-4 py-3",
+                  msg.role === 'user' ? "bg-primary-500 text-white" : "bg-card border border-border"
+                )}>
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {activeScenario.status === 'active' ? (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={scenarioInput}
+                onChange={(e) => setScenarioInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && !scenarioLoading && sendScenarioMessage()}
+                placeholder={language === 'tr' ? 'Yanıtınızı yazın...' : 'Type your response...'}
+                className="flex-1 px-4 py-3 rounded-xl border border-border bg-card"
+              />
+              <button
+                onClick={sendScenarioMessage}
+                disabled={!scenarioInput.trim() || scenarioLoading}
+                className="px-6 py-3 bg-pink-500 text-white rounded-xl hover:bg-pink-600 disabled:opacity-50"
+              >
+                {scenarioLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+              </button>
+            </div>
+          ) : activeScenario.evaluation && (
+            <div className="bg-green-500/10 rounded-xl p-4">
+              <h4 className="font-semibold mb-2">{language === 'tr' ? 'Değerlendirme' : 'Evaluation'}</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-green-600">{activeScenario.evaluation.overall_score as number}</div>
+                  <div className="text-sm text-muted-foreground">{language === 'tr' ? 'Puan' : 'Score'}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-3xl font-bold">{activeScenario.evaluation.grade as string}</div>
+                  <div className="text-sm text-muted-foreground">{language === 'tr' ? 'Not' : 'Grade'}</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveScenario(null)}
+                className="w-full mt-4 py-2 bg-muted rounded-lg hover:bg-accent"
+              >
+                {language === 'tr' ? 'Kapat' : 'Close'}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Create Scenario */}
+          <div className="bg-gradient-to-br from-pink-500/10 to-rose-500/10 border border-pink-300 dark:border-pink-700 rounded-2xl p-6 space-y-4">
+            <h4 className="font-semibold">{t.startSimulation[language]}</h4>
+            
+            <input
+              type="text"
+              value={scenarioTopic}
+              onChange={(e) => setScenarioTopic(e.target.value)}
+              placeholder={language === 'tr' ? 'Senaryo konusu...' : 'Scenario topic...'}
+              className="w-full px-4 py-3 rounded-xl border border-border bg-card"
+            />
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {[
+                { id: 'interview', icon: '👔', label: t.interview },
+                { id: 'presentation', icon: '🎤', label: t.presentation },
+                { id: 'problem_solving', icon: '🧩', label: t.problemSolving },
+                { id: 'debate', icon: '⚔️', label: t.debate }
+              ].map(type => (
+                <button
+                  key={type.id}
+                  onClick={() => setScenarioType(type.id)}
+                  className={cn(
+                    "p-3 rounded-xl border transition-all text-center",
+                    scenarioType === type.id
+                      ? "bg-pink-500 text-white border-pink-500"
+                      : "bg-card hover:bg-accent border-border"
+                  )}
+                >
+                  <span className="text-xl block">{type.icon}</span>
+                  <span className="text-xs">{type.label[language]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {['easy', 'medium', 'hard'].map(diff => (
+                <button
+                  key={diff}
+                  onClick={() => setScenarioDifficulty(diff)}
+                  className={cn(
+                    "py-2 rounded-lg border transition-all",
+                    scenarioDifficulty === diff
+                      ? "bg-pink-500 text-white border-pink-500"
+                      : "bg-card hover:bg-accent border-border"
+                  )}
+                >
+                  {diff === 'easy' ? '🟢' : diff === 'medium' ? '🟡' : '🔴'} {diff}
+                </button>
+              ))}
+            </div>
+            
+            <button
+              onClick={async () => {
+                if (!scenarioTopic.trim() || !currentWorkspaceId) return;
+                setScenarioLoading(true);
+                const res = await apiPost(`/api/learning/workspaces/${currentWorkspaceId}/simulations`, {
+                  scenario_type: scenarioType,
+                  topic: scenarioTopic,
+                  difficulty: scenarioDifficulty
+                });
+                if (res.scenario) {
+                  setActiveScenario(res.scenario);
+                }
+                setScenarioLoading(false);
+              }}
+              disabled={!scenarioTopic.trim() || scenarioLoading}
+              className="w-full py-3 bg-pink-500 text-white rounded-xl hover:bg-pink-600 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {scenarioLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
+              {t.startSimulation[language]}
+            </button>
+          </div>
+
+          {/* Previous Scenarios */}
+          {scenarios.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="font-medium">{language === 'tr' ? 'Önceki Senaryolar' : 'Previous Scenarios'}</h4>
+              {scenarios.map(scenario => (
+                <button
+                  key={scenario.id}
+                  onClick={async () => {
+                    const res = await apiGet(`/api/learning/simulations/${scenario.id}`);
+                    if (res.scenario) setActiveScenario(res.scenario);
+                  }}
+                  className="w-full p-4 bg-card rounded-xl border border-border hover:bg-accent text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{scenario.title}</span>
+                    <span className={cn("px-2 py-1 rounded-full text-xs",
+                      scenario.status === 'completed' ? "bg-green-500/20 text-green-600" : "bg-blue-500/20 text-blue-600"
+                    )}>
+                      {scenario.evaluation ? `${scenario.evaluation.overall_score} - ${scenario.evaluation.grade}` : scenario.status}
+                    </span>
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {scenario.scenario_type} • {scenario.difficulty} • {scenario.turn_count} {language === 'tr' ? 'tur' : 'turns'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  const sendScenarioMessage = async () => {
+    if (!scenarioInput.trim() || !activeScenario) return;
+    const message = scenarioInput;
+    setScenarioInput('');
+    setScenarioLoading(true);
+    
+    const res = await apiPost(`/api/learning/simulations/${activeScenario.id}/interact`, { message });
+    
+    if (res.response) {
+      const updatedScenario = await apiGet(`/api/learning/simulations/${activeScenario.id}`);
+      if (updatedScenario.scenario) {
+        setActiveScenario(updatedScenario.scenario);
+      }
+    }
+    setScenarioLoading(false);
+  };
+
+  // ==================== ANALYTICS TAB ====================
+  const renderAnalyticsTab = () => (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <PieChart className="w-5 h-5" />
+          📊 {t.analytics[language]}
+        </h3>
+        <button
+          onClick={loadAnalytics}
+          disabled={analyticsLoading}
+          className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+        >
+          {analyticsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+        </button>
+      </div>
+
+      {analyticsLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
+        </div>
+      ) : analyticsData ? (
+        <>
+          {/* Main Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-300 dark:border-blue-700 rounded-2xl p-4 text-center">
+              <Clock className="w-6 h-6 mx-auto mb-2 text-blue-500" />
+              <div className="text-2xl font-bold">{analyticsData.total_study_time}</div>
+              <div className="text-sm text-muted-foreground">{t.minutes[language]}</div>
+            </div>
+            <div className="bg-gradient-to-br from-orange-500/10 to-amber-500/10 border border-orange-300 dark:border-orange-700 rounded-2xl p-4 text-center">
+              <Flame className="w-6 h-6 mx-auto mb-2 text-orange-500" />
+              <div className="text-2xl font-bold">{analyticsData.streak_days}</div>
+              <div className="text-sm text-muted-foreground">{t.streakDays[language]}</div>
+            </div>
+            <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border border-green-300 dark:border-green-700 rounded-2xl p-4 text-center">
+              <Trophy className="w-6 h-6 mx-auto mb-2 text-green-500" />
+              <div className="text-2xl font-bold">{analyticsData.average_score}%</div>
+              <div className="text-sm text-muted-foreground">{t.averageScore[language]}</div>
+            </div>
+            <div className="bg-gradient-to-br from-purple-500/10 to-violet-500/10 border border-purple-300 dark:border-purple-700 rounded-2xl p-4 text-center">
+              <TrendingUp className="w-6 h-6 mx-auto mb-2 text-purple-500" />
+              <div className="text-2xl font-bold capitalize">{t[analyticsData.performance_trend as keyof typeof t]?.[language] || analyticsData.performance_trend}</div>
+              <div className="text-sm text-muted-foreground">{t.performanceTrend[language]}</div>
+            </div>
+          </div>
+
+          {/* Weekly Activity */}
+          {weeklyActivity.length > 0 && (
+            <div className="bg-card rounded-2xl p-4 border border-border">
+              <h4 className="font-medium mb-4">{t.weeklyActivity[language]}</h4>
+              <div className="flex items-end justify-between gap-2 h-32">
+                {weeklyActivity.map((day, idx) => {
+                  const maxMinutes = Math.max(...weeklyActivity.map(d => d.minutes), 1);
+                  const height = (day.minutes / maxMinutes) * 100;
+                  return (
+                    <div key={idx} className="flex-1 flex flex-col items-center">
+                      <div
+                        className="w-full bg-primary-500 rounded-t-lg transition-all"
+                        style={{ height: `${Math.max(height, 4)}%` }}
+                      />
+                      <div className="text-xs mt-2 text-muted-foreground">{day.day_name}</div>
+                      <div className="text-xs font-medium">{day.minutes}m</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Insights */}
+          {learningInsights.length > 0 && (
+            <div className="space-y-3">
+              <h4 className="font-medium">{t.insights[language]}</h4>
+              {learningInsights.map((insight, idx) => (
+                <div key={idx} className={cn(
+                  "rounded-xl p-4 border",
+                  insight.insight_type === 'strength' ? "bg-green-500/10 border-green-300" :
+                  insight.insight_type === 'weakness' ? "bg-red-500/10 border-red-300" :
+                  insight.insight_type === 'milestone' ? "bg-purple-500/10 border-purple-300" :
+                  "bg-blue-500/10 border-blue-300"
+                )}>
+                  <h5 className="font-medium">{insight.title}</h5>
+                  <p className="text-sm text-muted-foreground mt-1">{insight.description}</p>
+                  {insight.action_items.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {insight.action_items.map((item, i) => (
+                        <li key={i} className="text-sm flex items-center gap-2">
+                          <ChevronRight className="w-4 h-4" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Weak Areas */}
+          {weakAreas.length > 0 && (
+            <div className="bg-red-500/10 rounded-2xl p-4 border border-red-300">
+              <h4 className="font-medium mb-3">{t.weakAreas[language]}</h4>
+              <div className="space-y-2">
+                {weakAreas.map((area, idx) => (
+                  <div key={idx} className="flex items-center justify-between bg-card rounded-lg p-3">
+                    <span>{area.topic}</span>
+                    <span className="text-red-600 font-medium">{area.average_score}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="text-center py-12 text-muted-foreground">
+          {language === 'tr' ? 'Henüz analitik verisi yok' : 'No analytics data yet'}
+        </div>
+      )}
+    </div>
+  );
+
+  // ==================== STATS TAB ====================
+  const renderStatsTab = () => (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold flex items-center gap-2">
+          <BarChart3 className="w-5 h-5" />
+          📊 {t.stats[language]}
+        </h3>
+        <button
+          onClick={loadStats}
+          disabled={statsLoading}
+          className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50"
+        >
+          {statsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          {language === 'tr' ? 'Yenile' : 'Refresh'}
+        </button>
+      </div>
+
+      {statsLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
+        </div>
+      ) : stats ? (
+        <>
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-300 dark:border-blue-700 rounded-2xl p-4 text-center">
+              <FileText className="w-8 h-8 mx-auto text-blue-500 mb-2" />
+              <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.total_documents}</p>
+              <p className="text-xs text-muted-foreground">📄 {t.totalDocuments[language]}</p>
+            </div>
+            
+            <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 border border-green-300 dark:border-green-700 rounded-2xl p-4 text-center">
+              <CheckCircle2 className="w-8 h-8 mx-auto text-green-500 mb-2" />
+              <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.completed_documents}</p>
+              <p className="text-xs text-muted-foreground">✅ {t.completedDocuments[language]}</p>
+            </div>
+            
+            <div className="bg-gradient-to-br from-purple-500/10 to-violet-500/10 border border-purple-300 dark:border-purple-700 rounded-2xl p-4 text-center">
+              <Target className="w-8 h-8 mx-auto text-purple-500 mb-2" />
+              <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{stats.total_tests}</p>
+              <p className="text-xs text-muted-foreground">📝 {t.totalTests[language]}</p>
+            </div>
+            
+            <div className="bg-gradient-to-br from-orange-500/10 to-amber-500/10 border border-orange-300 dark:border-orange-700 rounded-2xl p-4 text-center">
+              <Award className="w-8 h-8 mx-auto text-orange-500 mb-2" />
+              <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">{stats.completed_tests}</p>
+              <p className="text-xs text-muted-foreground">🏆 {t.completedTests[language]}</p>
+            </div>
+            
+            <div className="bg-gradient-to-br from-pink-500/10 to-rose-500/10 border border-pink-300 dark:border-pink-700 rounded-2xl p-4 text-center">
+              <TrendingUp className="w-8 h-8 mx-auto text-pink-500 mb-2" />
+              <p className="text-3xl font-bold text-pink-600 dark:text-pink-400">{stats.average_score.toFixed(1)}%</p>
+              <p className="text-xs text-muted-foreground">📈 {t.averageScore[language]}</p>
+            </div>
+          </div>
+
+          {/* Progress Overview */}
+          <div className="bg-card border border-border rounded-2xl p-6">
+            <h4 className="font-semibold mb-4 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5" />
+              📊 {t.progressOverview[language]}
+            </h4>
+            
+            <div className="space-y-4">
+              {/* Document Progress */}
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>📄 {t.documents[language]}</span>
+                  <span>{stats.completed_documents}/{stats.total_documents}</span>
+                </div>
+                <div className="h-3 bg-muted rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full transition-all duration-500"
+                    style={{ width: `${stats.total_documents > 0 ? (stats.completed_documents / stats.total_documents) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+              
+              {/* Test Progress */}
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>📝 {t.tests[language]}</span>
+                  <span>{stats.completed_tests}/{stats.total_tests}</span>
+                </div>
+                <div className="h-3 bg-muted rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-purple-500 to-violet-500 rounded-full transition-all duration-500"
+                    style={{ width: `${stats.total_tests > 0 ? (stats.completed_tests / stats.total_tests) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+              
+              {/* Average Score */}
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>🎯 {t.averageScore[language]}</span>
+                  <span>{stats.average_score.toFixed(1)}%</span>
+                </div>
+                <div className="h-3 bg-muted rounded-full overflow-hidden">
+                  <div 
+                    className={cn(
+                      "h-full rounded-full transition-all duration-500",
+                      stats.average_score >= 80 ? "bg-gradient-to-r from-green-500 to-emerald-500" :
+                      stats.average_score >= 60 ? "bg-gradient-to-r from-yellow-500 to-amber-500" :
+                      "bg-gradient-to-r from-red-500 to-orange-500"
+                    )}
+                    style={{ width: `${stats.average_score}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="bg-muted/50 border border-border rounded-2xl p-4">
+            <h4 className="font-medium mb-3">🚀 {language === 'tr' ? 'Hızlı Eylemler' : 'Quick Actions'}</h4>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setActiveTab('documents')}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                {t.createDocument[language]}
+              </button>
+              <button
+                onClick={() => setActiveTab('tests')}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-xl hover:bg-purple-600 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                {t.createTest[language]}
+              </button>
+              <button
+                onClick={() => setActiveTab('visual')}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-500 to-purple-500 text-white rounded-xl hover:from-violet-600 hover:to-purple-600 transition-colors"
+              >
+                <Sparkles className="w-4 h-4" />
+                {t.visual[language]}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-12">
+          <BarChart3 className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
+          <p className="text-lg font-medium text-muted-foreground">{t.noStatsYet[language]}</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {language === 'tr' ? 'Döküman ve test oluşturarak başlayın' : 'Start by creating documents and tests'}
+          </p>
+          <button
+            onClick={loadStats}
+            className="mt-4 flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl hover:bg-primary-600 mx-auto"
+          >
+            <RefreshCw className="w-4 h-4" />
+            {language === 'tr' ? 'İstatistikleri Yükle' : 'Load Statistics'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   const renderWorkspaceDetail = () => (
     <div className="space-y-6">
       {/* Header */}
@@ -2152,23 +4164,59 @@ export function LearningPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2">
-        {(['sources', 'documents', 'tests', 'chat'] as WorkspaceTab[]).map((tab) => {
-          const icons = { sources: BookOpen, documents: FileText, tests: Target, chat: MessageSquare };
-          const emojis = { sources: '📚', documents: '📄', tests: '📝', chat: '💬' };
+        {(['sources', 'documents', 'tests', 'chat', 'tutor', 'flashcards', 'simulations', 'analytics', 'stats', 'visual', 'multimedia', 'linking'] as WorkspaceTab[]).map((tab) => {
+          const icons: Record<WorkspaceTab, typeof BookOpen> = { 
+            sources: BookOpen, 
+            documents: FileText, 
+            tests: Target, 
+            chat: MessageSquare,
+            tutor: Bot,
+            flashcards: Repeat,
+            simulations: Theater,
+            analytics: PieChart,
+            stats: BarChart3,
+            visual: Network,
+            multimedia: Video,
+            linking: Link2
+          };
+          const emojis: Record<WorkspaceTab, string> = { 
+            sources: '📚', 
+            documents: '📄', 
+            tests: '📝', 
+            chat: '💬',
+            tutor: '🤖',
+            flashcards: '📚',
+            simulations: '🎭',
+            analytics: '📊',
+            stats: '📈',
+            visual: '🎨',
+            multimedia: '🎬',
+            linking: '🔗'
+          };
+          const isPremium = ['tutor', 'flashcards', 'simulations', 'analytics', 'visual', 'multimedia', 'linking'].includes(tab);
           const Icon = icons[tab];
           return (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => {
+                setActiveTab(tab);
+                if (tab === 'stats') loadStats();
+                if (tab === 'analytics') loadAnalytics();
+                if (tab === 'flashcards') loadFlashcards();
+                if (tab === 'simulations') loadSimulations();
+              }}
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors",
                 activeTab === tab 
                   ? "bg-primary-500 text-white" 
-                  : "bg-muted hover:bg-accent"
+                  : isPremium 
+                    ? "bg-gradient-to-r from-violet-100 to-purple-100 dark:from-violet-900/30 dark:to-purple-900/30 hover:from-violet-200 hover:to-purple-200 dark:hover:from-violet-800/40 dark:hover:to-purple-800/40 border border-violet-300 dark:border-violet-700"
+                    : "bg-muted hover:bg-accent"
               )}
             >
               <Icon className="w-4 h-4" />
               {emojis[tab]} {t[tab][language]}
+              {isPremium && activeTab !== tab && <Sparkles className="w-3 h-3 text-violet-500" />}
             </button>
           );
         })}
@@ -2191,6 +4239,14 @@ export function LearningPage() {
             {activeTab === 'documents' && renderDocumentsTab()}
             {activeTab === 'tests' && renderTestsTab()}
             {activeTab === 'chat' && renderChatTab()}
+            {activeTab === 'tutor' && renderTutorTab()}
+            {activeTab === 'flashcards' && renderFlashcardsTab()}
+            {activeTab === 'simulations' && renderSimulationsTab()}
+            {activeTab === 'analytics' && renderAnalyticsTab()}
+            {activeTab === 'stats' && renderStatsTab()}
+            {activeTab === 'visual' && renderVisualTab()}
+            {activeTab === 'multimedia' && renderMultimediaTab()}
+            {activeTab === 'linking' && renderLinkingTab()}
           </motion.div>
         </AnimatePresence>
       )}

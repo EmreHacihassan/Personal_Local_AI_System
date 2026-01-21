@@ -1,5 +1,96 @@
 [
   {
+    "id": "251852d9-3b15-474f-96c2-737c1440948f",
+    "title": "Note in Folder",
+    "content": "Test",
+    "folder_id": "f5ddd4da-a9eb-44c1-ac7e-b3eb0ab71cae",
+    "color": "yellow",
+    "pinned": false,
+    "created_at": "2026-01-20T20:07:42.578478",
+    "updated_at": "2026-01-20T20:07:42.578478",
+    "tags": []
+  },
+  {
+    "id": "10234f04-bd0c-427a-933b-106ca634dcd8",
+    "title": "Tagged Note",
+    "content": "Content",
+    "folder_id": null,
+    "color": "yellow",
+    "pinned": false,
+    "created_at": "2026-01-20T20:07:40.327551",
+    "updated_at": "2026-01-20T20:07:40.327551",
+    "tags": [
+      "tag1",
+      "tag2"
+    ]
+  },
+  {
+    "id": "207481e1-ec8d-4d31-b4ff-e5c041459ba8",
+    "title": "Colored Note",
+    "content": "Content",
+    "folder_id": null,
+    "color": "blue",
+    "pinned": false,
+    "created_at": "2026-01-20T20:07:36.852343",
+    "updated_at": "2026-01-20T20:07:36.852343",
+    "tags": []
+  },
+  {
+    "id": "5aeb823c-3020-4a74-a85d-085e38925923",
+    "title": "Test Update Note",
+    "content": "Updated",
+    "folder_id": null,
+    "color": "yellow",
+    "pinned": false,
+    "created_at": "2026-01-20T20:07:34.602351",
+    "updated_at": "2026-01-20T20:07:34.625851",
+    "tags": []
+  },
+  {
+    "id": "2e054ee2-77ac-428c-877e-432c1952ecef",
+    "title": "Test Pin Note",
+    "content": "Content",
+    "folder_id": null,
+    "color": "yellow",
+    "pinned": true,
+    "created_at": "2026-01-20T20:07:32.352949",
+    "updated_at": "2026-01-20T20:07:32.376815",
+    "tags": []
+  },
+  {
+    "id": "f9030cfc-2826-4ecb-8c3d-10e21e23a665",
+    "title": "Move Test Note",
+    "content": "Content",
+    "folder_id": "f880fc77-8676-4a81-b64a-4e5f00064139",
+    "color": "yellow",
+    "pinned": false,
+    "created_at": "2026-01-20T20:07:30.110083",
+    "updated_at": "2026-01-20T20:07:30.124883",
+    "tags": []
+  },
+  {
+    "id": "815d554e-1276-4c20-888a-7e665f9a28d9",
+    "title": "Test Get Note",
+    "content": "Content",
+    "folder_id": null,
+    "color": "yellow",
+    "pinned": false,
+    "created_at": "2026-01-20T20:07:27.865986",
+    "updated_at": "2026-01-20T20:07:27.865986",
+    "tags": []
+  },
+  {
+    "id": "f1cccf0c-6924-44fd-ba53-fec6c806b0f2",
+    "title": "Test Note 46b3d34b",
+    "content": "Test content",
+    "folder_id": null,
+    "color": "yellow",
+    "pinned": false,
+    "created_at": "2026-01-20T20:07:19.680164",
+    "updated_at": "2026-01-20T20:07:19.680164",
+    "tags": []
+  },
+  {
     "id": "security-notes-001",
     "title": "🔒 GÜVENLİK NOTLARI - Production Öncelikleri",
     "content": "# 🔒 Enterprise AI Assistant - Güvenlik İyileştirme Planı\n\nBu not, projenin production'a hazır hale getirilmesi için gerekli güvenlik önlemlerini içerir.\n\n---\n\n## 🔴 KRİTİK ÖNCELİK - Hemen Yapılmalı\n\n### 1. Authentication & Authorization\n**Mevcut Durum:** Kimlik doğrulama yok\n**Gerekli:**\n- JWT tabanlı authentication sistemi\n- OAuth2/OpenID Connect entegrasyonu\n- Role-based access control (RBAC)\n- Session timeout mekanizması\n\n**Uygulama:**\n```python\n# api/auth.py\nfrom fastapi import Depends, HTTPException, status\nfrom fastapi.security import OAuth2PasswordBearer\nfrom jose import JWTError, jwt\n\noauth2_scheme = OAuth2PasswordBearer(tokenUrl=\"token\")\n\nasync def get_current_user(token: str = Depends(oauth2_scheme)):\n    # JWT validation logic\n    pass\n```\n\n### 2. HTTPS Zorunluluğu\n**Mevcut Durum:** HTTP üzerinden çalışıyor\n**Gerekli:**\n- TLS/SSL sertifikası\n- HTTPS redirect middleware\n- HSTS header'ları\n\n**Nginx Örneği:**\n```nginx\nserver {\n    listen 443 ssl;\n    ssl_certificate /path/to/cert.pem;\n    ssl_certificate_key /path/to/key.pem;\n    ssl_protocols TLSv1.2 TLSv1.3;\n}\n```\n\n### 3. Input Validation & Sanitization\n**Mevcut Durum:** Temel validation var\n**Gerekli:**\n- HTML/XSS sanitization\n- SQL injection koruması\n- Path traversal koruması\n- Command injection koruması\n\n**Kütüphaneler:**\n- `bleach` - HTML sanitization\n- `python-magic` - File type validation\n\n---\n\n## 🟠 YÜKSEK ÖNCELİK - 1-2 Hafta İçinde\n\n### 4. Dosya Upload Güvenliği\n**Mevcut Durum:** Basit dosya yükleme\n**Gerekli:**\n- MIME type doğrulama (magic bytes)\n- Maksimum dosya boyutu kontrolü\n- Antivirus taraması entegrasyonu\n- Güvenli dosya depolama (isolated)\n- Dosya adı sanitization\n\n**Örnek:**\n```python\nimport magic\n\ndef validate_file(file_content: bytes, allowed_types: list):\n    mime = magic.from_buffer(file_content, mime=True)\n    if mime not in allowed_types:\n        raise ValueError(f\"Invalid file type: {mime}\")\n```\n\n### 5. Rate Limiting Güçlendirme\n**Mevcut Durum:** Basit rate limiter var\n**Gerekli:**\n- IP tabanlı rate limiting\n- User tabanlı rate limiting\n- Endpoint bazlı farklı limitler\n- DDoS koruması\n\n**Önerilen Limitler:**\n- Chat: 30 istek/dakika/user\n- Document upload: 10 istek/dakika/user\n- Health check: 60 istek/dakika/IP\n\n### 6. API Key Management\n**Mevcut Durum:** API key yok\n**Gerekli:**\n- API key generation/rotation\n- Key scoping (read/write)\n- Usage tracking\n- Revocation mechanism\n\n---\n\n## 🟡 ORTA ÖNCELİK - 1 Ay İçinde\n\n### 7. Audit Logging\n**Mevcut Durum:** Temel logging var\n**Gerekli:**\n- Kim, ne zaman, ne yaptı logları\n- Başarısız giriş denemeleri\n- Admin işlemleri\n- Veri erişim logları\n- Log tamper protection\n\n**Log Format:**\n```json\n{\n  \"timestamp\": \"2025-01-11T12:00:00Z\",\n  \"user_id\": \"user123\",\n  \"action\": \"document.upload\",\n  \"resource\": \"doc456\",\n  \"ip_address\": \"192.168.1.1\",\n  \"result\": \"success\"\n}\n```\n\n### 8. GDPR/KVKK Uyumluluğu\n**Mevcut Durum:** Kişisel veri yönetimi yok\n**Gerekli:**\n- Kullanıcı rızası mekanizması\n- Veri silme (Right to be forgotten)\n- Veri export (Data portability)\n- Privacy policy entegrasyonu\n- Cookie consent\n\n### 9. Secrets Management\n**Mevcut Durum:** .env dosyası\n**Gerekli:**\n- HashiCorp Vault veya AWS Secrets Manager\n- Environment isolation\n- Secret rotation\n- No secrets in logs/errors\n\n---\n\n## 🟢 DÜŞÜK ÖNCELİK - Uzun Vadeli\n\n### 10. Security Headers\n**Eklenecek Headers:**\n```python\n# api/middleware.py\napp.add_middleware(\n    SecurityHeadersMiddleware,\n    headers={\n        \"X-Content-Type-Options\": \"nosniff\",\n        \"X-Frame-Options\": \"DENY\",\n        \"X-XSS-Protection\": \"1; mode=block\",\n        \"Content-Security-Policy\": \"default-src 'self'\",\n        \"Strict-Transport-Security\": \"max-age=31536000; includeSubDomains\"\n    }\n)\n```\n\n### 11. Dependency Security\n**Gerekli:**\n- Regular dependency updates\n- Vulnerability scanning (Snyk, Dependabot)\n- Lock file kullanımı\n- Minimal dependencies\n\n### 12. Container Security\n**Docker Hardening:**\n- Non-root user\n- Read-only filesystem\n- Resource limits\n- Security scanning\n\n---\n\n## 📋 Güvenlik Checklist\n\n**Pre-Production:**\n- [ ] Authentication sistemi kuruldu\n- [ ] HTTPS aktif\n- [ ] Rate limiting düzgün çalışıyor\n- [ ] Input validation tamamlandı\n- [ ] File upload güvenliği sağlandı\n- [ ] Audit logging aktif\n- [ ] Security headers eklendi\n- [ ] Penetration test yapıldı\n\n**Ongoing:**\n- [ ] Haftalık dependency scan\n- [ ] Aylık security review\n- [ ] Quarterly penetration test\n- [ ] Annual security audit\n\n---\n\n## 📚 Kaynaklar\n\n- OWASP Top 10: https://owasp.org/Top10/\n- FastAPI Security: https://fastapi.tiangolo.com/tutorial/security/\n- NIST Cybersecurity Framework\n- ISO 27001 Guidelines",

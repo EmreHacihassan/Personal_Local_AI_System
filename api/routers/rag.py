@@ -226,6 +226,32 @@ async def get_rag_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/status")
+async def get_rag_status():
+    """RAG sistem durumu - sağlık kontrolü."""
+    try:
+        # Vector store durumunu kontrol et
+        doc_count = vector_store.count()
+        unique_sources = vector_store.get_unique_sources()
+        
+        return {
+            "success": True,
+            "status": "healthy",
+            "document_count": doc_count,
+            "source_count": len(unique_sources),
+            "vector_store": "connected",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+
 @router.post("/cache/clear")
 async def clear_rag_cache():
     """RAG cache'ini temizle."""

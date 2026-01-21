@@ -6,11 +6,17 @@ Endüstri standartlarında döküman reranking sistemi.
 Cross-encoder ve diğer reranking stratejileri.
 
 Features:
-- Cross-encoder reranking
+- GPU-Accelerated Cross-encoder reranking
 - BM25 reranking
 - Reciprocal Rank Fusion (RRF)
 - Cohere-style reranking
 - Custom scoring functions
+
+GPU OPTIMIZATION (RTX 4070 8GB):
+- CUDA acceleration for CrossEncoder
+- Batch processing for efficiency
+- FP16 inference for speed
+- Config-driven settings
 """
 
 import math
@@ -21,8 +27,29 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from core.logger import get_logger
+from core.config import settings
 
 logger = get_logger("reranker")
+
+# GPU Detection
+try:
+    import torch
+    CUDA_AVAILABLE = torch.cuda.is_available()
+    GPU_DEVICE = "cuda" if CUDA_AVAILABLE else "cpu"
+except ImportError:
+    CUDA_AVAILABLE = False
+    GPU_DEVICE = "cpu"
+
+# CrossEncoder for GPU reranking
+try:
+    from sentence_transformers import CrossEncoder
+    CROSSENCODER_AVAILABLE = True
+except ImportError:
+    CROSSENCODER_AVAILABLE = False
+
+# Config-driven settings
+RERANKER_BATCH_SIZE = getattr(settings, 'GPU_RERANKER_BATCH_SIZE', 32)
+RERANKER_MODEL = getattr(settings, 'GPU_RERANKER_MODEL', 'multilingual')
 
 
 @dataclass
@@ -185,28 +212,105 @@ class BM25Reranker(RerankerStrategy):
 
 class CrossEncoderReranker(RerankerStrategy):
     """
-    Cross-Encoder tabanlı reranking
+    GPU-Accelerated Cross-Encoder tabanlı reranking
     
     Query ve document'ı birlikte encode ederek similarity hesaplar.
-    Daha doğru ama daha yavaş.
+    Daha doğru ama daha yavaş - GPU ile hızlandırılmış.
+    
+    GPU OPTIMIZATION:
+    - CUDA acceleration
+    - FP16 inference
+    - Batch processing
+    - Config-driven settings
     """
+    
+    # GPU-optimized CrossEncoder models - Quality Rankings
+    CROSSENCODER_MODELS = {
+        "default": "cross-encoder/ms-marco-MiniLM-L-6-v2",  # Fast, good quality
+        "multilingual": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",  # Multi-language, BEST for Turkish
+        "large": "cross-encoder/ms-marco-MiniLM-L-12-v2",  # Better quality, slower
+    }
     
     def __init__(
         self,
         model_fn: Optional[Callable[[str, str], float]] = None,
-        batch_size: int = 32,
-        use_embeddings: bool = True
+        batch_size: int = None,  # None = use config
+        use_embeddings: bool = True,
+        use_gpu: bool = True,
+        crossencoder_model: str = None  # None = use config (RERANKER_MODEL)
     ):
         """
         Args:
             model_fn: (query, document) -> similarity score döndüren fonksiyon
-            batch_size: Batch processing için boyut
+            batch_size: Batch processing için boyut (None = config'den al)
             use_embeddings: Gerçek embedding similarity kullan (varsayılan: True)
+            use_gpu: GPU kullan (varsayılan: True)
+            crossencoder_model: CrossEncoder model ismi (None = config'den al)
         """
         self.model_fn = model_fn
-        self.batch_size = batch_size
+        self.batch_size = batch_size or RERANKER_BATCH_SIZE  # Config'den al
         self.use_embeddings = use_embeddings
         self._embedding_manager = None
+        
+        # GPU CrossEncoder - Use config model if not specified
+        crossencoder_model = crossencoder_model or RERANKER_MODEL
+        self._use_gpu = use_gpu and CUDA_AVAILABLE and CROSSENCODER_AVAILABLE
+        self._crossencoder_model_name = self.CROSSENCODER_MODELS.get(
+            crossencoder_model, crossencoder_model
+        )
+        self._crossencoder = None
+        
+        if self._use_gpu:
+            self._init_crossencoder()
+    
+    def _init_crossencoder(self):
+        """Initialize GPU CrossEncoder model"""
+        if not CROSSENCODER_AVAILABLE:
+            logger.warning("CrossEncoder not available, falling back to embedding similarity")
+            return
+        
+        try:
+            logger.info(f"🚀 CrossEncoder GPU yükleniyor: {self._crossencoder_model_name}")
+            
+            # Offline modda çalış - HuggingFace Hub'a bağlanma
+            import os
+            os.environ['HF_HUB_OFFLINE'] = '1'
+            os.environ['TRANSFORMERS_OFFLINE'] = '1'
+            
+            # Önce local_files_only ile dene
+            try:
+                self._crossencoder = CrossEncoder(
+                    self._crossencoder_model_name,
+                    device=GPU_DEVICE,
+                    trust_remote_code=False,
+                    local_files_only=True
+                )
+            except OSError as cache_error:
+                # Model cache'de yok, internet varsa indir
+                logger.warning(f"Model cache'de yok, indiriliyor: {cache_error}")
+                os.environ.pop('HF_HUB_OFFLINE', None)
+                os.environ.pop('TRANSFORMERS_OFFLINE', None)
+                
+                self._crossencoder = CrossEncoder(
+                    self._crossencoder_model_name,
+                    device=GPU_DEVICE,
+                    trust_remote_code=False
+                )
+                
+                # Başarılı indirmeden sonra tekrar offline mode
+                os.environ['HF_HUB_OFFLINE'] = '1'
+                os.environ['TRANSFORMERS_OFFLINE'] = '1'
+            
+            # FP16 for faster inference
+            if CUDA_AVAILABLE:
+                self._crossencoder.model.half()
+            
+            logger.info(f"✅ CrossEncoder GPU hazır! Device: {GPU_DEVICE}")
+            
+        except Exception as e:
+            logger.warning(f"CrossEncoder yüklenemedi: {e}")
+            self._crossencoder = None
+            self._use_gpu = False
     
     def _get_embedding_manager(self):
         """Lazy loading for embedding manager"""
@@ -306,29 +410,59 @@ class CrossEncoderReranker(RerankerStrategy):
         if not documents:
             return []
         
-        scorer = self.model_fn or self._default_similarity
+        # Helper: Extract content from document (handles both dict and string)
+        def get_content(doc):
+            if isinstance(doc, str):
+                return doc
+            return doc.get("content", doc.get("text", ""))
         
-        # Score all documents
-        scored_docs = []
-        for doc in documents:
-            content = doc.get("content", doc.get("text", ""))
-            score = scorer(query, content)
-            scored_docs.append((doc, score))
+        # GPU CrossEncoder reranking (fastest, most accurate)
+        if self._use_gpu and self._crossencoder is not None:
+            try:
+                # Prepare query-document pairs for batch scoring
+                contents = [get_content(doc) for doc in documents]
+                pairs = [[query, content] for content in contents]
+                
+                # GPU batch scoring
+                with torch.no_grad():
+                    scores = self._crossencoder.predict(
+                        pairs,
+                        batch_size=self.batch_size,
+                        show_progress_bar=False
+                    )
+                
+                # Pair documents with scores
+                scored_docs = list(zip(documents, scores.tolist() if hasattr(scores, 'tolist') else list(scores)))
+                
+            except Exception as e:
+                logger.warning(f"GPU reranking failed, falling back: {e}")
+                scorer = self.model_fn or self._default_similarity
+                scored_docs = [(doc, scorer(query, get_content(doc))) for doc in documents]
+        else:
+            # Fallback to embedding/keyword similarity
+            scorer = self.model_fn or self._default_similarity
+            scored_docs = [(doc, scorer(query, get_content(doc))) for doc in documents]
         
         # Sort by score
         scored_docs.sort(key=lambda x: x[1], reverse=True)
+        
+        # Helper: Get dict field safely
+        def get_field(doc, field, default=None):
+            if isinstance(doc, str):
+                return default
+            return doc.get(field, default)
         
         # Create ranked documents
         results = []
         for rank, (doc, score) in enumerate(scored_docs[:top_k], 1):
             results.append(RankedDocument(
-                content=doc.get("content", doc.get("text", "")),
-                original_score=doc.get("score", 0.0),
-                reranked_score=score,
+                content=get_content(doc),
+                original_score=get_field(doc, "score", 0.0),
+                reranked_score=float(score),
                 rank=rank,
-                metadata=doc.get("metadata", {}),
-                doc_id=doc.get("id"),
-                source=doc.get("source")
+                metadata=get_field(doc, "metadata", {}),
+                doc_id=get_field(doc, "id"),
+                source=get_field(doc, "source")
             ))
         
         return results
@@ -633,6 +767,17 @@ class Reranker:
     def set_strategy(self, strategy: RerankerStrategy):
         """Strateji değiştir"""
         self.strategy = strategy
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Reranker durumu"""
+        return {
+            "strategy": self.strategy.__class__.__name__,
+            "gpu_available": CUDA_AVAILABLE,
+            "crossencoder_available": CROSSENCODER_AVAILABLE,
+            "device": GPU_DEVICE,
+            "batch_size": RERANKER_BATCH_SIZE,
+            "model": RERANKER_MODEL
+        }
 
 
 # Global instance

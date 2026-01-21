@@ -1,0 +1,740 @@
+{
+  "timestamp": "2026-01-20T12:05:35.109440",
+  "duration_seconds": 16.796352,
+  "summary": {
+    "total_stages": 20,
+    "total_tests": 88,
+    "passed": 88,
+    "failed": 0
+  },
+  "stages": [
+    {
+      "stage_num": 1,
+      "stage_name": "Python Environment",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "Python version (3.10+)",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Python 3.11.9"
+        },
+        {
+          "name": "Virtual environment",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Virtual env active"
+        },
+        {
+          "name": "Required packages",
+          "passed": true,
+          "duration_ms": 2524.3709087371826,
+          "message": "All packages OK"
+        },
+        {
+          "name": "Optional packages",
+          "passed": true,
+          "duration_ms": 3477.2820472717285,
+          "message": "3/4 optional packages"
+        }
+      ]
+    },
+    {
+      "stage_num": 2,
+      "stage_name": "Core Imports",
+      "passed": 6,
+      "failed": 0,
+      "total": 6,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "core.config",
+          "passed": true,
+          "duration_ms": 28.074264526367188,
+          "message": "Settings loaded"
+        },
+        {
+          "name": "core.logger",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Logger OK"
+        },
+        {
+          "name": "core.embedding",
+          "passed": true,
+          "duration_ms": 200.18506050109863,
+          "message": "EmbeddingManager OK"
+        },
+        {
+          "name": "core.llm_manager",
+          "passed": true,
+          "duration_ms": 169.1429615020752,
+          "message": "LLMManager OK"
+        },
+        {
+          "name": "core.vector_store",
+          "passed": true,
+          "duration_ms": 8.38160514831543,
+          "message": "VectorStore OK"
+        },
+        {
+          "name": "core.session_manager",
+          "passed": true,
+          "duration_ms": 2.0170211791992188,
+          "message": "SessionManager OK"
+        }
+      ]
+    },
+    {
+      "stage_num": 3,
+      "stage_name": "Configuration",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": ".env file",
+          "passed": true,
+          "duration_ms": 1.0004043579101562,
+          "message": "Found"
+        },
+        {
+          "name": "Ollama settings",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "GPU layers: 99"
+        },
+        {
+          "name": "GPU settings",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "GPU batch: 64"
+        },
+        {
+          "name": "API settings",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Port: 8001"
+        },
+        {
+          "name": "Directories",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "All directories exist"
+        }
+      ]
+    },
+    {
+      "stage_num": 4,
+      "stage_name": "GPU & CUDA",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "PyTorch CUDA",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "CUDA: 12.1"
+        },
+        {
+          "name": "GPU device",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "NVIDIA GeForce RTX 4070 Laptop GPU"
+        },
+        {
+          "name": "GPU memory",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "8.0 GB"
+        },
+        {
+          "name": "SentenceTransformers GPU",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Device: cuda"
+        }
+      ]
+    },
+    {
+      "stage_num": 5,
+      "stage_name": "Ollama Connection",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "Ollama running",
+          "passed": true,
+          "duration_ms": 172.23715782165527,
+          "message": "Connected"
+        },
+        {
+          "name": "Available models",
+          "passed": true,
+          "duration_ms": 166.3517951965332,
+          "message": "4 models"
+        },
+        {
+          "name": "Primary model",
+          "passed": true,
+          "duration_ms": 163.76304626464844,
+          "message": "qwen3-vl:8b"
+        },
+        {
+          "name": "Embedding model",
+          "passed": true,
+          "duration_ms": 164.58868980407715,
+          "message": "nomic-embed-text"
+        }
+      ]
+    },
+    {
+      "stage_num": 6,
+      "stage_name": "Embedding System",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "EmbeddingManager init",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Dimension: 384"
+        },
+        {
+          "name": "Lazy loading",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Lazy: True"
+        },
+        {
+          "name": "Single embedding",
+          "passed": true,
+          "duration_ms": 4150.900602340698,
+          "message": "Vector size: 384"
+        },
+        {
+          "name": "Batch embedding",
+          "passed": true,
+          "duration_ms": 9.317874908447266,
+          "message": "Batch size: 3"
+        },
+        {
+          "name": "Embedding cache",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Cache: {'size': 4, 'max_size': 2000, 'hits': 0, 'misses': 4, 'hit_rate': '0.0%'}"
+        }
+      ]
+    },
+    {
+      "stage_num": 7,
+      "stage_name": "ChromaDB / Vector Store",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "ChromaDB connection",
+          "passed": true,
+          "duration_ms": 293.6663627624512,
+          "message": "Documents: 0"
+        },
+        {
+          "name": "ChromaDB health",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "ChromaDBManager OK"
+        },
+        {
+          "name": "Duplicate check param",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "skip_duplicates param exists"
+        },
+        {
+          "name": "Vector search",
+          "passed": true,
+          "duration_ms": 16.733646392822266,
+          "message": "Search OK"
+        }
+      ]
+    },
+    {
+      "stage_num": 8,
+      "stage_name": "Session Manager",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "SessionManager init",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Storage: C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\data\\sessions"
+        },
+        {
+          "name": "Create session",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "ID: c6c584b4..."
+        },
+        {
+          "name": "List sessions",
+          "passed": true,
+          "duration_ms": 9.540796279907227,
+          "message": "Count: 10"
+        },
+        {
+          "name": "Cleanup method",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "cleanup_old_sessions exists"
+        }
+      ]
+    },
+    {
+      "stage_num": 9,
+      "stage_name": "LLM Manager",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "LLMManager init",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Model: qwen3-vl:8b"
+        },
+        {
+          "name": "LLM status",
+          "passed": true,
+          "duration_ms": 2047.8811264038086,
+          "message": "Primary OK: True"
+        },
+        {
+          "name": "GPU options in config",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "GPU=99, CTX=4096"
+        },
+        {
+          "name": "Generate (simple)",
+          "passed": true,
+          "duration_ms": 4.617214202880859,
+          "message": "Response: Okay, the user just said \"Say '..."
+        }
+      ]
+    },
+    {
+      "stage_num": 10,
+      "stage_name": "RAG Components",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "DocumentLoader",
+          "passed": true,
+          "duration_ms": 2804.7828674316406,
+          "message": "DocumentLoader OK"
+        },
+        {
+          "name": "DocumentChunker",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "DocumentChunker OK"
+        },
+        {
+          "name": "AsyncProcessor",
+          "passed": true,
+          "duration_ms": 1.001596450805664,
+          "message": "AsyncProcessor OK"
+        },
+        {
+          "name": "Reranker",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "GPU: cuda"
+        },
+        {
+          "name": "RAGOrchestrator",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "RAGOrchestrator OK"
+        }
+      ]
+    },
+    {
+      "stage_num": 11,
+      "stage_name": "Hybrid Search",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "HybridSearcher import",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "HybridSearcher OK"
+        },
+        {
+          "name": "Search strategies",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Strategies: ['dense', 'sparse', 'hybrid']"
+        },
+        {
+          "name": "BM25Index",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "BM25Index OK"
+        },
+        {
+          "name": "HybridSearcher create",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "HybridSearcher created"
+        }
+      ]
+    },
+    {
+      "stage_num": 12,
+      "stage_name": "Agents",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "BaseAgent",
+          "passed": true,
+          "duration_ms": 22.99785614013672,
+          "message": "BaseAgent OK"
+        },
+        {
+          "name": "Orchestrator",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Orchestrator OK"
+        },
+        {
+          "name": "ReActAgent",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "ReActAgent OK"
+        },
+        {
+          "name": "ResearchAgent",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "ResearchAgent OK"
+        },
+        {
+          "name": "WriterAgent",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "WriterAgent OK"
+        }
+      ]
+    },
+    {
+      "stage_num": 13,
+      "stage_name": "API Endpoints",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "FastAPI app",
+          "passed": true,
+          "duration_ms": 303.07674407958984,
+          "message": "Routes: 310"
+        },
+        {
+          "name": "Health endpoints",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Health: 9"
+        },
+        {
+          "name": "/api/embedding/stats",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Endpoint exists"
+        },
+        {
+          "name": "/api/sessions/cleanup/old",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Endpoint exists"
+        },
+        {
+          "name": "/api/chat",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Endpoint exists"
+        }
+      ]
+    },
+    {
+      "stage_num": 14,
+      "stage_name": "WebSocket",
+      "passed": 3,
+      "failed": 0,
+      "total": 3,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "WebSocket module",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "WebSocket OK"
+        },
+        {
+          "name": "WebSocket v2",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "WebSocket v2 OK"
+        },
+        {
+          "name": "ConnectionManager",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Manager OK"
+        }
+      ]
+    },
+    {
+      "stage_num": 15,
+      "stage_name": "Tools",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "WebSearchEngine",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "WebSearch OK"
+        },
+        {
+          "name": "ResearchSynthesizer",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "ResearchSynthesizer OK"
+        },
+        {
+          "name": "CodeExecutor",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Not available"
+        },
+        {
+          "name": "Tools directory",
+          "passed": true,
+          "duration_ms": 0.9944438934326172,
+          "message": "Tool files: 14"
+        }
+      ]
+    },
+    {
+      "stage_num": 16,
+      "stage_name": "Document Processing",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "PDF support",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "PyPDF OK"
+        },
+        {
+          "name": "DOCX support",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "python-docx OK"
+        },
+        {
+          "name": "Excel support",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "openpyxl OK"
+        },
+        {
+          "name": "Uploads directory",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Files: 1"
+        }
+      ]
+    },
+    {
+      "stage_num": 17,
+      "stage_name": "Frontend (Next.js)",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "frontend-next exists",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "frontend-next exists"
+        },
+        {
+          "name": "Streamlit deleted",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Streamlit deleted"
+        },
+        {
+          "name": "package.json",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Name: enterprise-ai-assistant"
+        },
+        {
+          "name": "node_modules",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Installed"
+        },
+        {
+          "name": "next.config.js",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "next.config.js exists"
+        }
+      ]
+    },
+    {
+      "stage_num": 18,
+      "stage_name": "File System & Data",
+      "passed": 5,
+      "failed": 0,
+      "total": 5,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "Data directory",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\data"
+        },
+        {
+          "name": "Logs directory",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\logs"
+        },
+        {
+          "name": "ChromaDB directory",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "ChromaDB exists"
+        },
+        {
+          "name": "Sessions directory",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Sessions: 82"
+        },
+        {
+          "name": "Disk space",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Free: 385.9 GB"
+        }
+      ]
+    },
+    {
+      "stage_num": 19,
+      "stage_name": "Performance Benchmarks",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "Embedding speed",
+          "passed": true,
+          "duration_ms": 9.142160415649414,
+          "message": "1093.8 embeddings/sec"
+        },
+        {
+          "name": "Vector search speed",
+          "passed": true,
+          "duration_ms": 0.9996891021728516,
+          "message": "0.2 ms/query"
+        },
+        {
+          "name": "Import time",
+          "passed": true,
+          "duration_ms": 7.996559143066406,
+          "message": "Import: 8.0 ms"
+        },
+        {
+          "name": "Memory usage",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Memory: 1711.2 MB"
+        }
+      ]
+    },
+    {
+      "stage_num": 20,
+      "stage_name": "Integration Tests",
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "success_rate": 100.0,
+      "tests": [
+        {
+          "name": "Full RAG pipeline",
+          "passed": true,
+          "duration_ms": 16.468524932861328,
+          "message": "RAG pipeline OK"
+        },
+        {
+          "name": "Session lifecycle",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Session lifecycle OK"
+        },
+        {
+          "name": "API import chain",
+          "passed": true,
+          "duration_ms": 0.0,
+          "message": "Import chain OK"
+        },
+        {
+          "name": "End-to-end ready",
+          "passed": true,
+          "duration_ms": 5.746603012084961,
+          "message": "System ready"
+        }
+      ]
+    }
+  ]
+}

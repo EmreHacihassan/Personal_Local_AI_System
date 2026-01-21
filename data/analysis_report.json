@@ -1,0 +1,471 @@
+{
+  "total_documents": 76,
+  "unique_contents": 37,
+  "exact_duplicates": [
+    {
+      "duplicate_id": "a4e7685e-54b3-4432-a408-e3f028be2c73",
+      "duplicate_index": 37,
+      "original_id": "3aaf9708-6276-4a3d-82af-b63548eab66e",
+      "original_index": 0,
+      "hash": "54a514a4ac3a29fffb39a4eea6300218",
+      "preview": "First name | Last name | City | Score 1 | Score 2 | Score 3 | TOTAL Score | AVER..."
+    },
+    {
+      "duplicate_id": "9e6338de-79ad-4808-84e0-d39b0bb61b00",
+      "duplicate_index": 74,
+      "original_id": "3aaf9708-6276-4a3d-82af-b63548eab66e",
+      "original_index": 0,
+      "hash": "54a514a4ac3a29fffb39a4eea6300218",
+      "preview": "First name | Last name | City | Score 1 | Score 2 | Score 3 | TOTAL Score | AVER..."
+    },
+    {
+      "duplicate_id": "e6f5a4a2-e5fd-40f6-935b-aa94124c05f5",
+      "duplicate_index": 38,
+      "original_id": "95f1af7f-cef5-4822-9769-75b4d42e70f5",
+      "original_index": 1,
+      "hash": "a225885290701653fcf7445cc70e8b42",
+      "preview": "Burcu | Polat | eskisehir | 74 | 70 | 73 |  |  |  |  |  |  |  |  |  |  |  | \nEre..."
+    },
+    {
+      "duplicate_id": "525f0d5a-b747-44f1-9bd7-971717eec69a",
+      "duplicate_index": 75,
+      "original_id": "95f1af7f-cef5-4822-9769-75b4d42e70f5",
+      "original_index": 1,
+      "hash": "a225885290701653fcf7445cc70e8b42",
+      "preview": "Burcu | Polat | eskisehir | 74 | 70 | 73 |  |  |  |  |  |  |  |  |  |  |  | \nEre..."
+    },
+    {
+      "duplicate_id": "05752b82-60e4-47c3-9449-482f0de6d330",
+      "duplicate_index": 39,
+      "original_id": "14c5bc24-3254-43e4-81f4-5a9e0210439e",
+      "original_index": 2,
+      "hash": "4a3891ecbe77b0ef63862f05a2ec065d",
+      "preview": "[PDF İçeriği Okunamadı]\n\nDosya: 30793fc5-84a7-4b8e-92a7-a4d6f8e6114f_excel3.pdf\n..."
+    },
+    {
+      "duplicate_id": "5ed29bcd-ae1f-4a98-b939-c522f80711d0",
+      "duplicate_index": 40,
+      "original_id": "58c6c700-cbcd-4e4a-b4bc-82873bfcb0f1",
+      "original_index": 3,
+      "hash": "53d9d38d790ab22debd1dbc39043f417",
+      "preview": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YURDABAK\nmerve.yurdabak..."
+    },
+    {
+      "duplicate_id": "f3da2f43-a90e-4154-b468-41cdd7a08f41",
+      "duplicate_index": 41,
+      "original_id": "ecabe233-5879-4881-bf7c-7db055335c89",
+      "original_index": 4,
+      "hash": "43828edeef7e2b13792b135a129d19e3",
+      "preview": "## Slayt 39\n39\n\n## Slayt 40\n40\n\n## Slayt 41\nSIMPLE STATISTICS\nMean : =AVERAGE\nCa..."
+    },
+    {
+      "duplicate_id": "d752ed2c-1354-4573-ac6e-165bfccb8a13",
+      "duplicate_index": 42,
+      "original_id": "9936aff7-7449-4fb4-a417-194c72b449c2",
+      "original_index": 5,
+      "hash": "affb08806b81020bb158a43df71a26a5",
+      "preview": "\n## Slayt 1\nBook1\nFormulas\n\n## Slayt 2\nANSWERS\n=SUM(D2:F2)\n=AVERAGE(D2:F2)\n=MAX(..."
+    },
+    {
+      "duplicate_id": "59c4fca9-1f7c-4f3f-92bb-ecca5f115860",
+      "duplicate_index": 43,
+      "original_id": "ffc5d16b-4548-4291-a4e8-291a7e76b616",
+      "original_index": 6,
+      "hash": "f430bd56b9b457eb6c8257386f9dbac8",
+      "preview": "\n## Slayt 1\nAnswers\nclasswork\n\n## Slayt 2\nMean (Average)\n=AVERAGE(B2:B21)\nCalcul..."
+    },
+    {
+      "duplicate_id": "ecb1b21b-e01c-4504-99e0-b18cf6f80a9b",
+      "duplicate_index": 44,
+      "original_id": "6af5849a-b7e8-456e-82fd-5fad1b35129b",
+      "original_index": 7,
+      "hash": "b4b563a3a99f9e8db493f4b2075eb1ba",
+      "preview": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YURDABAK\nmerve.yurdabak..."
+    },
+    {
+      "duplicate_id": "4cf185b9-b492-43cc-8cd1-62e85f1a5902",
+      "duplicate_index": 45,
+      "original_id": "942d7074-d7be-4125-b6bf-ec90e4661c50",
+      "original_index": 8,
+      "hash": "3936d957055a3331b020dc3c7c3a2fad",
+      "preview": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YURDABAK\nmerve.yurdabak..."
+    },
+    {
+      "duplicate_id": "1efe3097-5031-4793-b77c-9a45c68dcf7f",
+      "duplicate_index": 46,
+      "original_id": "0ba29a93-2e0f-4062-a1ac-6094823bdde0",
+      "original_index": 9,
+      "hash": "75087fd2da5839eca6f7da2730884ec6",
+      "preview": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YURDABAK\nmerve.yurdabak..."
+    },
+    {
+      "duplicate_id": "801265f0-a321-44b9-ad16-f47edeb1b638",
+      "duplicate_index": 47,
+      "original_id": "87e01986-daf2-4d1b-939f-2424c839692e",
+      "original_index": 10,
+      "hash": "4528eaf80a9f6d0699a3f341c768914b",
+      "preview": "[PDF İçeriği Okunamadı]\n\nDosya: 805adca9-a50f-4ac2-bc1a-cbb5f4dd9901_excel2.pdf\n..."
+    },
+    {
+      "duplicate_id": "de692351-6b48-4f5d-ab94-2ae7219a31f3",
+      "duplicate_index": 48,
+      "original_id": "ac9aa2d0-9499-4d0e-8d52-07957d883017",
+      "original_index": 11,
+      "hash": "7c92b8138c5eaa1cafacedc555d99a10",
+      "preview": "The Ultimate\nHandbook\nFollow Financial Modeling World Cup on LinkedIn\nwww.fmworl..."
+    },
+    {
+      "duplicate_id": "5c29333e-8e84-473e-a4b2-6e8eebca7dfe",
+      "duplicate_index": 49,
+      "original_id": "610bdeb1-0486-4c17-995d-f0df1aa9d03b",
+      "original_index": 12,
+      "hash": "018bfc67207585658cc86765f2b7a15d",
+      "preview": "Follow Financial Modeling World Cup on LinkedIn\nwww.fmworldcup.com\n\n\n\nFunctions\n..."
+    },
+    {
+      "duplicate_id": "9d9fd805-8973-4fe6-b12e-2dd51c987d5d",
+      "duplicate_index": 50,
+      "original_id": "89b86a01-7d03-4a5f-8f59-4d5fb6bd688e",
+      "original_index": 13,
+      "hash": "146d7a1a4b1316b7aa9e24d3dfa8ced7",
+      "preview": "LEFT/RIGHT/MID\nThe syntax is as follows: \"=LEFT (cell to extract from, \nnumber o..."
+    },
+    {
+      "duplicate_id": "2a82be1d-d0a8-4eb0-abfb-4333dbec00f1",
+      "duplicate_index": 51,
+      "original_id": "ce2a7fea-6a5f-48d2-b334-af2752bd6e6d",
+      "original_index": 14,
+      "hash": "f26a3923bb7d7f762d6f7c4136d1b97e",
+      "preview": "TEXTAFTER/TEXTBEFORE\nFunction TEXTBEFORE works in a similar but opposite way.\nEx..."
+    },
+    {
+      "duplicate_id": "1b3d591f-5c94-42e2-b24a-acbd557a7f69",
+      "duplicate_index": 52,
+      "original_id": "c6abf150-0090-4d9f-a3aa-2d81c9381018",
+      "original_index": 15,
+      "hash": "862e85eb727a3997e99a72e205fc88fc",
+      "preview": "FLASH FILL\nA function that retrieves information from nearby \ncells based on you..."
+    },
+    {
+      "duplicate_id": "e48e3f1e-e058-437f-a006-c6f8a27243ac",
+      "duplicate_index": 53,
+      "original_id": "36f1ddd9-d879-43ef-a292-9d3034ba32e1",
+      "original_index": 16,
+      "hash": "3ac542f57ad7f6b4bdebbb0d5e79b2d6",
+      "preview": "\nFinancial Modeling in Excel\n5 Excel features you should know\nData Table\nA great..."
+    },
+    {
+      "duplicate_id": "edf4435f-19d7-4a8f-84e5-d9e27ecd7117",
+      "duplicate_index": 54,
+      "original_id": "e1a6bb64-9db9-4bc7-9a57-e445534b4b23",
+      "original_index": 17,
+      "hash": "6753df78407cf90b662644ff76d3f9fb",
+      "preview": "Follow Financial Modeling World Cup on LinkedIn\nwww.fmworldcup.com\nPivot Table\n\n..."
+    },
+    {
+      "duplicate_id": "7ffcb53a-127e-4f04-a479-49f08b5a7d12",
+      "duplicate_index": 55,
+      "original_id": "bad735fd-ed67-4961-9c15-8595719f83df",
+      "original_index": 18,
+      "hash": "1ad33c71908a8a78d2de81540fc3202b",
+      "preview": "Follow Financial Modeling World Cup on LinkedIn\nwww.fmworldcup.com\nData\nValidati..."
+    },
+    {
+      "duplicate_id": "60703257-dc22-4826-8af7-e239dcf52e7e",
+      "duplicate_index": 56,
+      "original_id": "039a1ac3-70dc-4d22-bf80-e8369c1ec137",
+      "original_index": 19,
+      "hash": "5ca41b5af42dfb09ee82a5851e113e55",
+      "preview": "\nFinancial Modeling in Excel\n5 Excel features you should know\nData Validation\nUs..."
+    },
+    {
+      "duplicate_id": "700fbb46-175e-41f6-a68b-6526cc5455cf",
+      "duplicate_index": 57,
+      "original_id": "883ac75d-f1fb-4bfb-9292-dbe6860094c1",
+      "original_index": 20,
+      "hash": "a54139145dd89056275ac5334915c176",
+      "preview": "where users will be able to choose between \ndifferent store locations\nFINANCIAL ..."
+    },
+    {
+      "duplicate_id": "0efd2d1c-7464-4328-bd63-9dd79f2b6242",
+      "duplicate_index": 58,
+      "original_id": "d1a40007-e8b4-40cb-ad1b-b009e1cc930c",
+      "original_index": 21,
+      "hash": "073dda945556c0708efe5ea55f8dafc4",
+      "preview": "Follow Financial Modeling World Cup on LinkedIn\nwww.fmworldcup.com\nGroup Data\n\n\n..."
+    },
+    {
+      "duplicate_id": "a3522b30-448b-4c52-b655-dbd19f0ae07d",
+      "duplicate_index": 59,
+      "original_id": "9b13d738-a30e-49e1-b218-792c80584e43",
+      "original_index": 22,
+      "hash": "37ce5a289a1c4dbe7cfabf1cbdb2dc72",
+      "preview": "\nFinancial Modeling in Excel\n5 Excel features you should know\nPower Query\nPower ..."
+    },
+    {
+      "duplicate_id": "e3fa9e16-bc3a-468f-a22d-a212da8bbb5b",
+      "duplicate_index": 60,
+      "original_id": "c8ecaba7-b3f7-4916-ba2f-60db9e8a837c",
+      "original_index": 23,
+      "hash": "8d7f9905d4ce8659b668b82ea61325c2",
+      "preview": "etc. Append Queries.\nLoad the appended query into the Excel file. After \neach st..."
+    },
+    {
+      "duplicate_id": "f610a794-4048-4c3f-bb7a-407084862713",
+      "duplicate_index": 61,
+      "original_id": "fdee97c0-70eb-4019-bd1f-ac4c12d31e06",
+      "original_index": 24,
+      "hash": "90877a15745eb00877d3bc35f1b2127e",
+      "preview": "Follow Financial Modeling World Cup on LinkedIn\nwww.fmworldcup.com\nExcel\nShortcu..."
+    },
+    {
+      "duplicate_id": "9df411e3-5fef-4f56-948a-11aae0e6113f",
+      "duplicate_index": 62,
+      "original_id": "5efbf0aa-be9e-43e4-8806-432840a3b2ec",
+      "original_index": 25,
+      "hash": "7f6fcf97161585f7f5578870f16d8073",
+      "preview": "\nCreate embedded chart\nCreate chart in new worksheet\nFind previous match\nFind ne..."
+    },
+    {
+      "duplicate_id": "66789993-06fe-41e8-8f8e-d25edbd78f1f",
+      "duplicate_index": 63,
+      "original_id": "b4e80036-6730-4362-8322-80ad15b04b4c",
+      "original_index": 26,
+      "hash": "7092dc286650f5630b461434b74509fd",
+      "preview": "Ctrl ;\nEnter Current Date\nEnter Current Time Ctrl :\nMove one screen right\nMove o..."
+    },
+    {
+      "duplicate_id": "27b82a7d-b23c-4d91-91b9-2f560fbeb193",
+      "duplicate_index": 64,
+      "original_id": "0e341de0-5f31-4eb1-a545-dc85b957b429",
+      "original_index": 27,
+      "hash": "6a1ed0baf3792ba7cdb9673aae087674",
+      "preview": "Follow Financial Modeling World Cup on LinkedIn\nwww.fmworldcup.com\nHow ChatGPT C..."
+    },
+    {
+      "duplicate_id": "0187a5e5-bc4d-4090-8e66-ac77b69529f3",
+      "duplicate_index": 65,
+      "original_id": "901b6341-0db7-4cfb-abb9-d3402cc011d6",
+      "original_index": 28,
+      "hash": "a9b0ea8620a1c57c1a393e120a4bc37e",
+      "preview": "HOW CHATGPT CAN SIMPLIFY\nOUR EXCEL WORKFLOW\nCan ChatGPT write Excel Power Query ..."
+    },
+    {
+      "duplicate_id": "46c88922-99e3-4916-85dd-f4b5a0510ba4",
+      "duplicate_index": 66,
+      "original_id": "2bac5e6c-8a8f-4736-a751-6e80e398a671",
+      "original_index": 29,
+      "hash": "b9c5200948adebe80ef27728f3eb02db",
+      "preview": "Analyzing .csv with ChatGPT\nLet’s say you need to find some very specific inform..."
+    },
+    {
+      "duplicate_id": "5ef80700-e535-40c9-a229-e43625d6bcf5",
+      "duplicate_index": 67,
+      "original_id": "a742dcff-d251-4a35-bd09-e00846d3ae4a",
+      "original_index": 30,
+      "hash": "40b763488e0d8cdb75dc074c256228ef",
+      "preview": "Follow Financial Modeling World Cup on LinkedIn\nwww.fmworldcup.com\nHistory of\nMi..."
+    },
+    {
+      "duplicate_id": "34b0ddaa-44aa-4247-a22e-ec69f53610b5",
+      "duplicate_index": 68,
+      "original_id": "e94ce873-04bd-4481-b001-944fb616a1a8",
+      "original_index": 31,
+      "hash": "65e1fabaa3ac3bd782212157e3c80565",
+      "preview": "www.fmworldcup.com\n1999\nExcel 2000: Introduced the Clipboard feature, allowing u..."
+    },
+    {
+      "duplicate_id": "132d2ffb-4b21-40b3-90c6-6727440ee013",
+      "duplicate_index": 69,
+      "original_id": "d8372619-759f-4c24-b949-c115bf5786c5",
+      "original_index": 32,
+      "hash": "081854c373332294e0d5f03c5c04eea5",
+      "preview": "www.fmworldcup.com\n2016\nExcel 2016: Added the Ink Replay button, Shared with Me ..."
+    },
+    {
+      "duplicate_id": "412d8847-74bc-4a77-bb22-0dfeeb410611",
+      "duplicate_index": 70,
+      "original_id": "9d98bff3-4eb0-420d-878c-ab1355bdba66",
+      "original_index": 33,
+      "hash": "7716bfbec844b3ec88698deee17dfa5a",
+      "preview": "6\nwww.fmworldcup.com\nLearn more\nWANT TO LEARN MORE?\nLEARN FROM CHAMPIONS!\nSign u..."
+    },
+    {
+      "duplicate_id": "e5130ac9-9c97-41f7-896a-c828acb8751b",
+      "duplicate_index": 71,
+      "original_id": "8abd7aaa-a5dc-44c0-82d8-829cd0756e58",
+      "original_index": 34,
+      "hash": "66b7bb183b0b8b5819d912f166d6e7c0",
+      "preview": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YURDABAK\nmerve.yurdabak..."
+    },
+    {
+      "duplicate_id": "462a80f3-e59e-45d8-bbaa-ba620b8bb907",
+      "duplicate_index": 72,
+      "original_id": "59737f9b-abed-428a-96ff-c397d0c668f2",
+      "original_index": 35,
+      "hash": "bbaa45fb8cd6205804ce2a381305bee9",
+      "preview": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YURDABAK\nmerve.yurdabak..."
+    },
+    {
+      "duplicate_id": "9fa734a2-02f8-4724-9b50-f33768ade396",
+      "duplicate_index": 73,
+      "original_id": "e41143d0-2bcf-456a-87e5-b3bc0d4fb3fb",
+      "original_index": 36,
+      "hash": "93ae7f951fe7ac9396bdd0d0bdbee38c",
+      "preview": "## Slayt 47\n47\n\n## Slayt 48\n48\n\n## Slayt 49\nCopyright © 2017 Pearson Education, ..."
+    }
+  ],
+  "near_duplicates": [
+    {
+      "doc1_id": "58c6c700-cbcd-4e4a-b4bc-82873bfcb0f1",
+      "doc1_index": 3,
+      "doc2_id": "6af5849a-b7e8-456e-82fd-5fad1b35129b",
+      "doc2_index": 7,
+      "similarity": 0.7594339622641509,
+      "preview1": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR...",
+      "preview2": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR..."
+    },
+    {
+      "doc1_id": "58c6c700-cbcd-4e4a-b4bc-82873bfcb0f1",
+      "doc1_index": 3,
+      "doc2_id": "0ba29a93-2e0f-4062-a1ac-6094823bdde0",
+      "doc2_index": 9,
+      "similarity": 0.75,
+      "preview1": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR...",
+      "preview2": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR..."
+    },
+    {
+      "doc1_id": "6af5849a-b7e8-456e-82fd-5fad1b35129b",
+      "doc1_index": 7,
+      "doc2_id": "0ba29a93-2e0f-4062-a1ac-6094823bdde0",
+      "doc2_index": 9,
+      "similarity": 0.8229166666666666,
+      "preview1": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR...",
+      "preview2": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR..."
+    },
+    {
+      "doc1_id": "6af5849a-b7e8-456e-82fd-5fad1b35129b",
+      "doc1_index": 7,
+      "doc2_id": "8abd7aaa-a5dc-44c0-82d8-829cd0756e58",
+      "doc2_index": 34,
+      "similarity": 0.700507614213198,
+      "preview1": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR...",
+      "preview2": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR..."
+    },
+    {
+      "doc1_id": "6af5849a-b7e8-456e-82fd-5fad1b35129b",
+      "doc1_index": 7,
+      "doc2_id": "59737f9b-abed-428a-96ff-c397d0c668f2",
+      "doc2_index": 35,
+      "similarity": 0.7021276595744681,
+      "preview1": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR...",
+      "preview2": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR..."
+    },
+    {
+      "doc1_id": "0ba29a93-2e0f-4062-a1ac-6094823bdde0",
+      "doc1_index": 9,
+      "doc2_id": "8abd7aaa-a5dc-44c0-82d8-829cd0756e58",
+      "doc2_index": 34,
+      "similarity": 0.7624309392265194,
+      "preview1": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR...",
+      "preview2": "\n## Slayt 1\nData and Computer Literacy\nAsst. Prof. Merve YUR..."
+    }
+  ],
+  "low_quality": [],
+  "sources": {
+    "data\\uploads\\11c1584c-bcb4-48ed-a3a6-98c615257de4_BOOK1.xlsx": 6,
+    "data\\uploads\\30793fc5-84a7-4b8e-92a7-a4d6f8e6114f_excel3.pdf": 2,
+    "data\\uploads\\30f8f66c-07d3-467c-983c-9272159ea8ce_MIS105_15_16.pptx": 4,
+    "data\\uploads\\494a2f77-9299-4df9-b53f-b7375c4a8a22_Book1_formulas.pptx": 2,
+    "data\\uploads\\597be5d2-15fb-4e34-8871-e971985047dd_Answers-excel.pptx": 2,
+    "data\\uploads\\62b63c9d-cb2a-4b23-ba70-9887badf7088_MIS105_14.pptx": 2,
+    "data\\uploads\\7e7edfc8-6964-4f01-a252-60b48a02607a_MIS105_13.pptx": 2,
+    "data\\uploads\\80165668-3d2b-43fb-8686-19d007e2db7a_MIS105_9.pptx": 2,
+    "data\\uploads\\805adca9-a50f-4ac2-bc1a-cbb5f4dd9901_excel2.pdf": 2,
+    "data\\uploads\\8d01874f-3038-454c-8915-16e89a96ab78_excel4.pdf": 46,
+    "data\\uploads\\8f4c8f26-d1d9-4d28-85c0-6ce9cef5c865_MIS105_10.pptx": 2,
+    "data\\uploads\\a9e57f83-c754-4f11-9a56-4c08bcb15321_MIS105_6_7_8.pptx": 4
+  },
+  "languages": {
+    "unknown": 76
+  },
+  "quality_scores": [],
+  "lengths": [
+    963,
+    962,
+    153,
+    939,
+    664,
+    913,
+    783,
+    827,
+    547,
+    749,
+    153,
+    916,
+    589,
+    506,
+    923,
+    452,
+    998,
+    954,
+    82,
+    992,
+    98,
+    797,
+    965,
+    359,
+    112,
+    980,
+    425,
+    833,
+    498,
+    968,
+    863,
+    871,
+    815,
+    381,
+    698,
+    995,
+    325,
+    963,
+    962,
+    153,
+    939,
+    664,
+    913,
+    783,
+    827,
+    547,
+    749,
+    153,
+    916,
+    589,
+    506,
+    923,
+    452,
+    998,
+    954,
+    82,
+    992,
+    98,
+    797,
+    965,
+    359,
+    112,
+    980,
+    425,
+    833,
+    498,
+    968,
+    863,
+    871,
+    815,
+    381,
+    698,
+    995,
+    325,
+    963,
+    962
+  ]
+}

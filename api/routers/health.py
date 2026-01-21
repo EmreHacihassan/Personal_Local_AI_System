@@ -20,7 +20,7 @@ from core.circuit_breaker import circuit_registry
 from core.health import get_health_report
 
 
-router = APIRouter(prefix="", tags=["health"])
+router = APIRouter(prefix="/api", tags=["health"])
 
 
 # ============ PYDANTIC MODELS ============
@@ -223,3 +223,31 @@ async def detailed_health_check():
             "message": str(e),
             "timestamp": datetime.now().isoformat(),
         }
+
+
+@router.get("/system/info")
+async def get_system_info():
+    """Sistem bilgisi endpoint'i."""
+    import platform
+    import sys
+    
+    return {
+        "success": True,
+        "system": {
+            "name": "Enterprise AI Assistant",
+            "version": "2.0.0",
+            "python_version": sys.version,
+            "platform": platform.platform(),
+        },
+        "components": {
+            "api": "running",
+            "llm": "available" if llm_manager.get_status().get("primary_available") else "unavailable",
+            "vector_store": "connected" if vector_store.count() >= 0 else "disconnected",
+        },
+        "config": {
+            "api_host": settings.API_HOST,
+            "api_port": settings.API_PORT,
+            "chunk_size": settings.CHUNK_SIZE,
+        },
+        "timestamp": datetime.now().isoformat()
+    }

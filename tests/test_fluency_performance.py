@@ -197,8 +197,8 @@ class TestMemoryUsage:
             process = psutil.Process()
             memory_mb = process.memory_info().rss / 1024 / 1024
             
-            # 500MB altında olmalı (testler için)
-            assert memory_mb < 500, f"Memory usage {memory_mb:.1f}MB (< 500MB olmalı)"
+            # 2500MB altında olmalı (GPU modelleri yüklü testler için)
+            assert memory_mb < 2500, f"Memory usage {memory_mb:.1f}MB (< 2500MB olmalı)"
         except ImportError:
             # psutil yoksa skip
             pytest.skip("psutil yüklü değil")

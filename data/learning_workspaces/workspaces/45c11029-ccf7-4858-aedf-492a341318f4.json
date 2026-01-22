@@ -1,0 +1,21 @@
+{
+  "id": "45c11029-ccf7-4858-aedf-492a341318f4",
+  "name": "Trigonometri ",
+  "description": "yks seviyesinde trigonometri öğrenmek için bu dökümanı oluşturuyorum teorik olarak ders notu oluşturmak için (yksye hazırlanmıyorum ama eğer hazırlanacak olsaydım kullanmak için)",
+  "topic": "YKS seviyesinde trigonometri öğrenmek",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "498b6014-4cac-4456-82c2-89b075e10aab",
+    "e805fe9a-8776-4e1a-ba4c-17427c962880",
+    "b4a4c1ae-9c1e-4b3d-a098-baaed58ce048"
+  ],
+  "tests": [
+    "4ecf1fc7-01ba-4fe4-aeec-721b832add8f"
+  ],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-21T12:51:52.220325",
+  "updated_at": "2026-01-22T01:35:29.744530",
+  "settings": {}
+}

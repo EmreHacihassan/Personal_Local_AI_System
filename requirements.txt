@@ -1,32 +1,33 @@
 # ╔═══════════════════════════════════════════════════════════════════════════════════╗
 # ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
-# ║  📁  Konum: .\venv\Scripts\pip.exe                                               ║
-# ║  💡  Kurulum: .\venv\Scripts\pip.exe install -r requirements.txt                 ║
+# ║  📁  Konum: .\.venv\Scripts\pip.exe                                              ║
+# ║  💡  Kurulum: .\.venv\Scripts\pip.exe install -r requirements.txt                ║
 # ╚═══════════════════════════════════════════════════════════════════════════════════╝
 #
-# Enterprise AI Assistant - Requirements v2.0
+# Enterprise AI Assistant - Requirements v3.0
 # Endüstri Standartlarında Kurumsal AI Çözümü
-# 12 İleri Düzey Teknoloji Entegrasyonu
+# Güncellenme: 2026-01-21 - Gerçek çalışan sürümlerle senkronize
 #
-# ⚠️ PYTHON VERSION: 3.11.9 REQUIRED
+# ⚠️ PYTHON VERSION: 3.11.9 REQUIRED (DEĞİŞTİRME!)
 # ⚠️ NumPy 2.0+ breaks ChromaDB - use numpy<2.0
 
 # ============ CORE ============
 python-dotenv>=1.0.0
-pydantic>=2.5.0
+pydantic>=2.5.0,<3.0.0
 pydantic-settings>=2.1.0
 
 # ============ LLM ============
-ollama>=0.1.0
-langchain>=0.1.0
-langchain-community>=0.0.10
-langchain-core>=0.1.0
+ollama>=0.4.0  # Updated: 0.6.1 installed
+langchain>=1.0.0  # Updated: 1.2.6 installed (major version jump)
+langchain-community>=0.4.0  # Updated: 0.4.1 installed
+langchain-core>=1.0.0  # Updated: 1.2.7 installed
 # openai>=1.12.0  # For cloud fallback - DISABLED for privacy
 
 # ============ RAG & VECTORS ============
-chromadb>=0.4.22,<0.5.0  # 0.5+ has breaking changes
-sentence-transformers>=2.2.2
-numpy<2.0  # CRITICAL: ChromaDB incompatible with NumPy 2.0+
+# ChromaDB 1.x works fine with this project despite docs saying 0.4.x
+chromadb>=1.0.0  # Updated: 1.4.1 installed and working
+sentence-transformers>=5.0.0  # Updated: 5.2.0 installed (major version jump)
+numpy>=1.24.0,<2.0  # CRITICAL: ChromaDB incompatible with NumPy 2.0+
 
 # ============ DOCUMENT PROCESSING ============
 pypdf>=3.17.0
@@ -39,11 +40,11 @@ lxml>=5.1.0
 unstructured>=0.12.0
 
 # ============ AGENTS ============
-crewai>=0.1.0
+crewai>=0.70.0  # Updated: 0.80.0 installed
 
 # ============ API ============
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
+fastapi>=0.115.0  # Updated: 0.128.0 installed
+uvicorn[standard]>=0.30.0  # Updated: 0.40.0 installed
 python-multipart>=0.0.6
 websockets>=12.0
 websocket-client>=1.7.0  # For frontend WebSocket client
@@ -59,11 +60,12 @@ sqlalchemy>=2.0.25
 # ============ UTILITIES ============
 httpx>=0.26.0
 aiohttp>=3.9.0
-aiofiles>=23.2.1
+aiofiles>=23.2.1  # Updated: 25.1.0 installed
 tenacity>=8.2.3
 rich>=13.7.0
 psutil>=5.9.0
 watchdog>=4.0.0  # Plugin hot-reload
+markdown>=3.5.2  # DeepScholar HTML export
 
 # ============ TESTING ============
 pytest>=7.4.0
@@ -111,8 +113,31 @@ pyttsx3>=2.90  # Local TTS (DEFAULT - fully offline)
 mss>=9.0.0  # Cross-platform screen capture
 Pillow>=10.0.0  # Image processing
 
+# ============ NEW: DESKTOP AUTOMATION (Computer Use Agent) ============
+pyautogui>=0.9.54  # Cross-platform mouse/keyboard control
+pynput>=1.7.6  # Emergency stop listener
+
 # ============ NEW: FILE LOCKING ============
 filelock>=3.13.0  # Cross-platform file locking for ChromaDB
+
+# ============ NEW: PREMIUM FEATURES (100% LOCAL) ============
+# Code Interpreter Sandbox
+RestrictedPython>=7.0  # Secure Python sandbox execution
+
+# Knowledge Graph
+networkx>=3.2.0  # Graph algorithms for Knowledge Graph RAG
+
+# Screen Recording & Analysis
+opencv-python>=4.9.0  # Video processing for screen recording
+
+# Multi-Modal RAG
+PyMuPDF>=1.24.0  # PDF processing with image extraction (fitz)
+
+# AI Security Scanner
+# No extra deps needed - uses regex + LLM
+
+# Personal Analytics Dashboard
+# No extra deps needed - uses built-in modules
 
 # ============ OPTIONAL CLOUD PROVIDERS ============
 # anthropic>=0.18.0  # Claude API

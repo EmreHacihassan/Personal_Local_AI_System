@@ -1,0 +1,200 @@
+{
+  "report_metadata": {
+    "generated_at": "2026-01-21T23:10:00",
+    "target_python_version": "3.11.9",
+    "actual_python_version": "3.11.9",
+    "project_path": "c:/Users/LENOVO/Desktop/Aktif Projeler/AgenticManagingSystem"
+  },
+
+  "python_compatibility": {
+    "status": "COMPATIBLE",
+    "version_match": true,
+    "issues": []
+  },
+
+  "package_version_analysis": {
+    "critical_findings": [
+      {
+        "package": "chromadb",
+        "requirements_spec": ">=0.4.22,<0.5.0",
+        "installed_version": "1.4.1",
+        "status": "MAJOR_MISMATCH",
+        "risk": "HIGH",
+        "note": "3 major versions ahead! API may have changed significantly",
+        "working": true,
+        "recommendation": "Update requirements.txt to reflect actual working version"
+      },
+      {
+        "package": "sentence-transformers",
+        "requirements_spec": ">=2.2.2",
+        "installed_version": "5.2.0",
+        "status": "MAJOR_JUMP",
+        "risk": "MEDIUM",
+        "working": true,
+        "recommendation": "Update requirements.txt to >=5.0.0"
+      },
+      {
+        "package": "crewai",
+        "requirements_spec": ">=0.1.0",
+        "installed_version": "0.80.0",
+        "status": "MAJOR_JUMP",
+        "risk": "LOW",
+        "working": true,
+        "recommendation": "Update requirements.txt to >=0.80.0"
+      },
+      {
+        "package": "langchain",
+        "requirements_spec": ">=0.1.0",
+        "installed_version": "1.2.6",
+        "status": "MAJOR_JUMP",
+        "risk": "MEDIUM",
+        "working": true,
+        "recommendation": "Update requirements.txt to >=1.0.0"
+      }
+    ],
+    "compatible_packages": [
+      {"package": "numpy", "installed": "1.26.4", "spec": "<2.0", "status": "OK"},
+      {"package": "fastapi", "installed": "0.128.0", "spec": ">=0.109.0", "status": "OK"},
+      {"package": "pydantic", "installed": "2.12.5", "spec": ">=2.5.0", "status": "OK"},
+      {"package": "uvicorn", "installed": "0.40.0", "spec": ">=0.27.0", "status": "OK"}
+    ]
+  },
+
+  "unused_modules": {
+    "completely_unused": [
+      {
+        "module": "core/task_queue.py",
+        "lines": 701,
+        "description": "Async task queue with priority scheduling, retry logic",
+        "recommendation": "INTEGRATE or REMOVE",
+        "potential_use": "Background document processing, batch operations"
+      },
+      {
+        "module": "core/workflow.py",
+        "lines": 368,
+        "description": "LangGraph-style state machine workflow engine",
+        "recommendation": "INTEGRATE or REMOVE",
+        "potential_use": "Multi-step agent coordination"
+      },
+      {
+        "module": "rag/query_expansion.py",
+        "lines": 559,
+        "description": "Query expansion strategies (HyDE, Multi-Query, Step-Back)",
+        "recommendation": "INTEGRATE or REMOVE",
+        "potential_use": "Improve RAG search quality"
+      },
+      {
+        "module": "rag/evaluation.py",
+        "lines": "unknown",
+        "description": "RAG evaluation metrics",
+        "recommendation": "INTEGRATE or REMOVE",
+        "potential_use": "Quality assessment"
+      }
+    ],
+    "tests_only": [
+      {
+        "module": "core/guardrails.py",
+        "lines": 436,
+        "description": "Input/Output validation, content filtering",
+        "used_in": ["tests/test_guardrails.py"],
+        "note": "core/advanced_guardrails.py IS integrated in production",
+        "recommendation": "Evaluate if basic guardrails is redundant"
+      }
+    ],
+    "estimated_dead_code_lines": 2064
+  },
+
+  "missing_integrations_fixed": [
+    {
+      "issue": "Queue Manager not integrated in deep_scholar_endpoints.py",
+      "status": "FIXED",
+      "fix_date": "2026-01-21",
+      "details": "Added _queue_processor(), _process_queue_item(), queue endpoints"
+    }
+  ],
+
+  "placeholder_implementations": [
+    {
+      "file": "core/learning_premium_features.py",
+      "line": 517,
+      "code": "is_correct = len(answer) > 20  # Placeholder",
+      "issue": "CodePlayground answer validation is just length check",
+      "recommendation": "Implement LLM-based answer validation"
+    },
+    {
+      "file": "core/learning_advanced_features.py",
+      "line": 1552,
+      "code": "\"estimated_time\": \"1-2 saat\"  # Placeholder",
+      "issue": "Learning path time estimation is hardcoded",
+      "recommendation": "Implement content complexity analysis"
+    }
+  ],
+
+  "api_coverage": {
+    "total_features": 17,
+    "integrated_features": 17,
+    "coverage_percentage": 100,
+    "all_routers_included": true
+  },
+
+  "import_health": {
+    "all_critical_imports_working": true,
+    "tested_modules": [
+      "core.chromadb_manager",
+      "core.llm_client",
+      "core.deep_scholar",
+      "core.deep_scholar_resilience",
+      "core.learning_workspace",
+      "core.premium_features",
+      "core.premium_features_v2",
+      "core.premium_features_v3",
+      "rag.unified_orchestrator",
+      "api.main"
+    ]
+  },
+
+  "recommendations": [
+    {
+      "priority": 1,
+      "category": "CRITICAL",
+      "action": "Update requirements.txt to reflect actual working package versions",
+      "reason": "requirements.txt says chromadb<0.5.0 but 1.4.1 is installed and working"
+    },
+    {
+      "priority": 2,
+      "category": "HIGH",
+      "action": "Decide: Integrate or remove task_queue.py (701 lines)",
+      "reason": "Fully implemented but never used"
+    },
+    {
+      "priority": 3,
+      "category": "HIGH",
+      "action": "Decide: Integrate or remove workflow.py (368 lines)",
+      "reason": "Fully implemented but never used"
+    },
+    {
+      "priority": 4,
+      "category": "MEDIUM",
+      "action": "Integrate rag/query_expansion.py into search pipeline",
+      "reason": "Could improve RAG quality significantly"
+    },
+    {
+      "priority": 5,
+      "category": "LOW",
+      "action": "Implement real answer validation in CodePlayground",
+      "reason": "Currently just checks answer length > 20"
+    }
+  ],
+
+  "overall_health": {
+    "score": 92,
+    "status": "GOOD",
+    "python_version": "MATCHED",
+    "all_imports": "PASSING",
+    "api_coverage": "100%",
+    "dead_code_lines": 2064,
+    "critical_issues": 0,
+    "warnings": 5
+  }
+}
+

@@ -5,6 +5,11 @@ import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { Toaster } from '@/components/ui/Toaster';
 import { WidgetWrapper } from '@/components/widget/WidgetWrapper';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import dynamic from 'next/dynamic';
+
+// Lazy load heavy components for performance
+const VisionPanel = dynamic(() => import('@/components/ui/VisionPanel'), { ssr: false });
+const ComputerUsePanel = dynamic(() => import('@/components/ui/ComputerUsePanel'), { ssr: false });
 
 const inter = Inter({ 
   subsets: ['latin'],
@@ -37,6 +42,9 @@ export default function RootLayout({
           </ErrorBoundary>
           <Toaster />
           <WidgetWrapper />
+          {/* Premium AI Features - Floating Panels */}
+          <VisionPanel />
+          <ComputerUsePanel />
         </ThemeProvider>
       </body>
     </html>

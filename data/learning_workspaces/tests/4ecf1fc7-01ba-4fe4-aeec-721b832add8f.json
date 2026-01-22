@@ -1,0 +1,17 @@
+{
+  "id": "4ecf1fc7-01ba-4fe4-aeec-721b832add8f",
+  "workspace_id": "45c11029-ccf7-4858-aedf-492a341318f4",
+  "title": "introduction to aı quiz",
+  "description": "",
+  "test_type": "multiple_choice",
+  "question_count": 5,
+  "difficulty": "mixed",
+  "questions": [],
+  "user_answers": {},
+  "score": null,
+  "status": "not_started",
+  "created_at": "2026-01-21T21:36:27.309640",
+  "started_at": null,
+  "completed_at": null,
+  "feedback": ""
+}

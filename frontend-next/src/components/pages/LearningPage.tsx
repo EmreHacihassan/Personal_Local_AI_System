@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   GraduationCap,
@@ -72,7 +72,9 @@ import {
   Star,
   ThumbsUp,
   ThumbsDown,
-  RotateCcw
+  RotateCcw,
+  Rocket,
+  Map
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '@/store/useStore';
@@ -195,8 +197,8 @@ async function apiPut(endpoint: string, data?: Record<string, unknown>) {
   }
 }
 
-type LearningView = 'list' | 'create' | 'workspace' | 'generating' | 'reading';
-type WorkspaceTab = 'sources' | 'documents' | 'tests' | 'chat' | 'tutor' | 'flashcards' | 'simulations' | 'analytics' | 'stats' | 'visual' | 'multimedia' | 'linking';
+type LearningView = 'list' | 'create' | 'workspace' | 'generating' | 'reading' | 'journey' | 'stage';
+type WorkspaceTab = 'sources' | 'documents' | 'tests' | 'chat' | 'tutor' | 'flashcards' | 'simulations' | 'analytics' | 'stats' | 'visual' | 'multimedia' | 'linking' | 'quality' | 'fullmeta' | 'journey';
 
 // Document styles
 const DOCUMENT_STYLES = [
@@ -286,6 +288,7 @@ export function LearningPage() {
   
   // DeepScholar Premium Mode
   const [useDeepScholar, setUseDeepScholar] = useState(false);
+  const [reconnectDocumentId, setReconnectDocumentId] = useState<string | null>(null);
 
   // Form state - Create test
   const [testTitle, setTestTitle] = useState('');
@@ -321,7 +324,7 @@ export function LearningPage() {
 
   // Test taking state
   const [activeTest, setActiveTest] = useState<LearningTest | null>(null);
-  const [testMode, setTestMode] = useState<'taking' | 'results' | null>(null);
+  const [testMode, setTestMode] = useState<'taking' | 'results' | 'generating' | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState('');
 
@@ -407,6 +410,9 @@ export function LearningPage() {
     visual: { tr: 'Görsel Araçlar', en: 'Visual Tools', de: 'Visuelle Tools' },
     multimedia: { tr: 'Multimedya', en: 'Multimedia', de: 'Multimedia' },
     linking: { tr: 'Akıllı Bağlantı', en: 'Smart Linking', de: 'Intelligente Verknüpfung' },
+    quality: { tr: 'Kalite Merkezi', en: 'Quality Hub', de: 'Qualitätszentrum' },
+    fullmeta: { tr: 'Full Meta', en: 'Full Meta', de: 'Full Meta' },
+    journey: { tr: 'Öğrenme Yolculuğu', en: 'Learning Journey', de: 'Lernreise' },
     // Visual Learning
     mindMap: { tr: 'Zihin Haritası', en: 'Mind Map', de: 'Gedankenkarte' },
     conceptMap: { tr: 'Kavram Haritası', en: 'Concept Map', de: 'Konzeptkarte' },
@@ -1054,7 +1060,51 @@ export function LearningPage() {
       difficulty: testDifficulty
     });
 
-    if (response.success) {
+    if (response.success && response.test) {
+      // Test oluşturuldu, şimdi soru üretimini başlat
+      const testId = response.test.id;
+      
+      try {
+        // SSE ile soru üretimi
+        const eventSource = new EventSource(
+          `${typeof window !== 'undefined' ? window.location.origin : ''}/api/learning/tests/${testId}/generate`
+        );
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'complete' || data.type === 'error') {
+              eventSource.close();
+              // Workspace'i yeniden yükle
+              if (currentWorkspaceId) {
+                loadWorkspaceData(currentWorkspaceId);
+              }
+            }
+          } catch (e) {
+            console.error('SSE parse error:', e);
+          }
+        };
+        
+        eventSource.onerror = () => {
+          eventSource.close();
+          // Workspace'i yeniden yükle
+          if (currentWorkspaceId) {
+            loadWorkspaceData(currentWorkspaceId);
+          }
+        };
+        
+        // 60 saniye timeout
+        setTimeout(() => {
+          eventSource.close();
+          if (currentWorkspaceId) {
+            loadWorkspaceData(currentWorkspaceId);
+          }
+        }, 60000);
+        
+      } catch (e) {
+        console.error('Test generation error:', e);
+      }
+      
       await loadWorkspaceData(currentWorkspaceId);
       setTestTitle('');
       setTestType('mixed');
@@ -1067,9 +1117,74 @@ export function LearningPage() {
   const handleStartTest = async (test: LearningTest) => {
     const response = await apiGet(`/api/learning/tests/${test.id}`);
     if (!response.error && response.test) {
-      setActiveTest(response.test);
-      setCurrentQuestion(0);
-      setTestMode('taking');
+      const testData = response.test;
+      
+      // Eğer sorular üretilmemişse, önce üret
+      if (!testData.questions || testData.questions.length === 0) {
+        // Loading state göster
+        setActiveTest({ ...testData, questions: [] });
+        setTestMode('generating');
+        
+        try {
+          // SSE ile soru üretimi
+          const eventSource = new EventSource(
+            `${typeof window !== 'undefined' ? window.location.origin : ''}/api/learning/tests/${test.id}/generate`
+          );
+          
+          const generatedQuestions: any[] = [];
+          
+          eventSource.onmessage = async (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              
+              if (data.type === 'question') {
+                generatedQuestions.push(data.question);
+                setActiveTest(prev => prev ? {
+                  ...prev,
+                  questions: [...generatedQuestions]
+                } : null);
+              }
+              
+              if (data.type === 'complete') {
+                eventSource.close();
+                // Test'i yeniden al
+                const updatedResponse = await apiGet(`/api/learning/tests/${test.id}`);
+                if (updatedResponse.test) {
+                  setActiveTest(updatedResponse.test);
+                  setCurrentQuestion(0);
+                  setTestMode('taking');
+                }
+              }
+              
+              if (data.type === 'error') {
+                eventSource.close();
+                setTestMode('taking');
+              }
+            } catch (e) {
+              console.error('SSE parse error:', e);
+            }
+          };
+          
+          eventSource.onerror = () => {
+            eventSource.close();
+            setTestMode('taking');
+          };
+          
+          // 120 saniye timeout
+          setTimeout(() => {
+            eventSource.close();
+          }, 120000);
+          
+        } catch (e) {
+          console.error('Test generation error:', e);
+          setTestMode('taking');
+        }
+      } else {
+        // Sorular zaten var
+        setActiveTest(testData);
+        setCurrentQuestion(0);
+        setTestMode('taking');
+      }
     }
   };
 
@@ -1813,9 +1928,28 @@ export function LearningPage() {
         <DeepScholarCreator
           workspaceId={currentWorkspaceId || ''}
           language={language as 'tr' | 'en'}
-          onClose={() => setUseDeepScholar(false)}
-          onComplete={async (documentId) => {
+          reconnectDocumentId={reconnectDocumentId}
+          initialTitle={docTitle}
+          initialTopic={docTopic}
+          initialPageCount={docPageCount}
+          initialStyle={docStyle}
+          onClose={() => {
             setUseDeepScholar(false);
+            setReconnectDocumentId(null);
+            // Clear form values
+            setDocTitle('');
+            setDocTopic('');
+            setDocPageCount(10);
+            setDocStyle('academic');
+          }}
+          onComplete={async (_documentId) => {
+            setUseDeepScholar(false);
+            setReconnectDocumentId(null);
+            // Clear form values
+            setDocTitle('');
+            setDocTopic('');
+            setDocPageCount(10);
+            setDocStyle('academic');
             // Reload workspace data to get new document
             if (currentWorkspaceId) {
               await loadWorkspaceData(currentWorkspaceId);
@@ -1978,6 +2112,35 @@ export function LearningPage() {
                     👁️ {t.read[language]}
                   </button>
                 )}
+                {doc.status === 'generating' && (
+                  <button
+                    onClick={() => {
+                      // DeepScholar reconnect
+                      setReconnectDocumentId(doc.id);
+                      setUseDeepScholar(true);
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors animate-pulse"
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    🔗 {language === 'tr' ? 'Bağlan' : 'Reconnect'}
+                  </button>
+                )}
+                {(doc.status === 'cancelled' || doc.status === 'failed') && (
+                  <button
+                    onClick={() => {
+                      // Yeniden başlat - DeepScholar kullan
+                      setDocTitle(doc.title);
+                      setDocTopic(doc.topic || '');
+                      setDocPageCount(doc.page_count);
+                      setDocStyle(doc.style);
+                      setUseDeepScholar(true);
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    🔄 {language === 'tr' ? 'Yeniden Oluştur' : 'Restart'}
+                  </button>
+                )}
                 {doc.status === 'pending' && (
                   <button
                     onClick={() => {
@@ -2024,6 +2187,30 @@ export function LearningPage() {
 
   const renderTestsTab = () => {
     if (activeTest && testMode) {
+      if (testMode === 'generating') {
+        return (
+          <div className="flex flex-col items-center justify-center p-12 bg-card rounded-2xl border border-border">
+            <Loader2 className="w-12 h-12 animate-spin text-primary-500 mb-4" />
+            <h3 className="text-xl font-semibold mb-2">
+              {language === 'tr' ? 'Sorular Üretiliyor...' : 'Generating Questions...'}
+            </h3>
+            <p className="text-muted-foreground text-center">
+              {language === 'tr' 
+                ? `${activeTest.questions?.length || 0} / ${activeTest.question_count} soru üretildi`
+                : `${activeTest.questions?.length || 0} / ${activeTest.question_count} questions generated`
+              }
+            </p>
+            <div className="w-64 h-2 bg-muted rounded-full mt-4 overflow-hidden">
+              <div 
+                className="h-full bg-primary-500 transition-all duration-300"
+                style={{ 
+                  width: `${((activeTest.questions?.length || 0) / (activeTest.question_count || 1)) * 100}%` 
+                }}
+              />
+            </div>
+          </div>
+        );
+      }
       return testMode === 'taking' ? renderTestTaking() : renderTestResults();
     }
 
@@ -3228,6 +3415,132 @@ export function LearningPage() {
     </div>
   );
 
+  // ==================== QUALITY HUB TAB ====================
+  const renderQualityTab = () => {
+    // Dynamically import FullMetaQualityDashboard
+    const QualityDashboard = lazy(() => import('@/components/premium/FullMetaQualityDashboard'));
+    
+    return (
+      <div className="space-y-6">
+        {/* Premium Badge */}
+        <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-300 dark:border-purple-700 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
+            <Zap className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-purple-700 dark:text-purple-300">⚡ {t.quality[language]} - Premium</h3>
+            <p className="text-sm text-muted-foreground">
+              {language === 'tr' ? '2026 nesil öğrenme optimizasyonu - Dikkat, mikro-öğrenme, momentum takibi' : '2026 generation learning optimization - Attention, micro-learning, momentum tracking'}
+            </p>
+          </div>
+        </div>
+
+        {/* Quality Dashboard */}
+        <div className="bg-card border border-border rounded-2xl overflow-hidden" style={{ height: '600px' }}>
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+            </div>
+          }>
+            <QualityDashboard />
+          </Suspense>
+        </div>
+      </div>
+    );
+  };
+
+  // ==================== FULL META TAB ====================
+  const renderFullMetaTab = () => {
+    // Dynamically import FullMetaPanel and FullMetaPremiumFeatures
+    const FullMetaPanel = lazy(() => import('@/components/premium/FullMetaPanel'));
+    const FullMetaPremiumFeatures = lazy(() => import('@/components/premium/FullMetaPremiumFeatures'));
+    
+    return (
+      <div className="space-y-6">
+        {/* Premium Badge */}
+        <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-300 dark:border-indigo-700 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+            <Brain className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-indigo-700 dark:text-indigo-300">🧠 {t.fullmeta[language]} - Neuro-Adaptive Mastery</h3>
+            <p className="text-sm text-muted-foreground">
+              {language === 'tr' ? '12 katmanlı öğrenme motoru - Nörobilim, gamifikasyon, adaptif sistemler' : '12-layer learning engine - Neuroscience, gamification, adaptive systems'}
+            </p>
+          </div>
+        </div>
+
+        {/* Full Meta Panels */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Main Panel */}
+          <div className="bg-card border border-border rounded-2xl overflow-hidden" style={{ minHeight: '500px' }}>
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+              </div>
+            }>
+              <FullMetaPanel />
+            </Suspense>
+          </div>
+          
+          {/* Premium Features */}
+          <div className="bg-card border border-border rounded-2xl overflow-hidden" style={{ minHeight: '500px' }}>
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+              </div>
+            }>
+              <FullMetaPremiumFeatures />
+            </Suspense>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ==================== LEARNING JOURNEY TAB ====================
+  const renderJourneyTab = () => {
+    const StageMapView = lazy(() => import('@/components/premium/StageMapView'));
+    const StageContentView = lazy(() => import('@/components/premium/StageContentView'));
+    
+    return (
+      <div className="space-y-6">
+        {/* Premium Badge */}
+        <div className="bg-gradient-to-r from-pink-500/10 to-orange-500/10 border border-pink-300 dark:border-pink-700 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-orange-600 flex items-center justify-center">
+            <Rocket className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-pink-700 dark:text-pink-300">🎮 {t.journey[language]} - Candy Crush Style Learning</h3>
+            <p className="text-sm text-muted-foreground">
+              {language === 'tr' ? 'Görsel stage haritasıyla eğlenceli öğrenme deneyimi' : 'Fun learning experience with visual stage map'}
+            </p>
+          </div>
+        </div>
+
+        {/* Stage Map */}
+        <div className="bg-card border border-border rounded-2xl overflow-hidden" style={{ minHeight: '600px' }}>
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-full min-h-[600px]">
+              <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
+            </div>
+          }>
+            <StageMapView
+              userId="user_123"
+              language={language}
+              onStageClick={(stageId) => {
+                console.log('Stage clicked:', stageId);
+              }}
+              onContentStart={(stageId, contentId) => {
+                console.log('Content started:', stageId, contentId);
+              }}
+            />
+          </Suspense>
+        </div>
+      </div>
+    );
+  };
+
   // ==================== PREMIUM DATA LOADING ====================
   
   const loadAnalytics = async () => {
@@ -4029,7 +4342,7 @@ export function LearningPage() {
             
             <div className="bg-gradient-to-br from-pink-500/10 to-rose-500/10 border border-pink-300 dark:border-pink-700 rounded-2xl p-4 text-center">
               <TrendingUp className="w-8 h-8 mx-auto text-pink-500 mb-2" />
-              <p className="text-3xl font-bold text-pink-600 dark:text-pink-400">{stats.average_score.toFixed(1)}%</p>
+              <p className="text-3xl font-bold text-pink-600 dark:text-pink-400">{(stats?.average_score ?? 0).toFixed(1)}%</p>
               <p className="text-xs text-muted-foreground">📈 {t.averageScore[language]}</p>
             </div>
           </div>
@@ -4074,7 +4387,7 @@ export function LearningPage() {
               <div>
                 <div className="flex justify-between text-sm mb-1">
                   <span>🎯 {t.averageScore[language]}</span>
-                  <span>{stats.average_score.toFixed(1)}%</span>
+                  <span>{(stats?.average_score ?? 0).toFixed(1)}%</span>
                 </div>
                 <div className="h-3 bg-muted rounded-full overflow-hidden">
                   <div 
@@ -4164,7 +4477,7 @@ export function LearningPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2">
-        {(['sources', 'documents', 'tests', 'chat', 'tutor', 'flashcards', 'simulations', 'analytics', 'stats', 'visual', 'multimedia', 'linking'] as WorkspaceTab[]).map((tab) => {
+        {(['sources', 'documents', 'tests', 'chat', 'tutor', 'flashcards', 'simulations', 'analytics', 'stats', 'visual', 'multimedia', 'linking', 'quality', 'fullmeta', 'journey'] as WorkspaceTab[]).map((tab) => {
           const icons: Record<WorkspaceTab, typeof BookOpen> = { 
             sources: BookOpen, 
             documents: FileText, 
@@ -4177,7 +4490,10 @@ export function LearningPage() {
             stats: BarChart3,
             visual: Network,
             multimedia: Video,
-            linking: Link2
+            linking: Link2,
+            quality: Zap,
+            fullmeta: Brain,
+            journey: Rocket
           };
           const emojis: Record<WorkspaceTab, string> = { 
             sources: '📚', 
@@ -4191,9 +4507,12 @@ export function LearningPage() {
             stats: '📈',
             visual: '🎨',
             multimedia: '🎬',
-            linking: '🔗'
+            linking: '🔗',
+            quality: '⚡',
+            fullmeta: '🧠',
+            journey: '🎮'
           };
-          const isPremium = ['tutor', 'flashcards', 'simulations', 'analytics', 'visual', 'multimedia', 'linking'].includes(tab);
+          const isPremium = ['tutor', 'flashcards', 'simulations', 'analytics', 'visual', 'multimedia', 'linking', 'quality', 'fullmeta', 'journey'].includes(tab);
           const Icon = icons[tab];
           return (
             <button
@@ -4247,6 +4566,9 @@ export function LearningPage() {
             {activeTab === 'visual' && renderVisualTab()}
             {activeTab === 'multimedia' && renderMultimediaTab()}
             {activeTab === 'linking' && renderLinkingTab()}
+            {activeTab === 'quality' && renderQualityTab()}
+            {activeTab === 'fullmeta' && renderFullMetaTab()}
+            {activeTab === 'journey' && renderJourneyTab()}
           </motion.div>
         </AnimatePresence>
       )}

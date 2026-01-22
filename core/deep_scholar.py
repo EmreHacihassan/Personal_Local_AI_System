@@ -88,6 +88,27 @@ class EventType(str, Enum):
     PROGRESS = "progress"
     ERROR = "error"
     COMPLETE = "complete"
+    # Yeni event tipleri
+    PAUSED = "paused"
+    RESUMED = "resumed"
+    VISUAL_GENERATED = "visual_generated"
+    CHECKPOINT_SAVED = "checkpoint_saved"
+
+
+class VisualType(str, Enum):
+    """Görsel tipleri."""
+    MERMAID_FLOWCHART = "mermaid_flowchart"
+    MERMAID_SEQUENCE = "mermaid_sequence"
+    MERMAID_MINDMAP = "mermaid_mindmap"
+    MERMAID_TIMELINE = "mermaid_timeline"
+    MERMAID_PIE = "mermaid_pie"
+    MERMAID_GANTT = "mermaid_gantt"
+    ASCII_TABLE = "ascii_table"
+    ASCII_CHART = "ascii_chart"
+    LATEX_FORMULA = "latex_formula"
+    CODE_BLOCK = "code_block"
+    COMPARISON_TABLE = "comparison_table"
+    STATISTICS_BOX = "statistics_box"
 
 
 # ============================================================================
@@ -274,6 +295,59 @@ class DeepScholarConfig:
     # Gelişmiş
     parallel_research: bool = True
     max_research_depth: int = 3  # Fraktal derinlik
+    
+    # Görsel üretim ayarları (Premium)
+    enable_visuals: bool = True  # Görsel üretimi aktif
+    visual_types: List[str] = field(default_factory=lambda: [
+        "mermaid_flowchart", "mermaid_mindmap", "ascii_table", 
+        "latex_formula", "comparison_table", "statistics_box"
+    ])
+    visuals_per_section: int = 2  # Bölüm başına maksimum görsel sayısı
+    enable_code_examples: bool = True  # Kod örnekleri ekle
+    enable_formulas: bool = True  # Matematiksel formüller ekle
+
+
+@dataclass
+class GenerationCheckpoint:
+    """Üretim checkpoint'i - Pause/Resume için."""
+    document_id: str
+    config: Dict[str, Any]
+    progress: int
+    current_phase: str
+    completed_sections: List[Dict[str, Any]]
+    pending_sections: List[Dict[str, Any]]
+    all_research: Dict[str, List[Dict[str, Any]]]
+    global_state: Dict[str, Any]
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """JSON'a dönüştür."""
+        return {
+            "document_id": self.document_id,
+            "config": self.config,
+            "progress": self.progress,
+            "current_phase": self.current_phase,
+            "completed_sections": self.completed_sections,
+            "pending_sections": self.pending_sections,
+            "all_research": self.all_research,
+            "global_state": self.global_state,
+            "created_at": self.created_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'GenerationCheckpoint':
+        """JSON'dan oluştur."""
+        return cls(
+            document_id=data["document_id"],
+            config=data["config"],
+            progress=data["progress"],
+            current_phase=data["current_phase"],
+            completed_sections=data["completed_sections"],
+            pending_sections=data["pending_sections"],
+            all_research=data["all_research"],
+            global_state=data["global_state"],
+            created_at=data.get("created_at", datetime.now().isoformat())
+        )
 
 
 # ============================================================================
@@ -953,6 +1027,455 @@ Eğer çelişki yoksa boş liste döndür: []"""
         return conflicts if conflicts else []
 
 
+# ============================================================================
+# VISUAL GENERATOR - PREMIUM FEATURE
+# ============================================================================
+
+class VisualGenerator:
+    """
+    Görsel Üretici - Premium Özellik
+    
+    Döküman içine eklenebilecek görsel öğeler:
+    - Mermaid diyagramları (flowchart, sequence, mindmap, timeline, pie, gantt)
+    - ASCII tablolar ve grafikler
+    - LaTeX formüller
+    - Karşılaştırma tabloları
+    - İstatistik kutuları
+    - Kod blokları
+    """
+    
+    def __init__(self):
+        self.supported_types = list(VisualType)
+    
+    async def _llm_generate(self, prompt: str, temperature: float = 0.7) -> str:
+        """LLM ile içerik üret."""
+        try:
+            result = await llm_manager.generate_with_model(
+                prompt=prompt,
+                temperature=temperature,
+                max_tokens=2000
+            )
+            return result.get("response", "")
+        except Exception as e:
+            return ""
+    
+    async def generate_visuals_for_section(
+        self,
+        section_title: str,
+        section_content: str,
+        topic: str,
+        config: DeepScholarConfig
+    ) -> List[Dict[str, Any]]:
+        """Bölüm için uygun görseller üret."""
+        visuals = []
+        
+        if not config.enable_visuals:
+            return visuals
+        
+        # Hangi görsel tiplerinin uygun olduğunu belirle
+        suitable_types = await self._analyze_content_for_visuals(
+            section_title, section_content, topic, config
+        )
+        
+        for visual_type in suitable_types[:config.visuals_per_section]:
+            visual = await self._generate_visual(
+                visual_type, section_title, section_content, topic, config
+            )
+            if visual:
+                visuals.append(visual)
+        
+        return visuals
+    
+    async def _analyze_content_for_visuals(
+        self,
+        section_title: str,
+        section_content: str,
+        topic: str,
+        config: DeepScholarConfig
+    ) -> List[VisualType]:
+        """İçeriğe uygun görsel tiplerini belirle."""
+        content_preview = section_content[:1500]
+        
+        prompt = f"""Bu bölüm içeriğini analiz et ve en uygun görsel tiplerini seç.
+
+BÖLÜM: {section_title}
+KONU: {topic}
+İÇERİK:
+{content_preview}
+
+Mevcut görsel tipleri:
+1. mermaid_flowchart - Süreç, akış, karar ağacı için
+2. mermaid_mindmap - Kavram haritası, ilişkiler için
+3. mermaid_timeline - Tarihsel olaylar, kronoloji için
+4. mermaid_pie - Dağılım, oran gösterimi için
+5. ascii_table - Karşılaştırma, veri tablosu için
+6. latex_formula - Matematiksel formüller için
+7. comparison_table - A vs B karşılaştırması için
+8. statistics_box - İstatistik, sayısal veri vurgusu için
+9. code_block - Kod örneği için
+
+İçeriğe EN UYGUN 2-3 görsel tipini JSON array olarak döndür.
+Örnek: ["mermaid_flowchart", "statistics_box"]
+
+Sadece konuyla ilgili ve faydalı olacak görselleri seç."""
+
+        response = await self._llm_generate(prompt, temperature=0.3)
+        
+        try:
+            # JSON parse
+            import re
+            json_match = re.search(r'\[.*?\]', response, re.DOTALL)
+            if json_match:
+                types_list = json.loads(json_match.group())
+                return [VisualType(t) for t in types_list if t in [v.value for v in VisualType]]
+        except:
+            pass
+        
+        # Varsayılan: flowchart ve statistics_box
+        return [VisualType.MERMAID_FLOWCHART, VisualType.STATISTICS_BOX]
+    
+    async def _generate_visual(
+        self,
+        visual_type: VisualType,
+        section_title: str,
+        section_content: str,
+        topic: str,
+        config: DeepScholarConfig
+    ) -> Optional[Dict[str, Any]]:
+        """Belirli tipte görsel üret."""
+        
+        generators = {
+            VisualType.MERMAID_FLOWCHART: self._generate_mermaid_flowchart,
+            VisualType.MERMAID_MINDMAP: self._generate_mermaid_mindmap,
+            VisualType.MERMAID_TIMELINE: self._generate_mermaid_timeline,
+            VisualType.MERMAID_PIE: self._generate_mermaid_pie,
+            VisualType.MERMAID_SEQUENCE: self._generate_mermaid_sequence,
+            VisualType.ASCII_TABLE: self._generate_ascii_table,
+            VisualType.COMPARISON_TABLE: self._generate_comparison_table,
+            VisualType.STATISTICS_BOX: self._generate_statistics_box,
+            VisualType.LATEX_FORMULA: self._generate_latex_formula,
+            VisualType.CODE_BLOCK: self._generate_code_block,
+        }
+        
+        generator = generators.get(visual_type)
+        if generator:
+            return await generator(section_title, section_content, topic, config)
+        
+        return None
+    
+    async def _generate_mermaid_flowchart(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """Mermaid flowchart üret."""
+        prompt = f"""Bu içerik için bir Mermaid flowchart diyagramı oluştur.
+
+BÖLÜM: {section_title}
+İÇERİK ÖZETİ: {content[:800]}
+
+Mermaid flowchart formatında döndür. Örnek:
+```mermaid
+flowchart TD
+    A[Başlangıç] --> B{{Karar}}
+    B -->|Evet| C[Sonuç 1]
+    B -->|Hayır| D[Sonuç 2]
+```
+
+Sadece Mermaid kodu döndür, açıklama ekleme. Türkçe metin kullan."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        
+        # Mermaid kodunu temizle
+        code = self._clean_mermaid_code(code)
+        
+        return {
+            "type": VisualType.MERMAID_FLOWCHART.value,
+            "title": f"📊 {section_title} - Akış Şeması",
+            "code": code,
+            "render_type": "mermaid"
+        }
+    
+    async def _generate_mermaid_mindmap(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """Mermaid mindmap üret."""
+        prompt = f"""Bu içerik için bir Mermaid mindmap diyagramı oluştur.
+
+BÖLÜM: {section_title}
+KONU: {topic}
+İÇERİK: {content[:800]}
+
+Mermaid mindmap formatında döndür. Örnek:
+```mermaid
+mindmap
+  root((Ana Konu))
+    Alt Konu 1
+      Detay A
+      Detay B
+    Alt Konu 2
+      Detay C
+```
+
+Sadece Mermaid kodu döndür. Türkçe metin kullan."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        code = self._clean_mermaid_code(code)
+        
+        return {
+            "type": VisualType.MERMAID_MINDMAP.value,
+            "title": f"🧠 {section_title} - Kavram Haritası",
+            "code": code,
+            "render_type": "mermaid"
+        }
+    
+    async def _generate_mermaid_timeline(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """Mermaid timeline üret."""
+        prompt = f"""Bu içerik için bir Mermaid timeline diyagramı oluştur.
+
+BÖLÜM: {section_title}
+İÇERİK: {content[:800]}
+
+Mermaid timeline formatında döndür. Örnek:
+```mermaid
+timeline
+    title Tarihsel Gelişim
+    1990 : Olay 1
+    2000 : Olay 2
+    2010 : Olay 3
+```
+
+Sadece Mermaid kodu döndür. Türkçe metin kullan."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        code = self._clean_mermaid_code(code)
+        
+        return {
+            "type": VisualType.MERMAID_TIMELINE.value,
+            "title": f"📅 {section_title} - Zaman Çizelgesi",
+            "code": code,
+            "render_type": "mermaid"
+        }
+    
+    async def _generate_mermaid_pie(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """Mermaid pie chart üret."""
+        prompt = f"""Bu içerik için bir Mermaid pasta grafiği oluştur.
+
+BÖLÜM: {section_title}
+İÇERİK: {content[:800]}
+
+İçerikten uygun bir dağılım çıkar ve Mermaid pie formatında döndür. Örnek:
+```mermaid
+pie showData
+    title Dağılım
+    "Kategori A" : 40
+    "Kategori B" : 35
+    "Kategori C" : 25
+```
+
+Sadece Mermaid kodu döndür. Türkçe metin kullan."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        code = self._clean_mermaid_code(code)
+        
+        return {
+            "type": VisualType.MERMAID_PIE.value,
+            "title": f"🥧 {section_title} - Dağılım",
+            "code": code,
+            "render_type": "mermaid"
+        }
+    
+    async def _generate_mermaid_sequence(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """Mermaid sequence diagram üret."""
+        prompt = f"""Bu içerik için bir Mermaid sequence diyagramı oluştur.
+
+BÖLÜM: {section_title}
+İÇERİK: {content[:800]}
+
+Mermaid sequence formatında döndür. Örnek:
+```mermaid
+sequenceDiagram
+    participant A as Kullanıcı
+    participant B as Sistem
+    A->>B: İstek
+    B-->>A: Yanıt
+```
+
+Sadece Mermaid kodu döndür. Türkçe metin kullan."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        code = self._clean_mermaid_code(code)
+        
+        return {
+            "type": VisualType.MERMAID_SEQUENCE.value,
+            "title": f"🔄 {section_title} - Sıralı Diyagram",
+            "code": code,
+            "render_type": "mermaid"
+        }
+    
+    async def _generate_ascii_table(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """ASCII tablo üret."""
+        prompt = f"""Bu içerik için bir Markdown tablosu oluştur.
+
+BÖLÜM: {section_title}
+İÇERİK: {content[:800]}
+
+İçerikten anlamlı veriler çıkar ve Markdown tablo formatında döndür. Örnek:
+| Özellik | Değer | Açıklama |
+|---------|-------|----------|
+| A | 100 | Detay A |
+| B | 200 | Detay B |
+
+Sadece tablo kodunu döndür. Türkçe metin kullan."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        
+        return {
+            "type": VisualType.ASCII_TABLE.value,
+            "title": f"📋 {section_title} - Veri Tablosu",
+            "code": code.strip(),
+            "render_type": "markdown"
+        }
+    
+    async def _generate_comparison_table(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """Karşılaştırma tablosu üret."""
+        prompt = f"""Bu içerik için bir karşılaştırma tablosu oluştur.
+
+BÖLÜM: {section_title}
+İÇERİK: {content[:800]}
+
+İki veya daha fazla kavramı/yaklaşımı karşılaştır. Markdown tablo formatında döndür:
+| Özellik | Kavram A | Kavram B |
+|---------|----------|----------|
+| Avantaj | ✅ X | ❌ Y |
+| Dezavantaj | ⚠️ Z | ✅ W |
+
+Sadece tablo kodunu döndür. Emoji kullan. Türkçe metin kullan."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        
+        return {
+            "type": VisualType.COMPARISON_TABLE.value,
+            "title": f"⚖️ {section_title} - Karşılaştırma",
+            "code": code.strip(),
+            "render_type": "markdown"
+        }
+    
+    async def _generate_statistics_box(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """İstatistik kutusu üret."""
+        prompt = f"""Bu içerikten önemli istatistikleri ve sayısal verileri çıkar.
+
+BÖLÜM: {section_title}
+İÇERİK: {content[:800]}
+
+JSON formatında döndür:
+{{
+  "stats": [
+    {{"label": "Toplam Kullanıcı", "value": "1.5M", "icon": "👥", "trend": "up"}},
+    {{"label": "Büyüme Oranı", "value": "%25", "icon": "📈", "trend": "up"}},
+    {{"label": "Pazar Payı", "value": "%40", "icon": "🎯", "trend": "stable"}}
+  ],
+  "highlight": "Ana bulgu veya önemli sonuç"
+}}
+
+İçerikten gerçekçi ve tutarlı veriler çıkar. Veri yoksa makul tahminler yap."""
+
+        response = await self._llm_generate(prompt, temperature=0.5)
+        
+        try:
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                data = {"stats": [], "highlight": ""}
+        except:
+            data = {"stats": [], "highlight": ""}
+        
+        return {
+            "type": VisualType.STATISTICS_BOX.value,
+            "title": f"📊 {section_title} - İstatistikler",
+            "data": data,
+            "render_type": "statistics"
+        }
+    
+    async def _generate_latex_formula(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """LaTeX formül üret."""
+        if not config.enable_formulas:
+            return None
+        
+        prompt = f"""Bu içerik için uygun matematiksel formüller üret.
+
+BÖLÜM: {section_title}
+KONU: {topic}
+İÇERİK: {content[:600]}
+
+LaTeX formatında formüller döndür. Örnek:
+$$E = mc^2$$
+$$\\sum_{{i=1}}^{{n}} x_i = x_1 + x_2 + ... + x_n$$
+
+İçerikle ilgili 1-3 formül üret. Sadece LaTeX kodunu döndür."""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        
+        return {
+            "type": VisualType.LATEX_FORMULA.value,
+            "title": f"🔢 {section_title} - Formüller",
+            "code": code.strip(),
+            "render_type": "latex"
+        }
+    
+    async def _generate_code_block(
+        self, section_title: str, content: str, topic: str, config: DeepScholarConfig
+    ) -> Dict[str, Any]:
+        """Kod bloğu üret."""
+        if not config.enable_code_examples:
+            return None
+        
+        prompt = f"""Bu içerik için örnek bir kod bloğu oluştur.
+
+BÖLÜM: {section_title}
+KONU: {topic}
+İÇERİK: {content[:600]}
+
+Konuyla ilgili pratik ve eğitici bir kod örneği yaz.
+Python, JavaScript veya uygun başka bir dilde olabilir.
+
+Markdown code block formatında döndür:
+```python
+# Kod örneği
+```"""
+
+        code = await self._llm_generate(prompt, temperature=0.5)
+        
+        return {
+            "type": VisualType.CODE_BLOCK.value,
+            "title": f"💻 {section_title} - Kod Örneği",
+            "code": code.strip(),
+            "render_type": "code"
+        }
+    
+    def _clean_mermaid_code(self, code: str) -> str:
+        """Mermaid kodunu temizle."""
+        # Markdown code block'larını kaldır
+        code = re.sub(r'```mermaid\s*', '', code)
+        code = re.sub(r'```\s*$', '', code)
+        code = re.sub(r'```', '', code)
+        return code.strip()
+
+
 class WriterAgent(BaseAgent):
     """
     Yazar Ajan
@@ -1275,7 +1798,12 @@ class DeepScholarOrchestrator:
     DeepScholar Ana Orkestratör
     
     Tüm ajanları koordine eder ve döküman üretim sürecini yönetir.
+    Pause/Resume ve Görsel Üretim destekler.
     """
+    
+    # Checkpoint'leri saklayan class-level dict
+    _checkpoints: Dict[str, 'GenerationCheckpoint'] = {}
+    _paused_states: Dict[str, bool] = {}
     
     def __init__(self):
         self.global_state = GlobalState()
@@ -1289,12 +1817,62 @@ class DeepScholarOrchestrator:
         self.user_proxy: Optional[UserProxyAgent] = None
         self.synthesizer: Optional[SynthesizerAgent] = None
         
+        # Görsel üretici
+        self.visual_generator = VisualGenerator()
+        
         # Event callback
         self._event_callback: Optional[Callable] = None
+        
+        # Pause/Resume state
+        self._is_paused = False
+        self._document_id: Optional[str] = None
     
     def set_event_callback(self, callback: Callable):
         """Event callback ayarla (WebSocket için)."""
         self._event_callback = callback
+    
+    def set_document_id(self, doc_id: str):
+        """Döküman ID'sini ayarla (pause/resume için)."""
+        self._document_id = doc_id
+    
+    @classmethod
+    def pause_generation(cls, document_id: str) -> bool:
+        """Üretimi duraklat."""
+        cls._paused_states[document_id] = True
+        return True
+    
+    @classmethod
+    def resume_generation(cls, document_id: str) -> bool:
+        """Üretimi devam ettir."""
+        cls._paused_states[document_id] = False
+        return True
+    
+    @classmethod
+    def is_paused(cls, document_id: str) -> bool:
+        """Duraklatılmış mı kontrol et."""
+        return cls._paused_states.get(document_id, False)
+    
+    @classmethod
+    def get_checkpoint(cls, document_id: str) -> Optional['GenerationCheckpoint']:
+        """Checkpoint'i getir."""
+        return cls._checkpoints.get(document_id)
+    
+    @classmethod
+    def save_checkpoint(cls, checkpoint: 'GenerationCheckpoint'):
+        """Checkpoint'i kaydet."""
+        cls._checkpoints[checkpoint.document_id] = checkpoint
+    
+    @classmethod
+    def delete_checkpoint(cls, document_id: str):
+        """Checkpoint'i sil."""
+        cls._checkpoints.pop(document_id, None)
+        cls._paused_states.pop(document_id, None)
+    
+    async def _check_pause(self) -> bool:
+        """Duraklatma kontrolü."""
+        if self._document_id and self.is_paused(self._document_id):
+            return True
+        return False
     
     async def _emit_event(
         self, 
@@ -1452,6 +2030,60 @@ class DeepScholarOrchestrator:
                     "message": f"✏️ Yazılıyor: {section.title} ({section.word_target} kelime hedef)"
                 }
                 
+                # Pause kontrolü
+                if await self._check_pause():
+                    # Checkpoint kaydet
+                    checkpoint = GenerationCheckpoint(
+                        document_id=self._document_id or "",
+                        config={
+                            "title": config.title,
+                            "topic": config.topic,
+                            "page_count": config.page_count,
+                            "language": config.language.value,
+                            "citation_style": config.citation_style.value,
+                            "style": config.style
+                        },
+                        progress=progress,
+                        current_phase="writing",
+                        completed_sections=[
+                            {"id": c["section_id"], "title": c["title"], "content": c["content"]}
+                            for c in all_content
+                        ],
+                        pending_sections=[
+                            {"id": s.id, "title": s.title}
+                            for s in outline[i:]
+                        ],
+                        all_research={
+                            k: [{"id": r.id, "content": r.content, "source_title": r.source_title}
+                                for r in v]
+                            for k, v in all_research.items()
+                        },
+                        global_state={
+                            "completed_sections": dict(self.global_state.completed_sections),
+                            "section_summaries": dict(self.global_state.section_summaries)
+                        }
+                    )
+                    self.save_checkpoint(checkpoint)
+                    
+                    yield {
+                        "type": EventType.PAUSED.value,
+                        "message": "⏸️ Üretim duraklatıldı. Kaldığınız yerden devam edebilirsiniz.",
+                        "progress": progress,
+                        "checkpoint_id": self._document_id,
+                        "completed_sections": len(all_content),
+                        "pending_sections": len(outline) - i
+                    }
+                    
+                    # Pause döngüsü - resume bekle
+                    while await self._check_pause():
+                        await asyncio.sleep(1)
+                    
+                    yield {
+                        "type": EventType.RESUMED.value,
+                        "message": "▶️ Üretim devam ediyor...",
+                        "progress": progress
+                    }
+                
                 # Local state güncelle
                 self.local_state.current_section = section
                 self.local_state.current_sources = all_research.get(section.id, [])
@@ -1470,12 +2102,42 @@ class DeepScholarOrchestrator:
                     config
                 )
                 
+                # Görsel üretimi (Premium)
+                visuals = []
+                if config.enable_visuals:
+                    yield {
+                        "type": EventType.AGENT_MESSAGE.value,
+                        "agent": AgentRole.SYNTHESIZER.value,
+                        "message": f"🎨 Görseller üretiliyor: {section.title}"
+                    }
+                    
+                    visuals = await self.visual_generator.generate_visuals_for_section(
+                        section.title,
+                        content,
+                        config.topic,
+                        config
+                    )
+                    
+                    for visual in visuals:
+                        yield {
+                            "type": EventType.VISUAL_GENERATED.value,
+                            "section": section.title,
+                            "visual_type": visual.get("type"),
+                            "visual_title": visual.get("title"),
+                            "visual": visual
+                        }
+                    
+                    # Görselleri içeriğe ekle
+                    if visuals:
+                        content = self._integrate_visuals(content, visuals)
+                
                 all_content.append({
                     "section_id": section.id,
                     "title": section.title,
                     "level": section.level,
                     "content": content,
-                    "word_count": len(content.split())
+                    "word_count": len(content.split()),
+                    "visuals": visuals
                 })
                 all_citations.extend(citations)
                 
@@ -1529,7 +2191,10 @@ class DeepScholarOrchestrator:
                     "type": EventType.SECTION_COMPLETE.value,
                     "section_index": i,
                     "section_title": section.title,
+                    "section_level": section.level,
+                    "visuals": visuals,
                     "word_count": len(content.split()),
+                    "content": content,  # Full content for live preview
                     "content_preview": content[:500] + "..." if len(content) > 500 else content,
                     "progress": progress + 5
                 }
@@ -1692,6 +2357,60 @@ class DeepScholarOrchestrator:
         content += bibliography
         
         return content
+    
+    def _integrate_visuals(self, content: str, visuals: List[Dict[str, Any]]) -> str:
+        """Görselleri içeriğe entegre et."""
+        if not visuals:
+            return content
+        
+        visual_section = "\n\n---\n\n### 📊 Görseller ve Diyagramlar\n\n"
+        
+        for visual in visuals:
+            visual_type = visual.get("type", "")
+            title = visual.get("title", "Görsel")
+            render_type = visual.get("render_type", "")
+            
+            visual_section += f"#### {title}\n\n"
+            
+            if render_type == "mermaid":
+                code = visual.get("code", "")
+                visual_section += f"```mermaid\n{code}\n```\n\n"
+            
+            elif render_type == "markdown":
+                code = visual.get("code", "")
+                visual_section += f"{code}\n\n"
+            
+            elif render_type == "latex":
+                code = visual.get("code", "")
+                visual_section += f"{code}\n\n"
+            
+            elif render_type == "code":
+                code = visual.get("code", "")
+                visual_section += f"{code}\n\n"
+            
+            elif render_type == "statistics":
+                data = visual.get("data", {})
+                stats = data.get("stats", [])
+                highlight = data.get("highlight", "")
+                
+                if stats:
+                    visual_section += "| Metrik | Değer | Trend |\n|--------|-------|-------|\n"
+                    for stat in stats:
+                        icon = stat.get("icon", "📊")
+                        label = stat.get("label", "")
+                        value = stat.get("value", "")
+                        trend = stat.get("trend", "")
+                        trend_icon = "📈" if trend == "up" else "📉" if trend == "down" else "➡️"
+                        visual_section += f"| {icon} {label} | **{value}** | {trend_icon} |\n"
+                    visual_section += "\n"
+                
+                if highlight:
+                    visual_section += f"> 💡 **Önemli:** {highlight}\n\n"
+            
+            visual_section += "\n"
+        
+        # İçeriğin sonuna ekle
+        return content + visual_section
 
 
 # ============================================================================

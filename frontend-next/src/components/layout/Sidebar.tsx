@@ -42,6 +42,9 @@ import {
 import { useStore, Page } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { checkHealth, HealthStatus, startOllamaService, startChromaDBService, getBackendRestartInfo } from '@/lib/api';
+import dynamic from 'next/dynamic';
+
+const DigitalClock = dynamic(() => import('@/components/ui/DigitalClock'), { ssr: false });
 
 const menuItems: { id: Page; icon: React.ElementType; label: string; labelEn: string; labelDe: string }[] = [
   { id: 'chat', icon: MessageSquare, label: 'Sohbet', labelEn: 'Chat', labelDe: 'Chat' },
@@ -341,9 +344,12 @@ export function Sidebar() {
                 exit={{ opacity: 0, x: -10 }}
                 transition={{ duration: 0.2 }}
               >
-                <h1 className="text-lg font-bold gradient-text whitespace-nowrap">
-                  Enterprise AI
-                </h1>
+                <div className="flex items-center justify-between">
+                  <h1 className="text-lg font-bold gradient-text whitespace-nowrap">
+                    Enterprise AI
+                  </h1>
+                  <DigitalClock />
+                </div>
                 <p className="text-xs text-muted-foreground">v2.0</p>
               </motion.div>
             )}
@@ -845,7 +851,7 @@ export function Sidebar() {
           </div>
         )}
         
-        {/* Session Info */}
+{/* Session Info */}
         {!sidebarCollapsed && (
           <div className="mb-3 text-xs text-muted-foreground">
             <p className="flex items-center gap-1">

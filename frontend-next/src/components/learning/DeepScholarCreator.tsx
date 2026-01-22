@@ -1,20 +1,17 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText,
   Sparkles,
   ChevronDown,
   ChevronUp,
-  Globe,
   GraduationCap,
   BookOpen,
-  Check,
   X,
   Download,
   Loader2,
-  RefreshCw,
   AlertCircle,
   CheckCircle,
   Settings2,
@@ -30,11 +27,21 @@ import {
   BookMarked,
   FileCheck,
   MessageSquare,
-  Languages,
   Quote,
   ArrowLeft,
   Info,
+  BarChart3,
+  GitBranch,
+  Code,
+  Table,
+  TrendingUp,
 } from 'lucide-react';
+
+// Premium Resilience Components
+import { 
+  DeepScholarResiliencePanel, 
+  useTabProtection
+} from './DeepScholarResilience';
 
 // Types
 interface DeepScholarConfig {
@@ -54,6 +61,20 @@ interface DeepScholarConfig {
   user_persona: string;
   parallel_research: boolean;
   max_research_depth: number;
+  // Görsel ayarları
+  enable_visuals: boolean;
+  visual_types: string[];
+  visuals_per_section: number;
+  enable_code_examples: boolean;
+  enable_formulas: boolean;
+}
+
+interface VisualItem {
+  type: string;
+  title: string;
+  code?: string;
+  data?: any;
+  render_type: string;
 }
 
 interface DeepScholarEvent {
@@ -66,6 +87,7 @@ interface DeepScholarEvent {
   section?: string;
   section_title?: string;
   section_index?: number;
+  section_level?: number;
   sources_count?: number;
   sources?: any[];
   data?: any;
@@ -78,7 +100,31 @@ interface DeepScholarEvent {
   verified_count?: number;
   unverified_count?: number;
   word_count?: number;
+  content?: string;
   content_preview?: string;
+  // Görsel ve pause/resume
+  visuals?: VisualItem[];
+  visual?: VisualItem;
+  visual_type?: string;
+  visual_title?: string;
+  checkpoint_id?: string;
+  completed_sections?: number;
+  pending_sections?: number;
+}
+
+interface CompletedSection {
+  id: string;
+  title: string;
+  level: number;
+  content: string;
+  wordCount: number;
+}
+
+interface AgentThought {
+  agent: string;
+  message: string;
+  timestamp: string;
+  type: 'thinking' | 'action' | 'result';
 }
 
 interface AgentInfo {
@@ -147,21 +193,33 @@ interface DeepScholarCreatorProps {
   onClose: () => void;
   onComplete: (documentId: string) => void;
   apiUrl?: string;
+  // Reconnect desteği - devam eden bir üretimi takip etmek için
+  reconnectDocumentId?: string | null;
+  // Initial values - "Yeniden Oluştur" için
+  initialTitle?: string;
+  initialTopic?: string;
+  initialPageCount?: number;
+  initialStyle?: string;
 }
 
 export function DeepScholarCreator({
   workspaceId,
-  language,
+  language: _language,
   onClose,
   onComplete,
   apiUrl = 'http://localhost:8001',
+  reconnectDocumentId = null,
+  initialTitle = '',
+  initialTopic = '',
+  initialPageCount = 10,
+  initialStyle = 'academic',
 }: DeepScholarCreatorProps) {
   // Form state
-  const [title, setTitle] = useState('');
-  const [topic, setTopic] = useState('');
-  const [pageCount, setPageCount] = useState(10);
+  const [title, setTitle] = useState(initialTitle);
+  const [topic, setTopic] = useState(initialTopic);
+  const [pageCount, setPageCount] = useState(initialPageCount);
   const [docLanguage, setDocLanguage] = useState('tr');
-  const [style, setStyle] = useState('academic');
+  const [style, setStyle] = useState(initialStyle);
   const [citationStyle, setCitationStyle] = useState('apa');
   const [webSearch, setWebSearch] = useState('auto');
   const [academicSearch, setAcademicSearch] = useState(true);
@@ -171,8 +229,13 @@ export function DeepScholarCreator({
   const [enableConflictDetection, setEnableConflictDetection] = useState(true);
   const [customInstructions, setCustomInstructions] = useState('');
   const [userPersona, setUserPersona] = useState('');
-  const [parallelResearch, setParallelResearch] = useState(true);
+  const [parallelResearch, _setParallelResearch] = useState(true);
   const [maxResearchDepth, setMaxResearchDepth] = useState(3);
+  // Görsel ayarları
+  const [enableVisuals, setEnableVisuals] = useState(true);
+  const [visualsPerSection, setVisualsPerSection] = useState(2);
+  const [enableCodeExamples, setEnableCodeExamples] = useState(true);
+  const [enableFormulas, setEnableFormulas] = useState(true);
 
   // UI state
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -184,11 +247,30 @@ export function DeepScholarCreator({
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [finalDocument, setFinalDocument] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [_isConnected, setIsConnected] = useState(false);
+  
+  // Pause/Resume state
+  const [isPaused, setIsPaused] = useState(false);
+  const [_canResume, setCanResume] = useState(false);
+  
+  // Live preview state
+  const [completedSections, setCompletedSections] = useState<CompletedSection[]>([]);
+  const [agentThoughts, setAgentThoughts] = useState<AgentThought[]>([]);
+  const [generatedVisuals, setGeneratedVisuals] = useState<VisualItem[]>([]);
+  const [_showPreview, _setShowPreview] = useState(true);
+  const [activeTab, setActiveTab] = useState<'preview' | 'thinking' | 'activity' | 'visuals'>('preview');
 
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
+  const previewEndRef = useRef<HTMLDivElement>(null);
+  const thoughtsEndRef = useRef<HTMLDivElement>(null);
+
+  // 🛡️ Premium Tab Protection - Sayfa kapatılırken uyarı göster
+  useTabProtection(
+    view === 'generating' && !isPaused,
+    '⚠️ DeepScholar döküman üretimi devam ediyor! Sayfayı kapatırsanız ilerleme kaybedilir.'
+  );
 
   // Auto-scroll events
   useEffect(() => {
@@ -196,6 +278,20 @@ export function DeepScholarCreator({
       eventsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [events]);
+  
+  // Auto-scroll preview
+  useEffect(() => {
+    if (previewEndRef.current && activeTab === 'preview') {
+      previewEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [completedSections, activeTab]);
+  
+  // Auto-scroll thoughts
+  useEffect(() => {
+    if (thoughtsEndRef.current && activeTab === 'thinking') {
+      thoughtsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [agentThoughts, activeTab]);
 
   // Cleanup WebSocket on unmount
   useEffect(() => {
@@ -205,6 +301,77 @@ export function DeepScholarCreator({
       }
     };
   }, []);
+
+  // Update form when initial values change (for "Yeniden Oluştur")
+  useEffect(() => {
+    if (initialTitle) setTitle(initialTitle);
+    if (initialTopic) setTopic(initialTopic);
+    if (initialPageCount) setPageCount(initialPageCount);
+    if (initialStyle) setStyle(initialStyle);
+  }, [initialTitle, initialTopic, initialPageCount, initialStyle]);
+
+  // Reconnect to an existing generation
+  useEffect(() => {
+    if (reconnectDocumentId) {
+      // Önce durumu kontrol et
+      fetch(`${apiUrl}/api/deep-scholar/status/${reconnectDocumentId}`)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`Status: ${res.status}`);
+          }
+          return res.json();
+        })
+        .then(data => {
+          console.log('[DeepScholar] Status check result:', data);
+          
+          if (data.active && data.can_reconnect) {
+            // Aktif üretim var, reconnect yap
+            setDocumentId(reconnectDocumentId);
+            setView('generating');
+            setProgress(data.progress || 0);
+            setCurrentPhase(data.current_phase || '');
+            setCurrentAgent(data.current_agent || '');
+            
+            // WebSocket bağlantısı kur
+            const wsUrl = apiUrl.replace('http', 'ws');
+            const ws = new WebSocket(`${wsUrl}/api/deep-scholar/ws/${reconnectDocumentId}`);
+            
+            ws.onopen = () => {
+              setIsConnected(true);
+              console.log('[DeepScholar] Reconnected to WebSocket');
+            };
+            
+            ws.onmessage = (event) => {
+              const eventData = JSON.parse(event.data);
+              handleEvent(eventData);
+            };
+            
+            ws.onerror = (err) => {
+              console.error('[DeepScholar] WebSocket error:', err);
+              setError('Bağlantı hatası');
+            };
+            
+            ws.onclose = () => {
+              setIsConnected(false);
+              console.log('[DeepScholar] WebSocket closed');
+            };
+            
+            wsRef.current = ws;
+          } else {
+            // Aktif üretim yok - stale generating durumu
+            // Kullanıcıya bilgi ver ve yeniden başlatma seçeneği sun
+            setError('Üretim artık aktif değil. Sayfadan çıkıldığında üretim durduruldu. Lütfen yeniden başlatın.');
+            setView('form');
+          }
+        })
+        .catch(err => {
+          console.error('[DeepScholar] Status check failed:', err);
+          // 404 veya diğer hatalar - üretim yok
+          setError('Bu döküman için aktif üretim bulunamadı. Lütfen yeniden başlatın.');
+          setView('form');
+        });
+    }
+  }, [reconnectDocumentId, apiUrl]);
 
   // Start generation
   const handleStartGeneration = async () => {
@@ -217,6 +384,11 @@ export function DeepScholarCreator({
     setView('generating');
     setEvents([]);
     setProgress(0);
+    setCompletedSections([]);
+    setAgentThoughts([]);
+    setGeneratedVisuals([]);
+    setActiveTab('preview');
+    setIsPaused(false);
 
     const config: DeepScholarConfig = {
       title,
@@ -235,6 +407,12 @@ export function DeepScholarCreator({
       user_persona: userPersona,
       parallel_research: parallelResearch,
       max_research_depth: maxResearchDepth,
+      // Görsel ayarları
+      enable_visuals: enableVisuals,
+      visual_types: ['mermaid_flowchart', 'mermaid_mindmap', 'ascii_table', 'statistics_box'],
+      visuals_per_section: visualsPerSection,
+      enable_code_examples: enableCodeExamples,
+      enable_formulas: enableFormulas,
     };
 
     try {
@@ -256,10 +434,50 @@ export function DeepScholarCreator({
       const docId = data.document_id;
       setDocumentId(docId);
 
-      // Connect WebSocket for live updates
-      connectWebSocket(docId);
-    } catch (err: any) {
-      setError(err.message || 'Bağlantı hatası');
+      // Queue bilgisini göster
+      if (data.queue_position && data.queue_position > 1) {
+        setEvents(prev => [...prev, {
+          type: 'system',
+          message: `📋 Kuyruğa eklendi (Sıra: ${data.queue_position}). Önceki dökümanlar tamamlandığında başlayacak...`,
+          timestamp: new Date().toISOString(),
+        }]);
+      }
+
+      // Hemen başladıysa veya kuyruk sonuysa WebSocket bağlan
+      if (data.is_immediate) {
+        connectWebSocket(docId);
+      } else {
+        // Kuyrukta bekliyor - polling ile kontrol et
+        setEvents(prev => [...prev, {
+          type: 'system',
+          message: `⏳ Kuyrukta bekleniyor... Sıra geldiğinde otomatik başlayacak.`,
+          timestamp: new Date().toISOString(),
+        }]);
+        
+        // Poll for queue position and auto-connect when ready
+        const pollQueue = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`${apiUrl}/api/deep-scholar/status/${docId}`);
+            const statusData = await statusRes.json();
+            
+            if (statusData.active || statusData.status === 'generating') {
+              clearInterval(pollQueue);
+              connectWebSocket(docId);
+            } else if (statusData.status === 'completed') {
+              clearInterval(pollQueue);
+              setView('complete');
+            } else if (statusData.status === 'cancelled' || statusData.status === 'error') {
+              clearInterval(pollQueue);
+              setError('Üretim iptal edildi veya hata oluştu');
+              setView('form');
+            }
+          } catch (e) {
+            // Polling devam etsin
+          }
+        }, 3000);
+      }
+    } catch (_err: any) {
+      setError(_err.message || 'Bağlantı hatası');
       setView('form');
     }
   };
@@ -330,16 +548,87 @@ export function DeepScholarCreator({
       setCurrentAgent(event.agent);
     }
 
+    // Handle section complete - add to live preview
+    if (event.type === 'section_complete' && event.content) {
+      const sectionContent = event.content;
+      setCompletedSections(prev => [...prev, {
+        id: `section-${event.section_index}`,
+        title: event.section_title || 'Bölüm',
+        level: event.section_level || 1,
+        content: sectionContent,
+        wordCount: event.word_count || 0
+      }]);
+    }
+    
+    // Handle visual generated - add to visuals list
+    if (event.type === 'visual_generated' && event.visual) {
+      setGeneratedVisuals(prev => [...prev, event.visual!]);
+    }
+    
+    // Handle agent messages - add to thinking panel
+    if (event.type === 'agent_message' && event.agent && event.message) {
+      const thoughtType = event.message.includes('🧠') || event.message.includes('Düşünüyor') 
+        ? 'thinking' as const
+        : event.message.includes('✅') || event.message.includes('tamamlandı')
+        ? 'result' as const
+        : 'action' as const;
+        
+      setAgentThoughts(prev => [...prev, {
+        agent: event.agent!,
+        message: event.message!,
+        timestamp: event.timestamp || new Date().toISOString(),
+        type: thoughtType
+      }]);
+    }
+
     switch (event.type) {
       case 'complete':
         setView('complete');
         setFinalDocument(event.document);
         setProgress(100);
+        setIsPaused(false);
         break;
 
       case 'error':
         setError(event.error || event.message || 'Bilinmeyen hata');
         break;
+      
+      case 'paused':
+        setIsPaused(true);
+        setCanResume(true);
+        break;
+      
+      case 'resumed':
+        setIsPaused(false);
+        break;
+    }
+  };
+  
+  // Pause generation
+  const handlePause = async () => {
+    if (documentId) {
+      try {
+        await fetch(`${apiUrl}/api/deep-scholar/pause/${documentId}`, {
+          method: 'POST',
+        });
+        setIsPaused(true);
+      } catch (err) {
+        console.error('Pause error:', err);
+      }
+    }
+  };
+  
+  // Resume generation
+  const handleResume = async () => {
+    if (documentId) {
+      try {
+        await fetch(`${apiUrl}/api/deep-scholar/resume/${documentId}`, {
+          method: 'POST',
+        });
+        setIsPaused(false);
+      } catch (err) {
+        console.error('Resume error:', err);
+      }
     }
   };
 
@@ -804,6 +1093,99 @@ export function DeepScholarCreator({
                 </div>
               </div>
 
+              {/* Visual Generation Settings - Premium Feature */}
+              <div className="p-4 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl space-y-3 border border-purple-500/20">
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-purple-500" /> 
+                  Görsel Üretimi
+                  <span className="ml-auto px-2 py-0.5 text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full">
+                    Premium
+                  </span>
+                </h4>
+
+                {/* Enable visuals */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm">Görsel Üretimini Aktifleştir</p>
+                    <p className="text-xs text-muted-foreground">Diyagram, grafik ve tablolar</p>
+                  </div>
+                  <button
+                    onClick={() => setEnableVisuals(!enableVisuals)}
+                    className={`w-12 h-6 rounded-full transition-colors ${
+                      enableVisuals ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-muted'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      enableVisuals ? 'translate-x-6' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </div>
+
+                {enableVisuals && (
+                  <>
+                    {/* Visuals per section */}
+                    <div>
+                      <label className="block text-xs font-medium mb-2">
+                        Bölüm Başına Görsel: {visualsPerSection}
+                      </label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="5"
+                        value={visualsPerSection}
+                        onChange={(e) => setVisualsPerSection(parseInt(e.target.value))}
+                        className="w-full accent-purple-500"
+                      />
+                    </div>
+
+                    {/* Code examples */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm">Kod Örnekleri</p>
+                        <p className="text-xs text-muted-foreground">Python, JavaScript vb.</p>
+                      </div>
+                      <button
+                        onClick={() => setEnableCodeExamples(!enableCodeExamples)}
+                        className={`w-12 h-6 rounded-full transition-colors ${
+                          enableCodeExamples ? 'bg-purple-500' : 'bg-muted'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          enableCodeExamples ? 'translate-x-6' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Formulas */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm">Matematiksel Formüller</p>
+                        <p className="text-xs text-muted-foreground">LaTeX formüller</p>
+                      </div>
+                      <button
+                        onClick={() => setEnableFormulas(!enableFormulas)}
+                        className={`w-12 h-6 rounded-full transition-colors ${
+                          enableFormulas ? 'bg-purple-500' : 'bg-muted'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                          enableFormulas ? 'translate-x-6' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Visual types info */}
+                    <div className="mt-2 p-3 bg-accent/50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">Desteklenen görseller:</span>
+                        {' '}Akış diyagramları, zihin haritaları, zaman çizelgeleri, pasta grafikler, 
+                        karşılaştırma tabloları, istatistik kutuları, kod blokları
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
               {/* Custom instructions */}
               <div>
                 <label className="block text-sm font-medium mb-2">
@@ -875,8 +1257,8 @@ export function DeepScholarCreator({
 
   // Render generating view
   const renderGenerating = () => (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
+      {/* Header with Resilience Panel */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 text-white animate-pulse">
@@ -889,16 +1271,25 @@ export function DeepScholarCreator({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`} />
-          <span className="text-xs text-muted-foreground">
-            {isConnected ? 'Bağlı' : 'Bağlanıyor...'}
-          </span>
-        </div>
+        
+        {/* Premium Resilience Panel */}
+        <DeepScholarResiliencePanel
+          documentId={documentId}
+          workspaceId={workspaceId}
+          isGenerating={view === 'generating'}
+          apiUrl={apiUrl}
+          onResumeFromCheckpoint={(checkpoint) => {
+            setProgress(checkpoint.progress);
+            setCurrentPhase(checkpoint.current_phase);
+          }}
+          onPartialExport={(filepath) => {
+            console.log('Partial export created:', filepath);
+          }}
+        />
       </div>
 
       {/* Progress */}
-      <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
+      <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium capitalize">{currentPhase || 'Başlatılıyor...'}</span>
           <span className="text-sm font-bold text-primary-500">{progress}%</span>
@@ -912,40 +1303,383 @@ export function DeepScholarCreator({
           />
         </div>
 
-        {/* Current agent */}
-        {currentAgent && (
-          <div className="flex items-center gap-2">
-            <div className={`flex items-center justify-center w-6 h-6 rounded-lg ${agentColors[currentAgent] || 'text-gray-500 bg-gray-500/10'}`}>
-              {agentIcons[currentAgent] || <Brain className="w-3 h-3" />}
+        {/* Current agent and Pause/Resume */}
+        <div className="flex items-center justify-between">
+          {currentAgent && (
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center justify-center w-6 h-6 rounded-lg ${agentColors[currentAgent] || 'text-gray-500 bg-gray-500/10'}`}>
+                {agentIcons[currentAgent] || <Brain className="w-3 h-3" />}
+              </div>
+              <span className="text-sm text-muted-foreground capitalize">{currentAgent.replace('_', ' ')}</span>
             </div>
-            <span className="text-sm text-muted-foreground capitalize">{currentAgent.replace('_', ' ')}</span>
+          )}
+          
+          {/* Pause/Resume Buttons */}
+          <div className="flex items-center gap-2">
+            {isPaused ? (
+              <>
+                <span className="text-xs text-amber-500 flex items-center gap-1">
+                  <Pause className="w-3 h-3" />
+                  Duraklatıldı
+                </span>
+                <motion.button
+                  onClick={handleResume}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 transition-colors"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Play className="w-4 h-4" />
+                  Devam Et
+                </motion.button>
+              </>
+            ) : (
+              <motion.button
+                onClick={handlePause}
+                className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Pause className="w-4 h-4" />
+                Duraklat
+              </motion.button>
+            )}
+            <motion.button
+              onClick={handleCancel}
+              className="flex items-center gap-1 px-3 py-1.5 bg-red-500/10 text-red-500 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <X className="w-4 h-4" />
+              İptal
+            </motion.button>
           </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 bg-card border border-border rounded-xl p-1">
+        <button
+          onClick={() => setActiveTab('preview')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'preview'
+              ? 'bg-primary-500 text-white'
+              : 'hover:bg-accent text-muted-foreground'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          Canlı Önizleme
+          {completedSections.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-white/20">
+              {completedSections.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('thinking')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'thinking'
+              ? 'bg-primary-500 text-white'
+              : 'hover:bg-accent text-muted-foreground'
+          }`}
+        >
+          <Brain className="w-4 h-4" />
+          Agent Düşünceleri
+          {agentThoughts.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-white/20">
+              {agentThoughts.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('activity')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            activeTab === 'activity'
+              ? 'bg-primary-500 text-white'
+              : 'hover:bg-accent text-muted-foreground'
+          }`}
+        >
+          <Eye className="w-4 h-4" />
+          Aktivite
+          <span className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-white/20">
+            {events.length}
+          </span>
+        </button>
+        {enableVisuals && (
+          <button
+            onClick={() => setActiveTab('visuals')}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'visuals'
+                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
+                : 'hover:bg-accent text-muted-foreground'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Görseller
+            {generatedVisuals.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-white/20">
+                {generatedVisuals.length}
+              </span>
+            )}
+          </button>
         )}
       </div>
 
-      {/* Events log */}
+      {/* Tab content */}
       <div className="bg-card border border-border rounded-2xl overflow-hidden">
-        <div className="px-4 py-3 bg-accent/30 border-b border-border flex items-center justify-between">
-          <h3 className="text-sm font-medium flex items-center gap-2">
-            <Eye className="w-4 h-4" /> Agent Aktivitesi
-          </h3>
-          <span className="text-xs text-muted-foreground">{events.length} olay</span>
-        </div>
-        <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
-          {events.map((event, index) => renderEvent(event, index))}
-          <div ref={eventsEndRef} />
-        </div>
-      </div>
+        <AnimatePresence mode="wait">
+          {activeTab === 'preview' && (
+            <motion.div
+              key="preview"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="max-h-[500px] overflow-y-auto"
+            >
+              <div className="px-4 py-3 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border-b border-border flex items-center justify-between sticky top-0 backdrop-blur-sm z-10">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-purple-500" /> 
+                  Döküman Oluşuyor
+                </h3>
+                <span className="text-xs text-muted-foreground">
+                  {completedSections.reduce((acc, s) => acc + s.wordCount, 0)} kelime
+                </span>
+              </div>
+              
+              {completedSections.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent mb-4">
+                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                  </div>
+                  <p className="text-muted-foreground">Bölümler yazılıyor...</p>
+                  <p className="text-xs text-muted-foreground mt-1">İlk bölüm hazır olduğunda burada görüntülenecek</p>
+                </div>
+              ) : (
+                <div className="p-6 prose prose-sm dark:prose-invert max-w-none">
+                  {completedSections.map((section, _idx) => (
+                    <motion.div
+                      key={section.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mb-6"
+                    >
+                      {section.level === 1 ? (
+                        <h2 className="text-xl font-bold text-foreground border-b border-border pb-2 mb-4">
+                          {section.title}
+                        </h2>
+                      ) : section.level === 2 ? (
+                        <h3 className="text-lg font-semibold text-foreground mb-3">
+                          {section.title}
+                        </h3>
+                      ) : (
+                        <h4 className="text-base font-medium text-foreground mb-2">
+                          {section.title}
+                        </h4>
+                      )}
+                      <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                        {section.content}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <FileText className="w-3 h-3" />
+                          {section.wordCount} kelime
+                        </span>
+                        <span>•</span>
+                        <span className="text-green-500 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          Tamamlandı
+                        </span>
+                      </div>
+                    </motion.div>
+                  ))}
+                  <div ref={previewEndRef} />
+                </div>
+              )}
+            </motion.div>
+          )}
 
-      {/* Cancel button */}
-      <div className="flex justify-center">
-        <button
-          onClick={handleCancel}
-          className="flex items-center gap-2 px-6 py-2.5 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"
-        >
-          <X className="w-4 h-4" />
-          İptal Et
-        </button>
+          {activeTab === 'thinking' && (
+            <motion.div
+              key="thinking"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="max-h-[500px] overflow-y-auto"
+            >
+              <div className="px-4 py-3 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-b border-border flex items-center justify-between sticky top-0 backdrop-blur-sm z-10">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-blue-500" /> 
+                  Agent Düşünce Süreci
+                </h3>
+                <span className="text-xs text-muted-foreground">{agentThoughts.length} düşünce</span>
+              </div>
+              
+              {agentThoughts.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent mb-4">
+                    <Brain className="w-8 h-8 text-muted-foreground animate-pulse" />
+                  </div>
+                  <p className="text-muted-foreground">Agentlar düşünüyor...</p>
+                  <p className="text-xs text-muted-foreground mt-1">Agent mesajları burada görüntülenecek</p>
+                </div>
+              ) : (
+                <div className="p-4 space-y-3">
+                  {agentThoughts.map((thought, idx) => (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className={`flex items-start gap-3 p-3 rounded-xl ${
+                        thought.type === 'thinking' 
+                          ? 'bg-blue-500/5 border border-blue-500/20' 
+                          : thought.type === 'result'
+                          ? 'bg-green-500/5 border border-green-500/20'
+                          : 'bg-accent/50'
+                      }`}
+                    >
+                      <div className={`flex items-center justify-center w-8 h-8 rounded-lg shrink-0 ${agentColors[thought.agent] || 'text-gray-500 bg-gray-500/10'}`}>
+                        {agentIcons[thought.agent] || <Brain className="w-4 h-4" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            {thought.agent.replace('_', ' ')}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                            thought.type === 'thinking' 
+                              ? 'bg-blue-500/20 text-blue-600' 
+                              : thought.type === 'result'
+                              ? 'bg-green-500/20 text-green-600'
+                              : 'bg-amber-500/20 text-amber-600'
+                          }`}>
+                            {thought.type === 'thinking' ? '💭 Düşünüyor' : thought.type === 'result' ? '✅ Sonuç' : '⚡ Aksiyon'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-foreground">{thought.message}</p>
+                        <span className="text-[10px] text-muted-foreground mt-1 block">
+                          {new Date(thought.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    </motion.div>
+                  ))}
+                  <div ref={thoughtsEndRef} />
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {activeTab === 'activity' && (
+            <motion.div
+              key="activity"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="max-h-[500px] overflow-y-auto"
+            >
+              <div className="px-4 py-3 bg-accent/30 border-b border-border flex items-center justify-between sticky top-0 backdrop-blur-sm z-10">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <Eye className="w-4 h-4" /> Agent Aktivitesi
+                </h3>
+                <span className="text-xs text-muted-foreground">{events.length} olay</span>
+              </div>
+              <div className="p-2 space-y-1">
+                {events.map((event, index) => renderEvent(event, index))}
+                <div ref={eventsEndRef} />
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'visuals' && (
+            <motion.div
+              key="visuals"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="max-h-[500px] overflow-y-auto"
+            >
+              <div className="px-4 py-3 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border-b border-border flex items-center justify-between sticky top-0 backdrop-blur-sm z-10">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-purple-500" /> 
+                  Üretilen Görseller
+                </h3>
+                <span className="text-xs text-muted-foreground">{generatedVisuals.length} görsel</span>
+              </div>
+              
+              {generatedVisuals.length === 0 ? (
+                <div className="p-12 text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent mb-4">
+                    <BarChart3 className="w-8 h-8 text-muted-foreground animate-pulse" />
+                  </div>
+                  <p className="text-muted-foreground">Görseller üretiliyor...</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Diyagramlar, grafikler ve tablolar burada görünecek
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 space-y-4">
+                  {generatedVisuals.map((visual, idx) => (
+                    <motion.div
+                      key={`visual-${idx}`}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-accent/30 rounded-xl overflow-hidden"
+                    >
+                      {/* Visual Header */}
+                      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {visual.render_type?.startsWith('mermaid') ? (
+                            <GitBranch className="w-4 h-4 text-blue-500" />
+                          ) : visual.render_type === 'table' ? (
+                            <Table className="w-4 h-4 text-green-500" />
+                          ) : visual.render_type === 'code' ? (
+                            <Code className="w-4 h-4 text-purple-500" />
+                          ) : visual.render_type === 'latex' ? (
+                            <span className="text-amber-500 font-serif text-sm">∑</span>
+                          ) : (
+                            <BarChart3 className="w-4 h-4 text-pink-500" />
+                          )}
+                          <span className="text-sm font-medium">{visual.title}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground px-2 py-0.5 bg-accent rounded-full">
+                          {visual.type}
+                        </span>
+                      </div>
+                      
+                      {/* Visual Content */}
+                      <div className="p-4">
+                        {visual.code && (
+                          <div className="relative">
+                            <pre className="bg-muted/50 rounded-lg p-4 text-xs overflow-x-auto">
+                              <code className="text-foreground/80 whitespace-pre">
+                                {visual.code}
+                              </code>
+                            </pre>
+                            {visual.render_type?.startsWith('mermaid') && (
+                              <div className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
+                                <TrendingUp className="w-3 h-3" />
+                                Mermaid diyagramı - döküman export edildiğinde render edilecek
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {visual.data && !visual.code && (
+                          <div className="bg-muted/50 rounded-lg p-4 text-sm">
+                            <pre className="whitespace-pre-wrap text-foreground/80">
+                              {typeof visual.data === 'string' 
+                                ? visual.data 
+                                : JSON.stringify(visual.data, null, 2)
+                              }
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -1018,7 +1752,7 @@ export function DeepScholarCreator({
   );
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className={view === 'generating' ? 'max-w-5xl mx-auto' : 'max-w-3xl mx-auto'}>
       <AnimatePresence mode="wait">
         {view === 'form' && (
           <motion.div

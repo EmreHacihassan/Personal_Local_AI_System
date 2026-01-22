@@ -1,0 +1,17 @@
+{
+  "id": "498b6014-4cac-4456-82c2-89b075e10aab",
+  "workspace_id": "45c11029-ccf7-4858-aedf-492a341318f4",
+  "title": "trgonometri",
+  "topic": "ayt matematik için gereken ayt trigonometriye dair her şeyi anlatan konu anlatımı ders notları oluştur ",
+  "page_count": 10,
+  "style": "exam_prep",
+  "content": "",
+  "status": "cancelled",
+  "references": [],
+  "created_at": "2026-01-21T12:57:39.105301",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-21T12:57:39.420495] 🚀 DeepScholar v2.0 başlatıldı",
+    "[2026-01-21T13:52:12.625987] ❌ DeepScholar üretimi iptal edildi"
+  ]
+}

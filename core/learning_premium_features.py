@@ -512,9 +512,46 @@ Kaynak İçerik:
         answer: str, 
         context: Optional[str]
     ) -> Dict[str, Any]:
-        """Cevabı değerlendir."""
-        # Basit değerlendirme - gerçekte LLM kullanılmalı
-        is_correct = len(answer) > 20  # Placeholder
+        """Cevabı LLM ile değerlendir."""
+        from core.llm_manager import llm_manager
+        
+        # LLM ile gerçek değerlendirme yap
+        try:
+            prompt = f"""Bir öğrencinin verdiği cevabı değerlendir.
+
+Konu/Soru bağlamı: {context if context else 'Genel soru'}
+Öğrenci cevabı: {answer}
+Zorluk seviyesi: {session.current_difficulty.value}
+
+Değerlendirme kriterleri:
+1. Cevabın doğruluğu
+2. Cevabın kapsamlılığı
+3. Mantıksal tutarlılık
+
+Yanıtı şu formatta ver:
+DOĞRU: [evet/hayır]
+SKOR: [0-100]
+GERİBİLDİRİM: [kısa geri bildirim]"""
+
+            response = llm_manager.generate(prompt, max_tokens=150)
+            
+            # Parse response
+            is_correct = "evet" in response.lower() and "doğru: evet" in response.lower()
+            
+            # Skor çıkarmaya çalış
+            import re
+            score_match = re.search(r'skor:\s*(\d+)', response.lower())
+            score = int(score_match.group(1)) if score_match else (80 if is_correct else 40)
+            
+            # Geri bildirim çıkar
+            feedback_match = re.search(r'geribildirim:\s*(.+?)(?:\n|$)', response, re.IGNORECASE)
+            llm_feedback = feedback_match.group(1).strip() if feedback_match else ""
+            
+        except Exception as e:
+            # Fallback: Basit değerlendirme
+            is_correct = len(answer.strip()) >= 20 and any(c.isalpha() for c in answer)
+            score = 70 if is_correct else 30
+            llm_feedback = ""
         
         if is_correct:
             session.correct_answers += 1
@@ -523,21 +560,31 @@ Kaynak İçerik:
             # Zorluk ayarlama
             self._adjust_difficulty(session)
             
+            full_feedback = f"{feedback}\n\n✅ Cevabın doğru!"
+            if llm_feedback:
+                full_feedback += f"\n\n💡 {llm_feedback}"
+            
             return {
-                "message": f"{feedback}\n\n✅ Cevabın doğru!",
+                "message": full_feedback,
                 "type": "feedback",
                 "is_correct": True,
                 "metadata": {
-                    "accuracy": round(session.correct_answers / session.questions_asked * 100, 1)
+                    "accuracy": round(session.correct_answers / session.questions_asked * 100, 1),
+                    "score": score
                 }
             }
         else:
             feedback = random.choice(self.MOTIVATION_MESSAGES["incorrect"])
             
+            full_feedback = f"{feedback}\n\n🔄 Tekrar düşünmek ister misin? İpucu için 'ipucu' yaz."
+            if llm_feedback:
+                full_feedback += f"\n\n💡 İpucu: {llm_feedback}"
+            
             return {
-                "message": f"{feedback}\n\n🔄 Tekrar düşünmek ister misin? İpucu için 'ipucu' yaz.",
+                "message": full_feedback,
                 "type": "feedback",
-                "is_correct": False
+                "is_correct": False,
+                "metadata": {"score": score}
             }
     
     def _generate_socratic_response(

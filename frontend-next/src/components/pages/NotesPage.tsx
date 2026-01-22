@@ -26,9 +26,6 @@ import {
   Bold,
   Italic,
   Underline,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
   ListOrdered,
   ListTodo,
   Heading1,
@@ -36,7 +33,6 @@ import {
   Quote,
   Code,
   Link2,
-  Image,
   FileText,
   Sparkles
 } from 'lucide-react';
@@ -227,7 +223,7 @@ export function NotesPage() {
     
     // Page dimensions
     const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
+    const _pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 20;
     
     // Header gradient effect (simulated with rectangles)

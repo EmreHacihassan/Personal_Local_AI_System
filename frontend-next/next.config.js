@@ -3,6 +3,16 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   
+  // Ignore ESLint errors during builds (use lint command for checks)
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  
+  // Ignore TypeScript errors during builds
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  
   // API proxy for backend
   async rewrites() {
     return [

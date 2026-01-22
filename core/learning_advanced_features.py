@@ -1540,16 +1540,56 @@ class SmartContentLinker:
         
         raw_path = find_path_recursive(target_topic, set())
         
+        # İçerik karmaşıklığına göre öğrenme süresi tahmini
+        def estimate_learning_time(topic: str, is_known: bool = False) -> str:
+            """Konu karmaşıklığına göre öğrenme süresi tahmin et."""
+            if is_known:
+                return "0 saat (biliniyor)"
+            
+            topic_lower = topic.lower()
+            
+            # Karmaşıklık göstergeleri
+            advanced_keywords = ["ileri", "advanced", "optimizasyon", "derin", "kompleks", 
+                                "mimari", "analiz", "sistem", "entegrasyon"]
+            intermediate_keywords = ["orta", "intermediate", "uygulama", "pratik", "temel+"]
+            beginner_keywords = ["giriş", "temel", "başlangıç", "intro", "101"]
+            
+            # Süre hesapla
+            if any(kw in topic_lower for kw in advanced_keywords):
+                base_hours = 4
+                difficulty = "İleri"
+            elif any(kw in topic_lower for kw in beginner_keywords):
+                base_hours = 1
+                difficulty = "Başlangıç"
+            elif any(kw in topic_lower for kw in intermediate_keywords):
+                base_hours = 2
+                difficulty = "Orta"
+            else:
+                # Kelime sayısına göre tahmin
+                word_count = len(topic.split())
+                if word_count > 4:
+                    base_hours = 3
+                    difficulty = "Orta-İleri"
+                elif word_count > 2:
+                    base_hours = 2
+                    difficulty = "Orta"
+                else:
+                    base_hours = 1.5
+                    difficulty = "Temel"
+            
+            return f"{base_hours}-{base_hours + 2} saat ({difficulty})"
+        
         # Duplicate'ları kaldır, sırayı koru
         seen = set()
         for step in raw_path:
             if step.lower() not in seen:
                 seen.add(step.lower())
+                is_known = step.lower() in [k.lower() for k in current_knowledge]
                 path.append({
                     "step": len(path) + 1,
                     "topic": step,
-                    "is_known": step.lower() in [k.lower() for k in current_knowledge],
-                    "estimated_time": "1-2 saat"  # Placeholder
+                    "is_known": is_known,
+                    "estimated_time": estimate_learning_time(step, is_known)
                 })
         
         # Hedefi ekle
@@ -1557,8 +1597,23 @@ class SmartContentLinker:
             "step": len(path) + 1,
             "topic": target_topic,
             "is_target": True,
-            "estimated_time": "2-4 saat"
+            "estimated_time": estimate_learning_time(target_topic)
         })
+        
+        # Toplam süre hesapla
+        total_min_hours = 0
+        total_max_hours = 0
+        for p in path:
+            if not p.get("is_known"):
+                time_str = p.get("estimated_time", "2-4 saat")
+                import re
+                match = re.search(r'(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)', time_str)
+                if match:
+                    total_min_hours += float(match.group(1))
+                    total_max_hours += float(match.group(2))
+                else:
+                    total_min_hours += 2
+                    total_max_hours += 4
         
         return {
             "target": target_topic,
@@ -1566,7 +1621,8 @@ class SmartContentLinker:
             "learning_path": path,
             "total_steps": len(path),
             "new_topics_to_learn": len([p for p in path if not p.get("is_known") and not p.get("is_target")]),
-            "estimated_total_time": f"{len(path) * 2}-{len(path) * 4} saat"
+            "estimated_total_time": f"{int(total_min_hours)}-{int(total_max_hours)} saat",
+            "estimated_days": f"{int(total_min_hours / 4)}-{int(total_max_hours / 2)} gün (günde 2-4 saat çalışma ile)"
         }
     
     def suggest_next_topics(

@@ -1,0 +1,1 @@
+{"id": "f107876e-c346-43e8-8b89-86ab189b7e53", "timestamp": "2026-01-22T00:09:36.877530", "event_type": "action_requested", "severity": "none", "action_id": "test123", "action_type": "click", "description": "Test action", "result": "allow", "reason": null}

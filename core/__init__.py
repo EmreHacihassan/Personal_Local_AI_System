@@ -512,6 +512,93 @@ def __getattr__(name):
         except ImportError:
             return None
     
+    # Premium Integrations (Unified Manager for all premium modules)
+    if name in ("PremiumIntegrationManager", "premium_manager", 
+                "PremiumTaskManager", "PremiumWorkflowEngine", 
+                "PremiumQueryExpander", "PremiumGuardrails", "PremiumRAGEvaluator",
+                "with_guardrails", "with_query_expansion", "as_background_task"):
+        try:
+            from .premium_integrations import (
+                PremiumIntegrationManager, premium_manager,
+                PremiumTaskManager, PremiumWorkflowEngine,
+                PremiumQueryExpander, PremiumGuardrails, PremiumRAGEvaluator,
+                with_guardrails, with_query_expansion, as_background_task
+            )
+            mapping = {
+                "PremiumIntegrationManager": PremiumIntegrationManager,
+                "premium_manager": premium_manager,
+                "PremiumTaskManager": PremiumTaskManager,
+                "PremiumWorkflowEngine": PremiumWorkflowEngine,
+                "PremiumQueryExpander": PremiumQueryExpander,
+                "PremiumGuardrails": PremiumGuardrails,
+                "PremiumRAGEvaluator": PremiumRAGEvaluator,
+                "with_guardrails": with_guardrails,
+                "with_query_expansion": with_query_expansion,
+                "as_background_task": as_background_task,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
+    # Realtime Vision System
+    if name in ("RealtimeVisionSystem", "VisionConfig", "VisionMode", "StreamQuality",
+                "ScreenAnalysis", "FrameData", "get_realtime_vision", "quick_screen_analyze",
+                "ScreenStreamManager", "VisionAnalyzerEngine", "VisionPrompts"):
+        try:
+            from .realtime_vision import (
+                RealtimeVisionSystem, VisionConfig, VisionMode, StreamQuality,
+                ScreenAnalysis, FrameData, get_realtime_vision, quick_screen_analyze,
+                ScreenStreamManager, VisionAnalyzerEngine, VisionPrompts
+            )
+            mapping = {
+                "RealtimeVisionSystem": RealtimeVisionSystem,
+                "VisionConfig": VisionConfig,
+                "VisionMode": VisionMode,
+                "StreamQuality": StreamQuality,
+                "ScreenAnalysis": ScreenAnalysis,
+                "FrameData": FrameData,
+                "get_realtime_vision": get_realtime_vision,
+                "quick_screen_analyze": quick_screen_analyze,
+                "ScreenStreamManager": ScreenStreamManager,
+                "VisionAnalyzerEngine": VisionAnalyzerEngine,
+                "VisionPrompts": VisionPrompts,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
+    # Computer Use Agent (Premium Desktop Automation)
+    if name in ("ComputerUseAgent", "ComputerUseConfig", "get_computer_use_agent",
+                "ActionType", "RiskLevel", "ApprovalStatus", "AgentMode",
+                "SafetyGuard", "ActionExecutor", "ActionPlanner", "ApprovalManager",
+                "Action", "ActionPlan", "ApprovalRequest"):
+        try:
+            from .computer_use_agent import (
+                ComputerUseAgent, ComputerUseConfig, get_computer_use_agent,
+                ActionType, RiskLevel, ApprovalStatus, AgentMode,
+                SafetyGuard, ActionExecutor, ActionPlanner, ApprovalManager,
+                Action, ActionPlan, ApprovalRequest
+            )
+            mapping = {
+                "ComputerUseAgent": ComputerUseAgent,
+                "ComputerUseConfig": ComputerUseConfig,
+                "get_computer_use_agent": get_computer_use_agent,
+                "ActionType": ActionType,
+                "RiskLevel": RiskLevel,
+                "ApprovalStatus": ApprovalStatus,
+                "AgentMode": AgentMode,
+                "SafetyGuard": SafetyGuard,
+                "ActionExecutor": ActionExecutor,
+                "ActionPlanner": ActionPlanner,
+                "ApprovalManager": ApprovalManager,
+                "Action": Action,
+                "ActionPlan": ActionPlan,
+                "ApprovalRequest": ApprovalRequest,
+            }
+            return mapping[name]
+        except ImportError:
+            return None
+    
     raise AttributeError(f"module 'core' has no attribute '{name}'")
 
 
@@ -723,4 +810,42 @@ __all__ = [
     "CircuitBreakerRegistry",
     "CircuitState",
     "circuit_breaker_registry",
+    # Premium Integration Modules
+    "PremiumIntegrationManager",
+    "premium_manager",
+    "PremiumTaskManager",
+    "PremiumWorkflowEngine",
+    "PremiumQueryExpander",
+    "PremiumGuardrails",
+    "PremiumRAGEvaluator",
+    "with_guardrails",
+    "with_query_expansion",
+    "as_background_task",
+    # Realtime Vision System
+    "RealtimeVisionSystem",
+    "VisionConfig",
+    "VisionMode",
+    "StreamQuality",
+    "ScreenAnalysis",
+    "FrameData",
+    "get_realtime_vision",
+    "quick_screen_analyze",
+    "ScreenStreamManager",
+    "VisionAnalyzerEngine",
+    "VisionPrompts",
+    # Computer Use Agent (Desktop Automation)
+    "ComputerUseAgent",
+    "ComputerUseConfig",
+    "get_computer_use_agent",
+    "ActionType",
+    "RiskLevel",
+    "ApprovalStatus",
+    "AgentMode",
+    "SafetyGuard",
+    "ActionExecutor",
+    "ActionPlanner",
+    "ApprovalManager",
+    "Action",
+    "ActionPlan",
+    "ApprovalRequest",
 ]

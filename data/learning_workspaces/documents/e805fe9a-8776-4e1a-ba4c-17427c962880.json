@@ -1,0 +1,17 @@
+{
+  "id": "e805fe9a-8776-4e1a-ba4c-17427c962880",
+  "workspace_id": "45c11029-ccf7-4858-aedf-492a341318f4",
+  "title": "Trigonometri",
+  "topic": "AYT Matematik için gerekli Trigonometri bilgisini öğreten bir öğretme amaçlı metin istiyorum senden ",
+  "page_count": 16,
+  "style": "exam_prep",
+  "content": "",
+  "status": "cancelled",
+  "references": [],
+  "created_at": "2026-01-21T21:35:25.810561",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-21T21:35:26.145738] 🚀 DeepScholar v2.0 başlatıldı",
+    "[2026-01-21T21:53:20.532883] ⚠️ Üretim yarıda kaldı (bağlantı koptu)"
+  ]
+}

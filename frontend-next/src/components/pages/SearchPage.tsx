@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Search, Calendar, Tag, FolderOpen, Star, Pin, Filter, X, 
+  Search, Star, Pin, X, 
   MessageSquare, Loader2, RefreshCw, FileText, ChevronDown, 
   ChevronUp, User, Bot, ExternalLink, Hash, Clock
 } from 'lucide-react';
@@ -12,7 +12,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   getSessions, getSession, advancedSessionSearch, getAllTags, 
   getAllCategories, searchDocuments,
-  SearchResult, MatchedMessage, DocumentSearchResult
+  SearchResult, DocumentSearchResult
 } from '@/lib/api';
 
 // Function to highlight search query in text
@@ -93,7 +93,7 @@ export function SearchPage() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, _setIsLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalSessions, setTotalSessions] = useState(0);
@@ -246,12 +246,12 @@ export function SearchPage() {
     try {
       const response = await getSession(sessionId);
       if (response.success && response.data) {
-        const messages: Message[] = response.data.messages.map((m: any) => ({
-          id: m.id || crypto.randomUUID(),
-          role: m.role,
-          content: m.content,
-          timestamp: m.timestamp,
-          isFavorite: m.is_favorite || false,
+        const messages: Message[] = response.data.messages.map((m: Record<string, unknown>) => ({
+          id: (m.id as string) || crypto.randomUUID(),
+          role: m.role as 'user' | 'assistant',
+          content: m.content as string,
+          timestamp: m.timestamp as string,
+          isFavorite: (m.is_favorite as boolean) || false,
         }));
         loadSessionMessages(sessionId, messages);
         setCurrentSession(sessionId);

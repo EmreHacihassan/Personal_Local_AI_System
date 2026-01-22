@@ -1505,11 +1505,34 @@ async def chat(request: ChatRequest):
     
     Kullanıcı mesajını işler ve AI yanıtı döndürür.
     Circuit breaker korumalı - ardışık hatalar servisi geçici olarak devre dışı bırakır.
+    Guardrails ile input güvenliği sağlanır.
     """
     import time
     start_time = time.time()
     
     try:
+        # === GUARDRAILS INPUT CHECK ===
+        try:
+            from core.premium_integrations import premium_manager
+            guard_check = premium_manager.guardrails.check_input(request.message, level="medium")
+            
+            if not guard_check["is_safe"]:
+                # Filtrelenmiş içerik varsa onu kullan, yoksa uyarı ver
+                if guard_check.get("filtered_content"):
+                    request.message = guard_check["filtered_content"]
+                else:
+                    violations = guard_check.get("violations", [])
+                    violation_msg = ", ".join([v.get("type", "unknown") for v in violations])
+                    return ChatResponse(
+                        response=f"⚠️ Güvenlik uyarısı: Mesajınızda potansiyel sorun tespit edildi ({violation_msg}). Lütfen mesajınızı düzenleyin.",
+                        session_id=request.session_id or str(uuid.uuid4()),
+                        sources=[],
+                        metadata={"guardrails_violation": violations},
+                        timestamp=datetime.now().isoformat(),
+                    )
+        except ImportError:
+            pass  # Guardrails yüklü değilse devam et
+        
         # Get or create session from file-based storage
         session_id = request.session_id or str(uuid.uuid4())
         
@@ -5228,9 +5251,71 @@ from api.agent_endpoints import router as agent_router
 # DeepScholar v2.0 router
 from api.deep_scholar_endpoints import router as deep_scholar_router
 
+# DeepScholar Resilience router (Premium Flexibility Features)
+from api.resilience_endpoints import router as resilience_router
+
+# Premium Integrations router (Task Queue, Workflows, Query Expansion, Guardrails, RAG Eval)
+from api.premium_endpoints import router as premium_integrations_router
+
+# Realtime Vision router (Screen Sharing + AI Vision Analysis)
+from api.vision_endpoints import router as vision_router
+
+# Computer Use Agent router (AI Desktop Automation with Approval)
+from api.computer_use_endpoints import router as computer_use_router
+
+# ============ NEW PREMIUM FEATURES (100% LOCAL) ============
+# Voice AI router (STT/TTS)
+from api.voice_endpoints import router as voice_ai_router
+
+# Code Interpreter router (Secure Python/JS Sandbox)
+from api.code_endpoints import router as code_interpreter_router
+
+# Workflow Builder router (Visual AI Workflows)
+from api.workflow_endpoints import router as workflow_router
+
+# Knowledge Graph router (Entity Extraction & Graph RAG)
+from api.knowledge_graph_endpoints import router as knowledge_graph_router
+
+# Screen Recording router (Recording + AI Analysis)
+from api.screen_recording_endpoints import router as screen_recording_router
+
+# Autonomous Agent router (Goal-Driven AI Agent)
+from api.autonomous_endpoints import router as autonomous_agent_router
+
+# Multi-Modal RAG router (PDF/Image/Audio/Video Indexing)
+from api.multimodal_endpoints import router as multimodal_rag_router
+
+# Security Scanner router (Code Vulnerability Detection)
+from api.security_endpoints import router as security_scanner_router
+
+# Personal Analytics router (Usage Insights & Productivity)
+from api.analytics_endpoints import router as analytics_dashboard_router
+
+# ============ PREMIUM V2 FEATURES ============
+
+# AI Memory & Personalization router
+from api.memory_endpoints import router as memory_router
+
+# Advanced Workflow Orchestration router
+from api.workflow_orchestrator_endpoints import router as workflow_orchestrator_router
+
+# Enterprise Knowledge Graph router
+from api.knowledge_graph_enterprise_endpoints import router as kg_enterprise_router
+
+# Agent Marketplace & Builder router
+from api.agent_marketplace_endpoints import router as agent_marketplace_router
+
+# Full Meta Learning (Neuro-Adaptive Mastery System)
+from api.full_meta_endpoints import router as full_meta_router
+from api.full_meta_premium_endpoints import router as full_meta_premium_router
+from api.full_meta_quality_endpoints import router as full_meta_quality_router
+from api.learning_journey_endpoints import router as learning_journey_router  # 🎮 Candy Crush Style Stage Map
+from api.learning_journey_v2_endpoints import router as learning_journey_v2_router, certificate_router  # 🎓 Learning Journey V2 (Multi-Agent)
+
 # Router'ları kaydet
 app.include_router(learning_router)
 app.include_router(deep_scholar_router)  # 📚 DeepScholar v2.0 Premium Document Generation
+app.include_router(resilience_router)    # 🛡️ DeepScholar Resilience - Premium Flexibility
 app.include_router(health_router)
 app.include_router(documents_router)
 app.include_router(notes_router)
@@ -5243,6 +5328,32 @@ app.include_router(screen_router)  # 📸 Screen Capture & Vision
 app.include_router(premium_router)  # 💎 Premium Features
 app.include_router(routing_router)  # 🧠 Model Routing & Feedback
 app.include_router(agent_router)    # 🤖 Autonomous Agent
+app.include_router(premium_integrations_router)  # 🚀 Premium Integrations (Task Queue, Workflows, etc.)
+app.include_router(vision_router)   # 👁️ Realtime Vision (Screen Sharing + AI Analysis)
+app.include_router(computer_use_router)  # 🖥️🤖 Computer Use Agent (AI Desktop Automation)
+
+# ============ NEW PREMIUM FEATURES (100% LOCAL) ============
+app.include_router(voice_ai_router)         # 🎤 Voice AI (STT + TTS)
+app.include_router(code_interpreter_router) # 💻 Code Interpreter Sandbox
+app.include_router(workflow_router)         # 🔄 Visual Workflow Builder
+app.include_router(knowledge_graph_router)  # 🕸️ Knowledge Graph RAG
+app.include_router(screen_recording_router) # 📹 Screen Recording + AI
+app.include_router(autonomous_agent_router) # 🤖 Autonomous Agent Mode
+app.include_router(multimodal_rag_router)   # 📚 Multi-Modal RAG (PDF/Image/Audio/Video)
+app.include_router(security_scanner_router) # 🔒 AI Security Scanner
+app.include_router(analytics_dashboard_router) # 📊 Personal Analytics Dashboard
+
+# ============ PREMIUM V2 FEATURES (ULTRA) ============
+app.include_router(memory_router)               # 🧠 AI Memory & Personalization
+app.include_router(workflow_orchestrator_router) # ⚡ Advanced Workflow Orchestration
+app.include_router(kg_enterprise_router)        # 🕸️ Enterprise Knowledge Graph
+app.include_router(agent_marketplace_router)    # 🏪 Agent Marketplace & Builder
+app.include_router(full_meta_router)            # 🎓 Full Meta Learning (AI ile Öğren)
+app.include_router(full_meta_premium_router)    # 🎓✨ Full Meta Learning Premium (Advanced Features)
+app.include_router(full_meta_quality_router)    # 🎓🔬 Full Meta Learning Quality (2026 Optimizations)
+app.include_router(learning_journey_router)     # 🎮 Learning Journey (Candy Crush Style Stage Map)
+app.include_router(learning_journey_v2_router)  # 🎓 Learning Journey V2 (Multi-Agent Orchestration)
+app.include_router(certificate_router)          # 📜 Certificate Verification System
 
 
 # ============ RUN SERVER ============

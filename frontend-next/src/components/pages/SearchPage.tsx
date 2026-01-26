@@ -12,7 +12,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   getSessions, getSession, advancedSessionSearch, getAllTags, 
   getAllCategories, searchDocuments,
-  SearchResult, DocumentSearchResult
+  SearchResult, DocumentSearchResult, SessionMessage
 } from '@/lib/api';
 
 // Function to highlight search query in text
@@ -246,12 +246,12 @@ export function SearchPage() {
     try {
       const response = await getSession(sessionId);
       if (response.success && response.data) {
-        const messages: Message[] = response.data.messages.map((m: Record<string, unknown>) => ({
-          id: (m.id as string) || crypto.randomUUID(),
-          role: m.role as 'user' | 'assistant',
-          content: m.content as string,
-          timestamp: m.timestamp as string,
-          isFavorite: (m.is_favorite as boolean) || false,
+        const messages: Message[] = response.data.messages.map((m: SessionMessage) => ({
+          id: m.id || crypto.randomUUID(),
+          role: m.role,
+          content: m.content,
+          timestamp: new Date(m.timestamp),
+          isFavorite: false,
         }));
         loadSessionMessages(sessionId, messages);
         setCurrentSession(sessionId);

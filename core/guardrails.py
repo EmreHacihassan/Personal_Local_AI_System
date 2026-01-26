@@ -433,3 +433,7 @@ class Guardrails:
 
 # Singleton instance
 guardrails = Guardrails(GuardLevel.MEDIUM)
+
+# Aliases for compatibility
+InputGuardrail = Guardrails
+OutputGuardrail = Guardrails

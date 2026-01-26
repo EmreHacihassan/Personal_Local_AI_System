@@ -1,0 +1,218 @@
+{
+  "timestamp": "2026-01-26T16:00:55.887593",
+  "passed": 36,
+  "failed": 1,
+  "warnings": 5,
+  "results": [
+    {
+      "name": "Normal input passes",
+      "status": "PASS",
+      "message": "Normal text accepted"
+    },
+    {
+      "name": "Injection detection",
+      "status": "PASS",
+      "message": "Prompt injection blocked"
+    },
+    {
+      "name": "PII detection",
+      "status": "PASS",
+      "message": "Email detected as PII"
+    },
+    {
+      "name": "TR Phone detection",
+      "status": "PASS",
+      "message": "Turkish phone detected"
+    },
+    {
+      "name": "Advanced guardrails import",
+      "status": "PASS",
+      "message": "All classes imported"
+    },
+    {
+      "name": "Jailbreak detection",
+      "status": "PASS",
+      "message": "DAN prompt blocked"
+    },
+    {
+      "name": "PII redaction",
+      "status": "PASS",
+      "message": "PII successfully redacted"
+    },
+    {
+      "name": "Rate limiting",
+      "status": "PASS",
+      "message": "Rate limit enforced"
+    },
+    {
+      "name": "Toxicity filter",
+      "status": "PASS",
+      "message": "Toxic content blocked"
+    },
+    {
+      "name": "Memory module import",
+      "status": "PASS",
+      "message": "All classes imported"
+    },
+    {
+      "name": "Memory store",
+      "status": "PASS",
+      "message": "Stored with ID: cf60aba0..."
+    },
+    {
+      "name": "Memory recall",
+      "status": "PASS",
+      "message": "Recalled 1 memories"
+    },
+    {
+      "name": "Preference storage",
+      "status": "PASS",
+      "message": "Preferences work"
+    },
+    {
+      "name": "Fact storage",
+      "status": "PASS",
+      "message": "Triple stored"
+    },
+    {
+      "name": "Memory stats",
+      "status": "PASS",
+      "message": "Stats: {'memory_types': {'preference': {'count': 1, 'avg_importance': 0.8, 'avg_access': 1.0}}, 'total_facts': 1, 'users_with_preferences': 1}"
+    },
+    {
+      "name": "Long-term memory",
+      "status": "FAIL",
+      "message": "[WinError 32] Dosya başka bir işlem tarafından kullanıldığından bu işlem dosyaya erişemiyor: 'C:\\\\Users\\\\LENOVO\\\\AppData\\\\Local\\\\Temp\\\\tmpi01cs0o3.db'"
+    },
+    {
+      "name": "MemGPT import",
+      "status": "PASS",
+      "message": "All classes imported"
+    },
+    {
+      "name": "CoreMemory to_prompt",
+      "status": "PASS",
+      "message": "Prompt generated"
+    },
+    {
+      "name": "MemoryBlock touch",
+      "status": "PASS",
+      "message": "Access count updated"
+    },
+    {
+      "name": "ArchivalEntry",
+      "status": "PASS",
+      "message": "Entry created with tags"
+    },
+    {
+      "name": "GraphRAG import",
+      "status": "PASS",
+      "message": "All classes imported"
+    },
+    {
+      "name": "Entity extraction",
+      "status": "PASS",
+      "message": "Found: ['Bill Gates', 'Microsoft', 'Google', 'Python']"
+    },
+    {
+      "name": "Relationship extraction",
+      "status": "PASS",
+      "message": "Found 2 relations"
+    },
+    {
+      "name": "Graph neighbors",
+      "status": "PASS",
+      "message": "Found 2 entities"
+    },
+    {
+      "name": "Graph search",
+      "status": "PASS",
+      "message": "Search works"
+    },
+    {
+      "name": "Document indexing",
+      "status": "PASS",
+      "message": "Stats: {'entities': 4, 'relationships': 2}"
+    },
+    {
+      "name": "GraphRAG retrieval",
+      "status": "PASS",
+      "message": "Found: ['Google', 'Google']"
+    },
+    {
+      "name": "MCP Server import",
+      "status": "PASS",
+      "message": "Core classes imported"
+    },
+    {
+      "name": "MCP Version",
+      "status": "PASS",
+      "message": "Version: 2024-11-05"
+    },
+    {
+      "name": "MCP Capabilities",
+      "status": "PASS",
+      "message": "Resources subscription enabled"
+    },
+    {
+      "name": "MCP ServerInfo",
+      "status": "PASS",
+      "message": "Server info works"
+    },
+    {
+      "name": "MCP Resource",
+      "status": "PASS",
+      "message": "Resource definition works"
+    },
+    {
+      "name": "MCP Error handling",
+      "status": "PASS",
+      "message": "Error codes work"
+    },
+    {
+      "name": "Premium features v1",
+      "status": "WARN",
+      "message": "cannot import name 'QueryExpander' from 'core.premium_features' (C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\core\\premium_features.py)"
+    },
+    {
+      "name": "Premium features v2",
+      "status": "WARN",
+      "message": "cannot import name 'PremiumFeaturesV2' from 'core.premium_features_v2' (C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\core\\premium_features_v2.py)"
+    },
+    {
+      "name": "Premium features v3",
+      "status": "WARN",
+      "message": "cannot import name 'PremiumFeaturesV3Manager' from 'core.premium_features_v3' (C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\core\\premium_features_v3.py)"
+    },
+    {
+      "name": "Router for 'creative'",
+      "status": "PASS",
+      "message": "Router available"
+    },
+    {
+      "name": "Analytics engine import",
+      "status": "PASS",
+      "message": "Imported"
+    },
+    {
+      "name": "Analytics methods",
+      "status": "PASS",
+      "message": "Engine has tracking methods"
+    },
+    {
+      "name": "Analytics module",
+      "status": "WARN",
+      "message": "cannot import name 'track_event' from 'core.analytics' (C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\core\\analytics.py)"
+    },
+    {
+      "name": "Security hardening",
+      "status": "WARN",
+      "message": "cannot import name 'SecurityHardening' from 'core.security_hardening' (C:\\Users\\LENOVO\\Desktop\\Aktif Projeler\\AgenticManagingSystem\\core\\security_hardening.py)"
+    },
+    {
+      "name": "Security scanner import",
+      "status": "PASS",
+      "message": "Imported"
+    }
+  ]
+}

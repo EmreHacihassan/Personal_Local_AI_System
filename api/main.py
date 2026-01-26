@@ -1,7 +1,7 @@
 # ╔═══════════════════════════════════════════════════════════════════════════════════╗
-# ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
-# ║  📁  Konum: .\venv\Scripts\python.exe                                           ║
-# ║  💡  Çalıştırma: .\venv\Scripts\python.exe -m uvicorn api.main:app               ║
+# ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir .venv var! Yenisini oluşturmana gerek yok!  ║
+# ║  📁  Konum: .\.venv\Scripts\python.exe                                           ║
+# ║  💡  Çalıştırma: .\.venv\Scripts\python.exe -m uvicorn api.main:app               ║
 # ╚═══════════════════════════════════════════════════════════════════════════════════╝
 """
 Enterprise AI Assistant - FastAPI Main
@@ -382,6 +382,74 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============ GLOBAL EXCEPTION HANDLERS ============
+
+from pydantic import ValidationError as PydanticValidationError
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Validation hatalarını kullanıcı dostu mesajlara çevir.
+    """
+    errors = []
+    for error in exc.errors():
+        field = " -> ".join(str(loc) for loc in error["loc"])
+        msg = error["msg"]
+        error_type = error["type"]
+        
+        # Türkçe hata mesajları
+        friendly_messages = {
+            "missing": f"'{field}' alanı zorunludur",
+            "string_too_short": f"'{field}' çok kısa",
+            "string_too_long": f"'{field}' çok uzun",
+            "value_error": f"'{field}' geçersiz değer",
+            "type_error": f"'{field}' yanlış tip",
+            "int_parsing": f"'{field}' sayı olmalı",
+            "greater_than_equal": f"'{field}' minimum değerin altında",
+            "less_than_equal": f"'{field}' maksimum değerin üstünde",
+        }
+        
+        friendly_msg = friendly_messages.get(error_type, f"'{field}': {msg}")
+        errors.append({
+            "field": field,
+            "message": friendly_msg,
+            "type": error_type
+        })
+    
+    logger.warning(f"Validation error: {errors}")
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "VALIDATION_ERROR",
+            "message": "İstek doğrulama hatası",
+            "details": errors,
+            "hint": "Lütfen gönderdiğiniz verileri kontrol edin"
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Beklenmeyen hataları yakala ve logla.
+    """
+    import traceback
+    error_trace = traceback.format_exc()
+    logger.error(f"Unhandled exception on {request.url}: {str(exc)}\n{error_trace}")
+    
+    # Production'da stack trace gösterme
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "INTERNAL_ERROR",
+            "message": "Beklenmeyen bir hata oluştu",
+            "type": type(exc).__name__
+        }
+    )
 
 
 # ============ RATE LIMITING MIDDLEWARE ============
@@ -5155,15 +5223,38 @@ class AutostartRequest(BaseModel):
     enabled: bool = Field(..., description="Autostart etkin mi?")
 
 
+def get_startup_path():
+    """Get the startup shortcut path."""
+    return os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\EnterpriseAI.lnk")
+
+
+def check_task_scheduler() -> bool:
+    """Check if Task Scheduler entry exists."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["schtasks", "/Query", "/TN", "EnterpriseAIAssistant"],
+            capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+        )
+        return result.returncode == 0
+    except:
+        return False
+
+
 @app.get("/api/settings/autostart", tags=["Settings"])
 async def get_autostart_status():
     """Windows başlangıç durumunu kontrol et."""
     try:
-        startup_path = os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\EnterpriseAI.lnk")
-        enabled = os.path.exists(startup_path)
+        startup_path = get_startup_path()
+        startup_enabled = os.path.exists(startup_path)
+        task_enabled = check_task_scheduler()
+        enabled = startup_enabled or task_enabled
         return {
             "success": True,
             "enabled": enabled,
+            "startup_folder": startup_enabled,
+            "task_scheduler": task_enabled,
             "startup_path": startup_path
         }
     except Exception as e:
@@ -5177,49 +5268,114 @@ async def get_autostart_status():
 
 @app.post("/api/settings/autostart", tags=["Settings"])
 async def toggle_autostart(request: AutostartRequest):
-    """Windows başlangıcına ekle/çıkar."""
+    """Windows başlangıcına ekle/çıkar - Task Scheduler + Startup Folder."""
     try:
         import subprocess
         
-        startup_path = os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\EnterpriseAI.lnk")
+        startup_path = get_startup_path()
         project_path = Path(__file__).parent.parent
         vbs_path = project_path / "startup.vbs"
+        ps1_path = project_path / "auto_start_enterprise_ai.ps1"
         
         if request.enabled:
-            # Startup kısayolu oluştur
-            ps_command = f'''
-            $WshShell = New-Object -ComObject WScript.Shell
-            $Shortcut = $WshShell.CreateShortcut("{startup_path}")
-            $Shortcut.TargetPath = "{vbs_path}"
-            $Shortcut.WorkingDirectory = "{project_path}"
-            $Shortcut.Description = "Enterprise AI Assistant"
-            $Shortcut.WindowStyle = 7
-            $Shortcut.Save()
-            '''
-            result = subprocess.run(
-                ["powershell", "-Command", ps_command], 
-                capture_output=True, 
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-            )
+            errors = []
+            success_count = 0
             
-            if result.returncode != 0:
-                raise Exception(f"PowerShell error: {result.stderr}")
+            # Method 1: Startup folder shortcut (VBS)
+            try:
+                ps_create_shortcut = f'''
+                $WshShell = New-Object -ComObject WScript.Shell
+                $Shortcut = $WshShell.CreateShortcut("{startup_path}")
+                $Shortcut.TargetPath = "wscript.exe"
+                $Shortcut.Arguments = '"{vbs_path}"'
+                $Shortcut.WorkingDirectory = "{project_path}"
+                $Shortcut.Description = "Enterprise AI Assistant - Auto Start"
+                $Shortcut.WindowStyle = 7
+                $Shortcut.Save()
+                '''
+                result = subprocess.run(
+                    ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_create_shortcut], 
+                    capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                )
+                if result.returncode == 0:
+                    success_count += 1
+                    logger.info("Startup folder shortcut created successfully")
+                else:
+                    errors.append(f"Startup folder: {result.stderr}")
+            except Exception as e:
+                errors.append(f"Startup folder error: {str(e)}")
             
-            return {
-                "success": True,
-                "enabled": True,
-                "message": "Otomatik başlatma etkinleştirildi"
-            }
+            # Method 2: Task Scheduler (more reliable)
+            try:
+                # First remove existing task if exists
+                subprocess.run(
+                    ["schtasks", "/Delete", "/TN", "EnterpriseAIAssistant", "/F"],
+                    capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                )
+                
+                # Create new task - runs at user logon
+                task_cmd = [
+                    "schtasks", "/Create",
+                    "/TN", "EnterpriseAIAssistant",
+                    "/TR", f'wscript.exe "{vbs_path}"',
+                    "/SC", "ONLOGON",
+                    "/RL", "HIGHEST",
+                    "/F"
+                ]
+                result = subprocess.run(
+                    task_cmd, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                )
+                
+                if result.returncode == 0:
+                    success_count += 1
+                    logger.info("Task Scheduler entry created successfully")
+                else:
+                    errors.append(f"Task Scheduler: {result.stderr}")
+            except Exception as e:
+                errors.append(f"Task Scheduler error: {str(e)}")
+            
+            if success_count > 0:
+                return {
+                    "success": True,
+                    "enabled": True,
+                    "message": f"Otomatik başlatma etkinleştirildi ({success_count} yöntem)",
+                    "methods_enabled": success_count,
+                    "errors": errors if errors else None
+                }
+            else:
+                raise Exception(f"Tüm yöntemler başarısız: {'; '.join(errors)}")
         else:
-            # Startup kısayolunu sil
+            # Disable autostart - remove both methods
+            removed = []
+            
+            # Remove startup folder shortcut
             if os.path.exists(startup_path):
-                os.remove(startup_path)
+                try:
+                    os.remove(startup_path)
+                    removed.append("startup_folder")
+                except Exception as e:
+                    logger.warning(f"Could not remove startup shortcut: {e}")
+            
+            # Remove Task Scheduler entry
+            try:
+                result = subprocess.run(
+                    ["schtasks", "/Delete", "/TN", "EnterpriseAIAssistant", "/F"],
+                    capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                )
+                if result.returncode == 0:
+                    removed.append("task_scheduler")
+            except Exception as e:
+                logger.warning(f"Could not remove task scheduler entry: {e}")
             
             return {
                 "success": True,
                 "enabled": False,
-                "message": "Otomatik başlatma devre dışı bırakıldı"
+                "message": "Otomatik başlatma devre dışı bırakıldı",
+                "removed_methods": removed
             }
     except Exception as e:
         logger.error(f"Autostart toggle error: {e}")
@@ -5291,6 +5447,20 @@ from api.security_endpoints import router as security_scanner_router
 # Personal Analytics router (Usage Insights & Productivity)
 from api.analytics_endpoints import router as analytics_dashboard_router
 
+# ============ PREMIUM GUARDRAILS & MEMORY ============
+
+# Premium Guardrails router (Advanced Safety & Compliance)
+try:
+    from api.guardrails_endpoints import router as guardrails_premium_router
+except ImportError:
+    guardrails_premium_router = None
+
+# Premium Memory router (Long-Term Memory & MemGPT)
+try:
+    from api.memory_premium_endpoints import router as memory_premium_router
+except ImportError:
+    memory_premium_router = None
+
 # ============ PREMIUM V2 FEATURES ============
 
 # AI Memory & Personalization router
@@ -5342,6 +5512,12 @@ app.include_router(autonomous_agent_router) # 🤖 Autonomous Agent Mode
 app.include_router(multimodal_rag_router)   # 📚 Multi-Modal RAG (PDF/Image/Audio/Video)
 app.include_router(security_scanner_router) # 🔒 AI Security Scanner
 app.include_router(analytics_dashboard_router) # 📊 Personal Analytics Dashboard
+
+# ============ PREMIUM GUARDRAILS & MEMORY ============
+if guardrails_premium_router:
+    app.include_router(guardrails_premium_router) # 🛡️ Premium Guardrails (Advanced Safety)
+if memory_premium_router:
+    app.include_router(memory_premium_router)     # 🧠 Premium Memory (Long-Term & MemGPT)
 
 # ============ PREMIUM V2 FEATURES (ULTRA) ============
 app.include_router(memory_router)               # 🧠 AI Memory & Personalization

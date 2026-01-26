@@ -9,7 +9,7 @@ echo.
 cd /d "C:\Users\LENOVO\Desktop\Aktif Projeler\AgenticManagingSystem"
 
 REM Venv kontrol
-if not exist "venv\Scripts\python.exe" (
+if not exist ".venv\Scripts\python.exe" (
     echo [HATA] Python venv bulunamadi!
     pause
     exit /b 1
@@ -28,7 +28,7 @@ timeout /t 1 >nul
 REM Python ile baslat
 echo Sistem baslatiliyor...
 echo.
-"venv\Scripts\python.exe" run.py
+".venv\Scripts\python.exe" run.py
 
 REM Hata kontrolu
 if %ERRORLEVEL% NEQ 0 (

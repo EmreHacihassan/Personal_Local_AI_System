@@ -62,13 +62,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     }
   }, [theme, mounted]);
 
-  if (!mounted) {
-    return null;
-  }
-
+  // Show children immediately but with default light theme until hydrated
   return (
-    <ThemeContext.Provider value={{ theme }}>
-      {children}
+    <ThemeContext.Provider value={{ theme: mounted ? theme : 'light' }}>
+      <div className={mounted ? '' : 'opacity-0'} style={{ transition: 'opacity 0.2s' }}>
+        {children}
+      </div>
     </ThemeContext.Provider>
   );
 }

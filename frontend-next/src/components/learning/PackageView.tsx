@@ -305,7 +305,7 @@ const PackageView: React.FC<PackageViewProps> = ({
   const canComplete = allBlocksCompleted && (package_data.exams.length === 0 || allExamsPassed);
   
   const handleBlockComplete = (blockId: string) => {
-    setCompletedBlocks(prev => new Set([...prev, blockId]));
+    setCompletedBlocks(prev => new Set(Array.from(prev).concat(blockId)));
     setExpandedBlock(null);
   };
   

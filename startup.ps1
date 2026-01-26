@@ -4,7 +4,7 @@
 
 $ProjectPath = "C:\Users\LENOVO\Desktop\Aktif Projeler\AgenticManagingSystem"
 $LogFile = "$ProjectPath\startup_log.txt"
-$venvPython = "$ProjectPath\venv\Scripts\python.exe"
+$venvPython = "$ProjectPath\.venv\Scripts\python.exe"
 
 function Write-Log {
     param([string]$Message)

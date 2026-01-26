@@ -16,7 +16,7 @@ Premium döküman üretim sistemi için API.
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
@@ -24,6 +24,11 @@ import asyncio
 import os
 import tempfile
 import traceback
+import logging
+
+# Logger kurulumu
+logger = logging.getLogger("deep_scholar")
+logger.setLevel(logging.DEBUG)
 
 from core.deep_scholar import (
     DeepScholarOrchestrator,
@@ -55,9 +60,38 @@ router = APIRouter(prefix="/api/deep-scholar", tags=["DeepScholar"])
 
 class CreateDeepDocumentRequest(BaseModel):
     """DeepScholar döküman oluşturma isteği."""
-    title: str = Field(..., min_length=1, max_length=300)
-    topic: str = Field(..., min_length=1, max_length=1000)
-    page_count: int = Field(..., ge=1, le=60)  # Maksimum 60 sayfa
+    title: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=300,
+        description="Döküman başlığı (1-300 karakter)"
+    )
+    topic: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=1000,
+        description="Döküman konusu (1-1000 karakter)"
+    )
+    page_count: int = Field(
+        ..., 
+        ge=1, 
+        le=60,
+        description="Hedef sayfa sayısı (1-60 arası)"
+    )  # Maksimum 60 sayfa
+    
+    @field_validator('title')
+    @classmethod
+    def validate_title(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Başlık boş olamaz')
+        return v.strip()
+    
+    @field_validator('topic')
+    @classmethod 
+    def validate_topic(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Konu boş olamaz')
+        return v.strip()
     
     # Dil ve stil
     language: str = Field(default="tr")  # tr, en, de
@@ -114,6 +148,7 @@ async def _process_queue_item(document_id: str, workspace_id: str, config: 'Deep
         if gen_state:
             gen_state["orchestrator"] = orchestrator
             gen_state["status"] = "generating"
+            gen_state["last_activity"] = datetime.now().isoformat()  # Stuck detection için
         
         # Döküman durumunu güncelle
         document = learning_workspace_manager.get_document(document_id)
@@ -185,19 +220,48 @@ async def _process_queue_item(document_id: str, workspace_id: str, config: 'Deep
                     "code": event.get("visual", {}).get("code", ""),
                     "render_type": event.get("visual", {}).get("render_type", "")
                 })
+            
+            # Son aktivite zamanını güncelle (stuck detection için)
+            gen_state["last_activity"] = datetime.now().isoformat()
         
         orchestrator.set_event_callback(update_state)
         
-        # Üretimi başlat
+        # Üretimi başlat - her event için 15 dakika timeout (kalite için uzun düşünme süresi)
         final_document = None
-        async for event in orchestrator.generate_document(config):
-            await update_state(event)
-            
-            if event.get("type") == EventType.COMPLETE.value:
-                final_document = event.get("document", {})
-                gen_state["status"] = "completed"
-            elif event.get("type") == EventType.ERROR.value:
+        event_timeout = 900  # 15 dakika - her event arasında maksimum bekleme (kalite öncelikli)
+        
+        logger.warning(f"[Queue] Starting generator for {document_id}")
+        
+        async def get_next_event(gen):
+            """Generator'dan sonraki event'i al."""
+            return await gen.__anext__()
+        
+        generator = orchestrator.generate_document(config)
+        logger.warning(f"[Queue] Generator created, waiting for first event...")
+        
+        event_count = 0
+        while True:
+            try:
+                event = await asyncio.wait_for(get_next_event(generator), timeout=event_timeout)
+                event_count += 1
+                logger.warning(f"[Queue] Event #{event_count}: {event.get('type', 'unknown')} - {event.get('phase', event.get('message', '')[:50] if event.get('message') else '')}")
+                await update_state(event)
+                
+                if event.get("type") == EventType.COMPLETE.value:
+                    final_document = event.get("document", {})
+                    gen_state["status"] = "completed"
+                    break
+                elif event.get("type") == EventType.ERROR.value:
+                    gen_state["status"] = "failed"
+                    break
+            except StopAsyncIteration:
+                # Generator tamamlandı
+                break
+            except asyncio.TimeoutError:
+                logger.error(f"Generation stuck - 15 dakika event gelmedi [{document_id}]")
                 gen_state["status"] = "failed"
+                gen_state["error"] = "Generation takıldı - 15 dakika ilerleme olmadı"
+                break
         
         # Dökümanı güncelle
         if final_document:
@@ -216,8 +280,8 @@ async def _process_queue_item(document_id: str, workspace_id: str, config: 'Deep
         return True
         
     except Exception as e:
-        print(f"[Queue Process Error] {document_id}: {e}")
-        traceback.print_exc()
+        error_trace = traceback.format_exc()
+        logger.error(f"Queue process error [{document_id}]: {str(e)}\n{error_trace}")
         
         if RESILIENCE_ENABLED:
             resilience_service.queue.mark_completed(document_id, success=False)
@@ -228,6 +292,12 @@ async def _process_queue_item(document_id: str, workspace_id: str, config: 'Deep
             document.status = DocumentStatus.ERROR
             document.generation_log.append(f"[{datetime.now().isoformat()}] ❌ Hata: {str(e)}")
             learning_workspace_manager.update_document(document)
+        
+        # Gen state'i güncelle
+        gen_state = _active_deep_generations.get(document_id)
+        if gen_state:
+            gen_state["status"] = "failed"
+            gen_state["error"] = str(e)
         
         return False
     finally:
@@ -246,7 +316,7 @@ async def _queue_processor():
     """
     global _queue_processor_running
     
-    print("[Queue] Processor started")
+    logger.warning("[Queue] PROCESSOR STARTED! Running loop...")
     
     while _queue_processor_running:
         try:
@@ -255,7 +325,7 @@ async def _queue_processor():
                 next_item = resilience_service.queue.get_next()
                 
                 if next_item:
-                    print(f"[Queue] Processing: {next_item.id} - {next_item.config.get('title', 'Untitled')}")
+                    logger.warning(f"[Queue] Processing: {next_item.id} - {next_item.config.get('title', 'Untitled')}")
                     
                     # Config'i DeepScholarConfig'e dönüştür
                     from core.deep_scholar import DeepScholarConfig, DocumentLanguage, CitationStyle
@@ -292,27 +362,52 @@ async def _queue_processor():
                         max_research_depth=config_dict.get("max_research_depth", 3)
                     )
                     
-                    # Generation state oluştur
-                    _active_deep_generations[next_item.id] = {
-                        "config": config,
-                        "status": "starting",
-                        "progress": 0,
-                        "current_phase": "",
-                        "current_agent": "",
-                        "events": [],
-                        "completed_sections": [],
-                        "agent_thoughts": [],
-                        "generated_visuals": [],
-                        "started_at": datetime.now().isoformat(),
-                        "orchestrator": None,
-                        "websocket_connected": False,
-                        "queued": True
-                    }
+                    # Generation state güncelle veya oluştur
+                    existing_state = _active_deep_generations.get(next_item.id)
+                    if existing_state:
+                        # Zaten varsa sadece status'u güncelle
+                        existing_state["config"] = config
+                        existing_state["status"] = "starting"
+                        existing_state["current_phase"] = "Başlatılıyor..."
+                        existing_state["started_at"] = datetime.now().isoformat()
+                    else:
+                        # Yoksa oluştur
+                        _active_deep_generations[next_item.id] = {
+                            "config": config,
+                            "workspace_id": next_item.workspace_id,
+                            "status": "starting",
+                            "progress": 0,
+                            "current_phase": "",
+                            "current_agent": "",
+                            "events": [],
+                            "completed_sections": [],
+                            "agent_thoughts": [],
+                            "generated_visuals": [],
+                            "started_at": datetime.now().isoformat(),
+                            "orchestrator": None,
+                            "websocket_connected": False,
+                            "queued": True
+                        }
                     
-                    # İşle
-                    await _process_queue_item(next_item.id, next_item.workspace_id, config)
+                    # İşle - 2 saat timeout ile (kalite öncelikli - uzun dokümanlar için yeterli süre)
+                    try:
+                        await asyncio.wait_for(
+                            _process_queue_item(next_item.id, next_item.workspace_id, config),
+                            timeout=7200  # 2 saat - kalite için yeterli süre
+                        )
+                        logger.info(f"Queue item completed: {next_item.id}")
+                    except asyncio.TimeoutError:
+                        logger.error(f"Queue item TIMEOUT: {next_item.id} (2 saat aşıldı)")
+                        # State'i failed olarak işaretle
+                        gen_state = _active_deep_generations.get(next_item.id)
+                        if gen_state:
+                            gen_state["status"] = "failed"
+                            gen_state["error"] = "Generation zaman aşımı (2 saat)"
+                        # Queue'da fail işaretle
+                        if RESILIENCE_ENABLED:
+                            resilience_service.queue.mark_completed(next_item.id, success=False)
                     
-                    print(f"[Queue] Completed: {next_item.id}")
+                    logger.warning(f"[Queue] Completed: {next_item.id}")
                 else:
                     # Kuyruk boş, bekle
                     await asyncio.sleep(2)
@@ -320,7 +415,7 @@ async def _queue_processor():
                 await asyncio.sleep(5)
                 
         except Exception as e:
-            print(f"[Queue Processor Error] {e}")
+            logger.error(f"[Queue Processor Error] {e}")
             traceback.print_exc()
             await asyncio.sleep(5)
     
@@ -331,10 +426,12 @@ def _ensure_queue_processor():
     """Queue processor'ın çalıştığından emin ol."""
     global _queue_processor_running, _queue_processor_task
     
+    logger.warning(f"[Queue] _ensure_queue_processor called. running={_queue_processor_running}")
+    
     if not _queue_processor_running:
         _queue_processor_running = True
         _queue_processor_task = asyncio.create_task(_queue_processor())
-        print("[Queue] Processor task created")
+        logger.warning("[Queue] Processor task created!")
 
 
 # ==================== ENDPOINTS ====================
@@ -422,7 +519,15 @@ async def start_deep_generation(
     # Workspace kontrolü
     workspace = learning_workspace_manager.get_workspace(workspace_id)
     if not workspace:
-        raise HTTPException(status_code=404, detail="Çalışma ortamı bulunamadı")
+        logger.warning(f"Workspace bulunamadı: {workspace_id}")
+        raise HTTPException(
+            status_code=404, 
+            detail={
+                "error": "WORKSPACE_NOT_FOUND",
+                "message": "Çalışma ortamı bulunamadı",
+                "workspace_id": workspace_id
+            }
+        )
     
     # Dil enum'a çevir
     try:
@@ -488,6 +593,45 @@ async def start_deep_generation(
         queue_position = queued.position
         is_immediate = active_count == 0 and queue_position == 1
         
+        # Config nesnesini oluştur
+        config = DeepScholarConfig(
+            title=request.title,
+            topic=request.topic,
+            page_count=request.page_count,
+            language=language,
+            citation_style=citation_style,
+            style=request.style,
+            web_search=request.web_search,
+            academic_search=request.academic_search,
+            max_sources_per_section=request.max_sources_per_section,
+            enable_fact_checking=request.enable_fact_checking,
+            enable_user_proxy=request.enable_user_proxy,
+            enable_conflict_detection=request.enable_conflict_detection,
+            custom_instructions=request.custom_instructions,
+            user_persona=request.user_persona,
+            parallel_research=request.parallel_research,
+            max_research_depth=request.max_research_depth
+        )
+        
+        # Generation state'i hemen oluştur (WebSocket için gerekli)
+        _active_deep_generations[document_id] = {
+            "config": config,
+            "workspace_id": workspace_id,  # Query param kullan, request.workspace_id değil
+            "status": "queued" if not is_immediate else "starting",
+            "progress": 0,
+            "current_phase": "Kuyrukta bekliyor" if not is_immediate else "",
+            "current_agent": "",
+            "events": [],
+            "completed_sections": [],
+            "agent_thoughts": [],
+            "generated_visuals": [],
+            "started_at": datetime.now().isoformat(),
+            "orchestrator": None,
+            "websocket_connected": False,
+            "queued": True,
+            "queue_position": queue_position
+        }
+        
         # Döküman durumunu güncelle
         document.generation_log.append(
             f"[{datetime.now().isoformat()}] 📋 Kuyruğa eklendi (Sıra: {queue_position})"
@@ -495,6 +639,17 @@ async def start_deep_generation(
         if not is_immediate:
             document.status = DocumentStatus.DRAFT  # Beklemede
         learning_workspace_manager.update_document(document)
+        
+        logger.info(f"DeepScholar generation queued: {document_id} (queue_pos={queue_position}, immediate={is_immediate})")
+        
+        return {
+            "success": True,
+            "document_id": document_id,
+            "message": "Kuyruğa eklendi" if not is_immediate else "DeepScholar üretimi başlatıldı",
+            "queue_position": queue_position,
+            "is_immediate": is_immediate,
+            "websocket_url": f"/api/deep-scholar/ws/{document_id}"
+        }
     else:
         # Resilience yoksa eski davranış - hemen başlat
         config = DeepScholarConfig(
@@ -531,14 +686,16 @@ async def start_deep_generation(
             "websocket_connected": False
         }
     
-    return {
-        "success": True,
-        "document_id": document_id,
-        "message": "Kuyruğa eklendi" if not is_immediate else "DeepScholar üretimi başlatıldı",
-        "queue_position": queue_position,
-        "is_immediate": is_immediate,
-        "websocket_url": f"/api/deep-scholar/ws/{document_id}"
-    }
+        logger.info(f"DeepScholar generation started: {document_id} (queue_pos={queue_position}, immediate={is_immediate})")
+        
+        return {
+            "success": True,
+            "document_id": document_id,
+            "message": "Kuyruğa eklendi" if not is_immediate else "DeepScholar üretimi başlatıldı",
+            "queue_position": queue_position,
+            "is_immediate": is_immediate,
+            "websocket_url": f"/api/deep-scholar/ws/{document_id}"
+        }
 
 
 @router.websocket("/ws/{document_id}")
@@ -649,20 +806,64 @@ async def deep_scholar_websocket(websocket: WebSocket, document_id: str):
                 return
         
         # Yeni üretim başlatma
-        # Orchestrator oluştur ve başlat
-        orchestrator = DeepScholarOrchestrator()
-        
-        if gen_state:
-            config = gen_state["config"]
-            gen_state["orchestrator"] = orchestrator
-            gen_state["websocket_connected"] = True
-            gen_state["status"] = "generating"
-        else:
+        if not gen_state:
             await websocket.send_json({
                 "type": "error",
                 "message": "Generation config bulunamadı"
             })
             return
+        
+        config = gen_state["config"]
+        gen_state["websocket_connected"] = True
+        
+        # Eğer kuyrukta veya başlatılıyor durumundaysa, generation başlamasını bekle
+        initial_status = gen_state.get("status")
+        if initial_status in ["queued", "starting"]:
+            await websocket.send_json({
+                "type": "queue_status",
+                "message": "Kuyrukta bekleniyor..." if initial_status == "queued" else "Başlatılıyor...",
+                "queue_position": gen_state.get("queue_position", 0)
+            })
+            
+            # Orchestrator set edilene kadar bekle
+            max_wait = 300  # 5 dakika max
+            wait_count = 0
+            while gen_state.get("orchestrator") is None and wait_count < max_wait:
+                await asyncio.sleep(1)
+                wait_count += 1
+                
+                current_status = gen_state.get("status", "")
+                # Her 10 saniyede durumu bildir
+                if wait_count % 10 == 0:
+                    await websocket.send_json({
+                        "type": "queue_waiting",
+                        "message": f"Bekleniyor ({current_status}, {wait_count}s)...",
+                        "queue_position": gen_state.get("queue_position", 0)
+                    })
+            
+            # Timeout kontrolü - orchestrator hala yok mu?
+            if gen_state.get("orchestrator") is None:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Generation başlatma timeout - lütfen tekrar deneyin"
+                })
+                return
+        
+        # Queue processor başlattıysa, sadece event stream yap
+        # Değilse orchestrator oluştur
+        queue_processor_started = gen_state.get("orchestrator") is not None
+        
+        if queue_processor_started:
+            orchestrator = gen_state["orchestrator"]
+            # Queue processor zaten başlattı, sadece dinle
+        else:
+            orchestrator = DeepScholarOrchestrator()
+            gen_state["orchestrator"] = orchestrator
+        
+        gen_state["status"] = "generating"
+        
+        # Workspace ID'yi gen_state'ten al
+        workspace_id = gen_state.get("workspace_id", "")
         
         # Event callback - state'i güncelle ve WebSocket'e gönder
         async def send_event(event: Dict):
@@ -761,16 +962,50 @@ async def deep_scholar_websocket(websocket: WebSocket, document_id: str):
             document.generation_log.append(f"[{datetime.now().isoformat()}] 🚀 DeepScholar v2.0 başlatıldı")
             learning_workspace_manager.update_document(document)
         
-        # Üretimi başlat
+        # Üretimi başlat veya dinle
         final_document = None
-        async for event in orchestrator.generate_document(config):
-            await send_event(event)
+        
+        if queue_processor_started:
+            # Queue processor zaten generation başlattı, sadece event'leri dinle
+            await websocket.send_json({
+                "type": "info",
+                "message": "Generation queue processor tarafından başlatıldı, dinleniyor..."
+            })
             
-            if event.get("type") == EventType.COMPLETE.value:
-                final_document = event.get("document", {})
-                gen_state["status"] = "completed"
-            elif event.get("type") == EventType.ERROR.value:
-                gen_state["status"] = "failed"
+            # Tamamlanana kadar bekle ve event'leri stream et
+            last_event_count = 0
+            while gen_state["status"] not in ["completed", "failed"]:
+                await asyncio.sleep(0.5)
+                
+                # Yeni event'leri gönder
+                current_events = gen_state.get("events", [])
+                if len(current_events) > last_event_count:
+                    for event in current_events[last_event_count:]:
+                        try:
+                            await websocket.send_json(event)
+                        except:
+                            break
+                    last_event_count = len(current_events)
+            
+            # Son durumu kontrol et
+            if gen_state["status"] == "completed":
+                # Completed sections'tan final document oluştur
+                completed_sections = gen_state.get("completed_sections", [])
+                content = "\n\n".join([s.get("content", "") for s in completed_sections])
+                final_document = {
+                    "content": content,
+                    "word_count": sum(s.get("wordCount", 0) for s in completed_sections)
+                }
+        else:
+            # Normal generation - WebSocket handler tarafından başlat
+            async for event in orchestrator.generate_document(config):
+                await send_event(event)
+                
+                if event.get("type") == EventType.COMPLETE.value:
+                    final_document = event.get("document", {})
+                    gen_state["status"] = "completed"
+                elif event.get("type") == EventType.ERROR.value:
+                    gen_state["status"] = "failed"
         
         # Dökümanı güncelle
         if final_document:

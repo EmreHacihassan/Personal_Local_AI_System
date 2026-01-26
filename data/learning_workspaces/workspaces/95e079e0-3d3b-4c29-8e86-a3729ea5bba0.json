@@ -1,0 +1,17 @@
+{
+  "id": "95e079e0-3d3b-4c29-8e86-a3729ea5bba0",
+  "name": "Test2",
+  "description": "Test",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "765ac94f-8b7c-43f2-81c1-c392f8358fdf"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T19:30:20.697991",
+  "updated_at": "2026-01-26T19:30:21.139567",
+  "settings": {}
+}

@@ -100,9 +100,11 @@ class PackageStatus(str, Enum):
     LOCKED = "locked"
     AVAILABLE = "available"
     IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"            # Tamamlandı (eski format uyumluluk)
     PASSED = "passed"                  # Geçti
     FAILED = "failed"                  # Kaldı - tekrar gerekli
     MASTERED = "mastered"              # Mükemmel
+    NEEDS_REVIEW = "needs_review"      # Tekrar gerekiyor
 
 
 # ==================== DATA CLASSES ====================
@@ -181,6 +183,7 @@ class ContentBlock:
     type: ContentType = ContentType.TEXT
     title: str = ""
     content: Dict[str, Any] = field(default_factory=dict)
+    media_url: Optional[str] = None
     duration_minutes: int = 5
     order: int = 0
     is_required: bool = True
@@ -188,16 +191,27 @@ class ContentBlock:
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
+        # Content'i string olarak da sun (frontend uyumu için)
+        content_str = ""
+        if isinstance(self.content, dict):
+            content_str = self.content.get("markdown", "") or self.content.get("text", "")
+        elif isinstance(self.content, str):
+            content_str = self.content
+        
         return {
             "id": self.id,
             "type": self.type.value if isinstance(self.type, ContentType) else self.type,
+            "block_type": self.type.value if isinstance(self.type, ContentType) else self.type,
             "title": self.title,
-            "content": self.content,
+            "content": content_str,
+            "content_data": self.content if isinstance(self.content, dict) else {"text": self.content},
+            "media_url": self.media_url,
             "duration_minutes": self.duration_minutes,
             "order": self.order,
             "is_required": self.is_required,
             "source": self.source,
-            "metadata": self.metadata
+            "metadata": self.metadata,
+            "completed": False
         }
 
 
@@ -257,6 +271,9 @@ class Exam:
     total_points: int = 0
     weight_in_package: float = 1.0                 # Paket içindeki ağırlık
     
+    # Deneme sayısı
+    attempts: int = 0
+    
     # Özel sınav türleri için
     feynman_config: Optional[Dict[str, Any]] = None      # Feynman tekniği ayarları
     presentation_config: Optional[Dict[str, Any]] = None  # Sunum ayarları
@@ -267,10 +284,12 @@ class Exam:
             "title": self.title,
             "description": self.description,
             "type": self.type.value if isinstance(self.type, ExamType) else self.type,
+            "exam_type": self.type.value if isinstance(self.type, ExamType) else self.type,
             "questions": [q.to_dict() for q in self.questions],
-            "time_limit_minutes": self.time_limit_minutes,
+            "time_limit_minutes": self.time_limit_minutes or 30,
             "passing_score": self.passing_score,
             "max_attempts": self.max_attempts,
+            "attempts": self.attempts,
             "shuffle_questions": self.shuffle_questions,
             "shuffle_options": self.shuffle_options,
             "show_feedback": self.show_feedback,
@@ -362,6 +381,9 @@ class Package:
     theme_color: str = "#6366F1"
     icon: str = "📚"
     
+    # LLM Enhancement
+    llm_content_ready: bool = False  # LLM ile içerik zenginleştirildi mi?
+    
     # Meta
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     
@@ -392,6 +414,7 @@ class Package:
             "unlock_requirements": self.unlock_requirements,
             "theme_color": self.theme_color,
             "icon": self.icon,
+            "llm_content_ready": self.llm_content_ready,
             "created_at": self.created_at
         }
 
@@ -493,6 +516,8 @@ class CurriculumPlan:
     # Plan detayları
     title: str = ""
     description: str = ""
+    subject: str = ""                              # Frontend için gerekli
+    target_outcome: str = ""                       # Frontend için gerekli
     
     # Stages
     stages: List[Stage] = field(default_factory=list)
@@ -530,8 +555,11 @@ class CurriculumPlan:
             "goal": self.goal.to_dict(),
             "title": self.title,
             "description": self.description,
+            "subject": self.subject or self.goal.subject,
+            "target_outcome": self.target_outcome or self.goal.target_outcome,
             "stages": [s.to_dict() for s in self.stages],
             "current_stage_id": self.current_stage_id,
+            "total_stages": len(self.stages),
             "total_packages": self.total_packages,
             "total_exams": self.total_exams,
             "total_exercises": self.total_exercises,
@@ -621,7 +649,12 @@ class UserProgress:
     current_package_id: str = ""
     current_content_id: str = ""
     
-    # İlerleme
+    # İlerleme - Sayısal
+    completed_packages: int = 0                    # Frontend uyumlu
+    completed_stages: int = 0                      # Frontend uyumlu
+    completed_exams: int = 0                       # Frontend uyumlu
+    
+    # İlerleme - Liste
     completed_content_ids: List[str] = field(default_factory=list)
     completed_exercise_ids: List[str] = field(default_factory=list)
     completed_exam_ids: List[str] = field(default_factory=list)
@@ -631,17 +664,20 @@ class UserProgress:
     # Sınav sonuçları
     exam_results: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # exam_id: {score, attempts, ...}
     
-    # XP ve seviye
+    # XP ve seviye - Frontend uyumlu
+    xp_earned: int = 0                             # Frontend uyumlu
     total_xp: int = 0
     level: int = 1
     xp_to_next_level: int = 100
     
-    # Streak
+    # Streak - Frontend uyumlu
+    streak_days: int = 0                           # Frontend uyumlu
     current_streak: int = 0
     longest_streak: int = 0
     last_activity_date: Optional[str] = None
     
     # Zaman
+    total_time_spent: int = 0                      # seconds - Frontend uyumlu
     total_time_spent_minutes: int = 0
     session_times: List[Dict[str, Any]] = field(default_factory=list)
     
@@ -649,6 +685,73 @@ class UserProgress:
     average_score: float = 0.0
     total_exams_taken: int = 0
     total_exams_passed: int = 0
+    
+    # Level hesaplama
+    XP_PER_LEVEL = [
+        0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200,  # Levels 1-10
+        4000, 5000, 6200, 7600, 9200, 11000, 13000, 15500, 18500, 22000,  # Levels 11-20
+        26000, 31000, 37000, 44000, 52000  # Levels 21-25
+    ]
+    
+    def calculate_level(self) -> None:
+        """XP'ye göre level hesapla"""
+        for lvl, required_xp in enumerate(self.XP_PER_LEVEL):
+            if self.xp_earned < required_xp:
+                self.level = max(1, lvl)
+                self.xp_to_next_level = required_xp - self.xp_earned
+                return
+        self.level = len(self.XP_PER_LEVEL)
+        self.xp_to_next_level = 0
+    
+    def add_xp(self, amount: int) -> Dict[str, Any]:
+        """XP ekle ve level-up kontrolü yap"""
+        old_level = self.level
+        self.xp_earned += amount
+        self.total_xp += amount
+        self.calculate_level()
+        
+        leveled_up = self.level > old_level
+        return {
+            "xp_added": amount,
+            "total_xp": self.xp_earned,
+            "level": self.level,
+            "leveled_up": leveled_up,
+            "xp_to_next": self.xp_to_next_level
+        }
+    
+    def update_streak(self) -> None:
+        """Streak güncelle"""
+        from datetime import datetime, timedelta
+        
+        today = datetime.now().date().isoformat()
+        
+        if self.last_activity_date is None:
+            self.current_streak = 1
+            self.streak_days = 1
+        else:
+            try:
+                last_date = datetime.fromisoformat(self.last_activity_date).date()
+                current_date = datetime.now().date()
+                
+                diff = (current_date - last_date).days
+                
+                if diff == 0:
+                    # Aynı gün, değişiklik yok
+                    pass
+                elif diff == 1:
+                    # Ardışık gün, streak arttır
+                    self.current_streak += 1
+                    self.streak_days = self.current_streak
+                else:
+                    # Streak kırıldı
+                    self.current_streak = 1
+                    self.streak_days = 1
+            except:
+                self.current_streak = 1
+                self.streak_days = 1
+        
+        self.longest_streak = max(self.longest_streak, self.current_streak)
+        self.last_activity_date = today
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -663,12 +766,15 @@ class UserProgress:
             "completed_package_ids": self.completed_package_ids,
             "completed_stage_ids": self.completed_stage_ids,
             "exam_results": self.exam_results,
+            "xp_earned": self.xp_earned,
             "total_xp": self.total_xp,
             "level": self.level,
             "xp_to_next_level": self.xp_to_next_level,
             "current_streak": self.current_streak,
+            "streak_days": self.streak_days,
             "longest_streak": self.longest_streak,
             "last_activity_date": self.last_activity_date,
+            "total_time_spent": self.total_time_spent,
             "total_time_spent_minutes": self.total_time_spent_minutes,
             "session_times": self.session_times,
             "average_score": self.average_score,

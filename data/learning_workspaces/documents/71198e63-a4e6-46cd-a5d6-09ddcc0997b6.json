@@ -1,0 +1,17 @@
+{
+  "id": "71198e63-a4e6-46cd-a5d6-09ddcc0997b6",
+  "workspace_id": "caf4c1fd-cdbb-4efb-95c0-6e8147e856bd",
+  "title": "Test Dokumani",
+  "topic": "Test konusu",
+  "page_count": 1,
+  "style": "academic",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-26T21:15:07.916042",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-26T21:15:07.918037] 📋 Kuyruğa eklendi (Sıra: 1)",
+    "[2026-01-26T21:15:07.928317] 🚀 DeepScholar v2.0 başlatıldı (Queue)"
+  ]
+}

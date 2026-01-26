@@ -1,0 +1,17 @@
+{
+  "id": "a5da09e8-59af-422d-ba47-d9dfc7fa2116",
+  "name": "EventTest",
+  "description": "Event log test",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "1ae90fd4-6542-48ba-b0eb-90eeb6ff51eb"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T21:23:40.961414",
+  "updated_at": "2026-01-26T21:23:40.973416",
+  "settings": {}
+}

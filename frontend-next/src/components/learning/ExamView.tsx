@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Trophy,
   Clock,
@@ -15,11 +15,6 @@ import {
   Mic,
   MicOff,
   Send,
-  AlertTriangle,
-  Award,
-  Target,
-  Sparkles,
-  BookOpen,
   Lightbulb
 } from 'lucide-react';
 
@@ -222,7 +217,7 @@ const FeynmanExam: React.FC<{
               Feynman Tekniği ile Öğren
             </h3>
             <p className="text-indigo-700 dark:text-indigo-400 mt-2">
-              Richard Feynman'ın geliştirdiği bu teknikte, öğrendiğin konuyu basit bir dille
+              Richard Feynman&apos;ın geliştirdiği bu teknikte, öğrendiğin konuyu basit bir dille
               birisine anlatıyormuş gibi açıklarsın. Bu yöntem, gerçekten ne kadar anladığını ortaya çıkarır.
             </p>
           </div>

@@ -41,7 +41,7 @@ import {
 } from 'lucide-react';
 import { useStore, Page } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { checkHealth, HealthStatus, startOllamaService, startChromaDBService, getBackendRestartInfo } from '@/lib/api';
+import { checkHealth, HealthStatus, startOllamaService, startChromaDBService } from '@/lib/api';
 import dynamic from 'next/dynamic';
 
 const DigitalClock = dynamic(() => import('@/components/ui/DigitalClock'), { ssr: false });
@@ -155,19 +155,38 @@ export function Sidebar() {
     return () => clearInterval(interval);
   }, []);
 
-  // Service start handlers
+  // Service start handlers - Uses local Next.js API when backend is offline
   const handleStartOllama = async () => {
     setStartingService('ollama');
     setServiceMessage(null);
     try {
-      const response = await startOllamaService();
-      if (response.success && response.data) {
+      // First try the local Next.js API route (works when backend is down)
+      const localResponse = await fetch('/api/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start-ollama' }),
+      });
+      
+      if (localResponse.ok) {
+        const data = await localResponse.json();
         setServiceMessage({
-          type: response.data.success ? 'success' : 'error',
-          text: response.data.message
+          type: data.success ? 'success' : 'error',
+          text: data.message
         });
-        if (response.data.success) {
-          fetchHealth(true); // Refresh health status
+        if (data.success) {
+          setTimeout(() => fetchHealth(true), 3000); // Refresh after delay
+        }
+      } else {
+        // Fallback to backend API
+        const response = await startOllamaService();
+        if (response.success && response.data) {
+          setServiceMessage({
+            type: response.data.success ? 'success' : 'error',
+            text: response.data.message
+          });
+          if (response.data.success) {
+            fetchHealth(true);
+          }
         }
       }
     } catch {
@@ -177,7 +196,6 @@ export function Sidebar() {
       });
     }
     setStartingService(null);
-    // Clear message after 5 seconds
     setTimeout(() => setServiceMessage(null), 5000);
   };
 
@@ -205,27 +223,63 @@ export function Sidebar() {
     setTimeout(() => setServiceMessage(null), 5000);
   };
 
-  const handleBackendInfo = async () => {
+  // Start backend using local Next.js API route (works when backend is offline)
+  const handleStartBackend = async () => {
     setStartingService('backend');
+    setServiceMessage({
+      type: 'info',
+      text: language === 'tr' ? 'Backend başlatılıyor...' : 'Starting backend...'
+    });
+    
     try {
-      const response = await getBackendRestartInfo();
-      if (response.success && response.data) {
+      const response = await fetch('/api/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start-backend' }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
         setServiceMessage({
-          type: 'info',
-          text: response.data.steps?.join(' ') || response.data.message
+          type: data.success ? 'success' : 'error',
+          text: data.message
         });
+        
+        if (data.success) {
+          // Poll for backend to be ready
+          let attempts = 0;
+          const checkInterval = setInterval(async () => {
+            attempts++;
+            await fetchHealth(true);
+            if (health || attempts >= 10) {
+              clearInterval(checkInterval);
+              if (health) {
+                setServiceMessage({
+                  type: 'success',
+                  text: language === 'tr' ? 'Backend hazır!' : 'Backend ready!'
+                });
+              }
+            }
+          }, 2000);
+        }
+      } else {
+        throw new Error('Local API failed');
       }
     } catch {
       setServiceMessage({
         type: 'info',
         text: language === 'tr' 
-          ? "Terminal'de: python run.py" 
-          : "In terminal: python run.py"
+          ? "Terminal'de şu komutu çalıştırın: python run.py" 
+          : "Run in terminal: python run.py"
       });
     }
+    
     setStartingService(null);
-    setTimeout(() => setServiceMessage(null), 8000);
+    setTimeout(() => setServiceMessage(null), 10000);
   };
+
+  // Legacy handler for backward compatibility
+  const handleBackendInfo = handleStartBackend;
 
   // Derive system issues from health data
   const systemIssues = useMemo(() => {

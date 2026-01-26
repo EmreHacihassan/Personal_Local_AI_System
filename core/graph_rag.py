@@ -977,7 +977,11 @@ __all__ = [
     "Neo4jGraphStore",
     # Pipeline
     "GraphRAGPipeline",
+    "GraphRAGEngine",  # Alias for compatibility
     "CypherGenerator",
     # Factory
     "create_graph_rag",
 ]
+
+# Alias for compatibility
+GraphRAGEngine = GraphRAGPipeline

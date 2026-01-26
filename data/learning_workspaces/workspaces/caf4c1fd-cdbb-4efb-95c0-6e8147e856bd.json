@@ -1,0 +1,17 @@
+{
+  "id": "caf4c1fd-cdbb-4efb-95c0-6e8147e856bd",
+  "name": "Test2",
+  "description": "Console test",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "71198e63-a4e6-46cd-a5d6-09ddcc0997b6"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T21:15:07.898038",
+  "updated_at": "2026-01-26T21:15:07.917040",
+  "settings": {}
+}

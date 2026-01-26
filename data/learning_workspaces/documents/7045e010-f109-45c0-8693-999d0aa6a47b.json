@@ -1,0 +1,18 @@
+{
+  "id": "7045e010-f109-45c0-8693-999d0aa6a47b",
+  "workspace_id": "62ab9a20-4f6d-4e84-bdf1-184d0b57b8fd",
+  "title": "AYT Matematik",
+  "topic": "Polinom Fonksiyondan başlayarak bütün AYT Matematik müfredatını integral dahil öğret ,bunu bir bitirme kaynağı olarak hazırlamanı istiyorum bu kaynağı kapsamlıca çalışan biri artık tamam çözebilir seviyesinde olacak ,çözümü verilmiş sorular da yer alsın ,aslında bu sınava hazırlanan birinin kullanması için bitirme kaynağı istiyorum senden ,sadece bunu kullanması bütün konuları kapsamlıca öğrenmesi için yeterli olsun (tyt çok iyi seviyede bilen birine göre olsun bunu diyorum çünkü bu oluşturacağın döküman tyt öğrenmek isteyenlere göre değil ayt öğrenmek isteyenlere göre olsun tyt kısımlara illa girmen gerekiyorsa çok üzerinde durmadan hızlı geç ,2026 yksyi baz al)",
+  "page_count": 40,
+  "style": "detailed",
+  "content": "",
+  "status": "cancelled",
+  "references": [],
+  "created_at": "2026-01-26T18:48:34.595674",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-26T18:48:34.597673] 📋 Kuyruğa eklendi (Sıra: 1)",
+    "[2026-01-26T18:48:37.365006] 🚀 DeepScholar v2.0 başlatıldı (Queue)",
+    "[2026-01-26T19:46:32.751982] ⚠️ Üretim yarıda kaldı (bağlantı koptu)"
+  ]
+}

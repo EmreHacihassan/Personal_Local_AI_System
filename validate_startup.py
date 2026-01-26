@@ -195,7 +195,7 @@ def check_virtual_env() -> ValidationResult:
         result.message = "Virtual environment bulunamadı"
         result.details.append("Sistem Python'u kullanılıyor")
         result.fixable = True
-        result.fix_command = "python -m venv venv && venv\\Scripts\\activate"
+        result.fix_command = "python -m venv .venv && .venv\\Scripts\\activate"
     
     return result
 

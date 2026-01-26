@@ -172,8 +172,19 @@ class LearningJourneyOrchestrator:
             agent_name="Orchestrator"
         )
         
-        # Müfredat planla
-        plan, thoughts = await self.curriculum_planner.plan_curriculum(goal)
+        # Müfredat planla - MASTER TIMEOUT ile (60 saniye)
+        try:
+            plan, thoughts = await asyncio.wait_for(
+                self.curriculum_planner.plan_curriculum(goal),
+                timeout=60.0
+            )
+        except asyncio.TimeoutError:
+            # Timeout olursa basit plan döndür
+            print("[Orchestrator] Curriculum planning timeout - using fast mode")
+            # Planner'ı LLM olmadan yeniden çalıştır
+            from core.learning_journey_v2.curriculum_planner import CurriculumPlanner
+            fast_planner = CurriculumPlanner(use_llm=False)
+            plan, thoughts = await fast_planner.plan_curriculum(goal)
         
         # Her düşünce adımını yayınla
         for thought in thoughts:
@@ -187,7 +198,7 @@ class LearningJourneyOrchestrator:
                 },
                 agent_name=thought.agent_name
             )
-            await asyncio.sleep(0.1)  # Animasyon için kısa bekleme
+            await asyncio.sleep(0.05)  # Animasyon için kısa bekleme (hızlandırıldı)
         
         # Plan tamamlandı
         yield OrchestrationEvent(
@@ -297,13 +308,14 @@ class LearningJourneyOrchestrator:
                 type=EventType.CONTENT_BLOCK_CREATED,
                 data={
                     "block_id": block.id,
-                    "type": block.type.value,
+                    "type": block.type.value if hasattr(block.type, 'value') else str(block.type),
                     "title": block.title
                 },
                 agent_name="Content Generator"
             )
             await asyncio.sleep(0.05)
         
+        # Content blocks'u package'a ata
         package.content_blocks = content_blocks
         package.status = PackageStatus.IN_PROGRESS
         
@@ -311,7 +323,8 @@ class LearningJourneyOrchestrator:
             type=EventType.CONTENT_GENERATION_COMPLETED,
             data={
                 "package_id": package.id,
-                "blocks_count": len(content_blocks)
+                "blocks_count": len(content_blocks),
+                "content_blocks": [cb.to_dict() for cb in content_blocks]
             },
             agent_name="Content Generator"
         )
@@ -336,11 +349,14 @@ class LearningJourneyOrchestrator:
         for stage in state.plan.stages:
             for package in stage.packages:
                 if package.id == package_id:
-                    package.status = PackageStatus.COMPLETED
+                    package.status = PackageStatus.PASSED
                     
-                    # XP ekle
-                    state.progress.xp_earned += package.xp_reward
+                    # XP ekle ve level hesapla
+                    xp_result = state.progress.add_xp(package.xp_reward)
                     state.progress.completed_packages += 1
+                    
+                    # Streak güncelle
+                    state.progress.update_streak()
                     
                     # Sonraki paketi aç
                     pkg_index = stage.packages.index(package)
@@ -352,13 +368,16 @@ class LearningJourneyOrchestrator:
                         data={
                             "package_id": package.id,
                             "xp_earned": package.xp_reward,
-                            "total_xp": state.progress.xp_earned
+                            "total_xp": state.progress.xp_earned,
+                            "level": state.progress.level,
+                            "leveled_up": xp_result.get("leveled_up", False),
+                            "streak_days": state.progress.streak_days
                         },
                         agent_name="Orchestrator"
                     )
                     
                     # Tüm paketler tamamlandı mı?
-                    if all(p.status == PackageStatus.COMPLETED for p in stage.packages):
+                    if all(p.status == PackageStatus.PASSED for p in stage.packages):
                         stage.status = StageStatus.COMPLETED
                         state.progress.completed_stages += 1
                         
@@ -488,7 +507,7 @@ class LearningJourneyOrchestrator:
         return state.to_dict()
     
     def get_stage_map(self, journey_id: str) -> Optional[Dict[str, Any]]:
-        """Stage haritasını getir"""
+        """Stage haritasını getir - Frontend uyumlu format"""
         
         state = self.active_journeys.get(journey_id)
         if not state or not state.plan:
@@ -496,30 +515,152 @@ class LearningJourneyOrchestrator:
         
         stages = []
         for stage in state.plan.stages:
+            # Packages'ı frontend formatına çevir
+            packages = []
+            for pkg in stage.packages:
+                pkg_type = pkg.type.value if hasattr(pkg.type, 'value') else str(pkg.type)
+                pkg_status = pkg.status.value if hasattr(pkg.status, 'value') else str(pkg.status)
+                
+                packages.append({
+                    # Primary fields (new format)
+                    "id": pkg.id,
+                    "title": pkg.title,
+                    "type": pkg_type,
+                    "number": pkg.number,
+                    "status": pkg_status,
+                    # Alias fields (old format for compatibility)
+                    "package_id": pkg.id,
+                    "name": pkg.title,
+                    "package_type": pkg_type,
+                    "order": pkg.number,
+                    # Common fields
+                    "description": pkg.description,
+                    "progress_percentage": 100.0 if pkg.status == PackageStatus.PASSED else 0.0,
+                    "xp_earned": pkg.xp_reward if pkg.status == PackageStatus.PASSED else 0,
+                    "xp_total": pkg.xp_reward,
+                    "xp_reward": pkg.xp_reward,
+                    "content_blocks": [
+                        {
+                            "id": cb.id,
+                            "type": cb.type.value if hasattr(cb.type, 'value') else str(cb.type),
+                            "block_type": cb.type.value if hasattr(cb.type, 'value') else str(cb.type),
+                            "title": cb.title,
+                            "content": cb.content.get("markdown", "") if isinstance(cb.content, dict) else str(cb.content),
+                            "media_url": cb.media_url,
+                            "completed": False
+                        } for cb in (pkg.content_blocks or [])
+                    ],
+                    "exercises": [
+                        {
+                            "id": ex.id,
+                            "type": ex.type.value if hasattr(ex.type, 'value') else str(ex.type),
+                            "exercise_type": ex.type.value if hasattr(ex.type, 'value') else str(ex.type),
+                            "title": ex.title,
+                            "description": ex.instructions,
+                            "instructions": ex.instructions,
+                            "completed": False,
+                            "score": None
+                        } for ex in (pkg.exercises or [])
+                    ],
+                    "exams": [
+                        {
+                            "id": exam.id,
+                            "type": exam.type.value if hasattr(exam.type, 'value') else str(exam.type),
+                            "exam_type": exam.type.value if hasattr(exam.type, 'value') else str(exam.type),
+                            "title": exam.title,
+                            "description": exam.description,
+                            "topic": exam.questions[0].topic if exam.questions else pkg.topics[0] if pkg.topics else "",
+                            "time_limit_minutes": exam.time_limit_minutes or 30,
+                            "passing_score": exam.passing_score,
+                            "status": "pending",
+                            "score": None,
+                            "questions": [q.to_dict() for q in (exam.questions or [])]
+                        } for exam in (pkg.exams or [])
+                    ]
+                })
+            
+            stage_status = stage.status.value if hasattr(stage.status, 'value') else str(stage.status)
+            
             stages.append({
+                # Primary fields (new format)
                 "id": stage.id,
-                "number": stage.number,
                 "title": stage.title,
-                "status": stage.status.value,
-                "position": stage.position,
-                "theme": stage.theme,
-                "color_scheme": stage.color_scheme,
-                "xp_total": stage.xp_total,
-                "xp_earned": sum(p.xp_reward for p in stage.packages if p.status == PackageStatus.COMPLETED),
-                "packages_total": len(stage.packages),
-                "packages_completed": sum(1 for p in stage.packages if p.status == PackageStatus.COMPLETED)
+                "number": stage.number,
+                "status": stage_status,
+                # Alias fields (old format for compatibility)
+                "stage_id": stage.id,
+                "name": stage.title,
+                "order": stage.number,
+                # Common fields
+                "description": stage.description,
+                "packages": packages,
+                "progress_percentage": stage.progress_percentage,
+                "xp_earned": stage.xp_earned,
+                "xp_total": stage.xp_total
             })
         
         return {
             "journey_id": journey_id,
+            "title": state.plan.title,
+            "subject": state.plan.subject,
+            "target_outcome": state.plan.target_outcome,
+            "total_stages": len(state.plan.stages),
+            "total_packages": state.plan.total_packages,
+            "total_exams": state.plan.total_exams,
+            "total_exercises": state.plan.total_exercises,
+            "estimated_total_hours": state.plan.estimated_completion_days * 2,  # Günde 2 saat varsayımı
+            "total_xp_possible": state.plan.total_xp_possible,
             "stages": stages,
-            "total_xp": state.plan.total_xp_possible,
-            "earned_xp": state.progress.xp_earned if state.progress else 0,
-            "progress_percentage": (
-                state.progress.xp_earned / state.plan.total_xp_possible * 100
-                if state.plan.total_xp_possible > 0 else 0
-            )
+            "progress": {
+                "completed_packages": state.progress.completed_packages if state.progress else 0,
+                "total_packages": state.plan.total_packages,
+                "completed_exams": state.progress.completed_exams if state.progress else 0,
+                "total_exams": state.plan.total_exams,
+                "xp_earned": state.progress.xp_earned if state.progress else 0,
+                "xp_total": state.plan.total_xp_possible,
+                "streak_days": state.progress.streak_days if state.progress else 0,
+                "level": state.progress.level if state.progress else 1
+            } if state.progress else None
         }
+    
+    def list_journeys(self, user_id: str = "default_user") -> List[Dict[str, Any]]:
+        """Kullanıcının tüm yolculuklarını listele"""
+        
+        journeys = []
+        for journey_id, state in self.active_journeys.items():
+            if not state.plan:
+                continue
+            
+            # User ID kontrolü (progress'ten)
+            if state.progress and state.progress.user_id != user_id:
+                continue
+            
+            journeys.append({
+                "journey_id": journey_id,
+                "title": state.plan.title,
+                "subject": state.plan.subject,
+                "target_outcome": state.plan.target_outcome,
+                "total_stages": len(state.plan.stages),
+                "total_packages": state.plan.total_packages,
+                "total_exams": state.plan.total_exams,
+                "total_exercises": state.plan.total_exercises,
+                "estimated_total_hours": state.plan.estimated_total_hours,
+                "total_xp_possible": state.plan.total_xp_possible,
+                "created_at": state.started_at,
+                "is_active": state.is_active,
+                "progress": {
+                    "completed_packages": state.progress.completed_packages if state.progress else 0,
+                    "total_packages": state.plan.total_packages,
+                    "completed_exams": state.progress.completed_exams if state.progress else 0,
+                    "total_exams": state.plan.total_exams,
+                    "xp_earned": state.progress.xp_earned if state.progress else 0,
+                    "xp_total": state.plan.total_xp_possible,
+                    "streak_days": state.progress.streak_days if state.progress else 0,
+                    "level": state.progress.level if state.progress else 1
+                } if state.progress else None
+            })
+        
+        return journeys
     
     def update_time_spent(self, journey_id: str, seconds: int):
         """Harcanan zamanı güncelle"""

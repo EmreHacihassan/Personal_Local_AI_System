@@ -573,7 +573,7 @@ const SummaryStep: React.FC<{
         {goal.motivation && (
           <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
             <div className="text-sm text-gray-500 mb-1">💪 Motivasyonun</div>
-            <div className="text-gray-700 dark:text-gray-300 italic">"{goal.motivation}"</div>
+            <div className="text-gray-700 dark:text-gray-300 italic">&ldquo;{goal.motivation}&rdquo;</div>
           </div>
         )}
       </div>
@@ -585,7 +585,7 @@ const SummaryStep: React.FC<{
       >
         <GraduationCap className="w-6 h-6 text-green-600" />
         <div className="text-sm text-green-800 dark:text-green-300">
-          AI, senin için özel bir müfredat oluşturacak. Stage'ler, paketler, sınavlar ve sertifika hazır olacak!
+          AI, senin için özel bir müfredat oluşturacak. Stage&apos;ler, paketler, sınavlar ve sertifika hazır olacak!
         </div>
       </motion.div>
     </div>

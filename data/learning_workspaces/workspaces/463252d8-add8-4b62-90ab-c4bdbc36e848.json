@@ -1,0 +1,17 @@
+{
+  "id": "463252d8-add8-4b62-90ab-c4bdbc36e848",
+  "name": "TimeoutTest",
+  "description": "Test",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "7e185115-f22a-4262-91df-59131bd9c7f9"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T20:00:39.594966",
+  "updated_at": "2026-01-26T20:00:39.610109",
+  "settings": {}
+}

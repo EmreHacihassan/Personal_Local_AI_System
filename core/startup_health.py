@@ -696,7 +696,7 @@ class StartupHealthChecker:
             "Virtual Environment",
             self.check_virtual_env,
             is_critical=False,
-            fix_suggestion="Run: python -m venv venv && venv\\Scripts\\activate"
+            fix_suggestion="Run: python -m venv .venv && .venv\\Scripts\\activate"
         )
         
         self.run_check(

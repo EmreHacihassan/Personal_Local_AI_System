@@ -1,0 +1,17 @@
+{
+  "id": "335a5158-e2b3-43b3-af99-b2ff9f449b50",
+  "name": "QualityTest",
+  "description": "Kalite testi",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "eac037d2-05fc-47f2-936d-295834eb1bc0"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T20:40:07.123917",
+  "updated_at": "2026-01-26T20:40:07.149981",
+  "settings": {}
+}

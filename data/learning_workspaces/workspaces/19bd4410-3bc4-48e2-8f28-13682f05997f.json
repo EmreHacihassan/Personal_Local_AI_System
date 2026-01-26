@@ -1,0 +1,17 @@
+{
+  "id": "19bd4410-3bc4-48e2-8f28-13682f05997f",
+  "name": "FinalTest3",
+  "description": "Test",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "d4646a89-298a-4123-a79c-280228b799b0"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T20:06:05.512435",
+  "updated_at": "2026-01-26T20:06:05.528058",
+  "settings": {}
+}

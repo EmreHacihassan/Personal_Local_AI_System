@@ -177,9 +177,11 @@ Giriş:
         return ContentBlock(
             type=ContentType.TEXT,
             title=f"🎯 {package.title} - Giriş",
-            content=content,
-            estimated_read_time=2,
-            order=1
+            content={"markdown": content, "text": content},
+            duration_minutes=2,
+            order=1,
+            is_required=True,
+            metadata={"package_id": package.id}
         )
     
     def _mock_intro(self, package: Package) -> str:
@@ -231,9 +233,11 @@ Açıklama:
         return ContentBlock(
             type=ContentType.TEXT,
             title=f"📖 {topic}",
-            content=content,
-            estimated_read_time=5,
-            topic=topic
+            content={"markdown": content, "text": content},
+            duration_minutes=5,
+            order=0,
+            is_required=True,
+            metadata={"topic": topic, "curriculum_section": curriculum_section}
         )
     
     def _mock_explanation(self, topic: str) -> str:
@@ -298,11 +302,12 @@ Basit bir örnek ile açıklayalım:
                     content += f"$$\n{formula}\n$$\n\n"
                 
                 blocks.append(ContentBlock(
-                    type=ContentType.FORMULA,
+                    type=ContentType.FORMULA_SHEET,
                     title=f"📐 {topic} Formülleri",
-                    content=content,
-                    topic=topic,
-                    estimated_read_time=3
+                    content={"markdown": content, "formulas": formula_list},
+                    duration_minutes=3,
+                    order=0,
+                    metadata={"topic": topic}
                 ))
         
         return blocks
@@ -335,12 +340,12 @@ Markdown formatında yaz."""
                 content = self._mock_examples(topic)
             
             blocks.append(ContentBlock(
-                type=ContentType.INTERACTIVE,
+                type=ContentType.EXAMPLE,
                 title=f"✏️ {topic} Örnekleri",
-                content=content,
-                topic=topic,
-                estimated_read_time=10,
-                metadata={"type": "worked_examples"}
+                content={"markdown": content, "text": content},
+                duration_minutes=10,
+                order=0,
+                metadata={"topic": topic, "type": "worked_examples"}
             ))
         
         return blocks
@@ -416,12 +421,13 @@ Detaylı çözüm...
         blocks.append(ContentBlock(
             type=ContentType.VIDEO,
             title="🎬 Video Önerileri",
-            content=video_content,
-            topic=main_topic,
-            estimated_read_time=30,  # Video süresi
+            content={"markdown": video_content, "videos": video_suggestions},
+            duration_minutes=30,
+            order=0,
             metadata={
                 "videos": video_suggestions,
-                "search_query": main_topic
+                "search_query": main_topic,
+                "topic": main_topic
             }
         ))
         
@@ -453,11 +459,12 @@ Konuyu pekiştirmek için Feynman tekniğini kullan: Öğrendiğini basit kelime
 """
         
         return ContentBlock(
-            type=ContentType.TEXT,
+            type=ContentType.SUMMARY,
             title=f"📋 Özet",
-            content=summary_content,
-            estimated_read_time=2,
-            order=999
+            content={"markdown": summary_content, "text": summary_content},
+            duration_minutes=2,
+            order=999,
+            is_required=True
         )
     
     def _is_math_content(self, package: Package) -> bool:

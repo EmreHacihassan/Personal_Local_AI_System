@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 import asyncio
 import json
 
-router = APIRouter(prefix="/api/workflows", tags=["Advanced Workflow Orchestration"])
+router = APIRouter(prefix="/api/workflow-orchestrator", tags=["Advanced Workflow Orchestration"])
 
 
 # =============================================================================

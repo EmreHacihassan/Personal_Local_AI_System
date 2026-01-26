@@ -1,0 +1,22 @@
+{
+  "id": "default",
+  "name": null,
+  "profession": null,
+  "expertise_areas": {},
+  "interests": [],
+  "preferred_language": "tr",
+  "communication_style": "casual",
+  "response_length_preference": "balanced",
+  "technical_level": "intermediate",
+  "writing_patterns": {},
+  "vocabulary_preferences": [],
+  "avoided_terms": [],
+  "current_projects": [],
+  "frequently_used_tools": [],
+  "timezone": "Europe/Istanbul",
+  "total_interactions": 0,
+  "first_interaction": null,
+  "last_interaction": null,
+  "favorite_topics": {},
+  "custom_preferences": {}
+}

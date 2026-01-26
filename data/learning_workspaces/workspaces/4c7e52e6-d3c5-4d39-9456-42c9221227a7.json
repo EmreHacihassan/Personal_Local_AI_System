@@ -1,0 +1,17 @@
+{
+  "id": "4c7e52e6-d3c5-4d39-9456-42c9221227a7",
+  "name": "LongTest",
+  "description": "Uzun sureli test",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "4a73cba5-4ab0-4d01-bf13-943cf2eb85c1"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T20:56:23.644215",
+  "updated_at": "2026-01-26T20:56:23.660502",
+  "settings": {}
+}

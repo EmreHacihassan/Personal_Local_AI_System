@@ -1,0 +1,17 @@
+{
+  "id": "5317537c-ba58-4e36-813a-51cbc8f594d1",
+  "workspace_id": "8b54e11a-1fe3-4542-bffb-379099b81c8f",
+  "title": "Yapay Zeka Test",
+  "topic": "Yapay zeka ve makine ogrenmesi temel kavramlari",
+  "page_count": 2,
+  "style": "academic",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-26T19:30:07.393624",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-26T19:30:07.394619] 📋 Kuyruğa eklendi (Sıra: 1)",
+    "[2026-01-26T19:30:07.405998] 🚀 DeepScholar v2.0 başlatıldı (Queue)"
+  ]
+}

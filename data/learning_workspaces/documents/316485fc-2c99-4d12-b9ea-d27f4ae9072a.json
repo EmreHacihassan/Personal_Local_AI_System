@@ -1,0 +1,17 @@
+{
+  "id": "316485fc-2c99-4d12-b9ea-d27f4ae9072a",
+  "workspace_id": "93e76277-0dc8-4107-8343-aa559a4177b3",
+  "title": "Test Doc",
+  "topic": "AI basics",
+  "page_count": 2,
+  "style": "academic",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-26T19:41:55.897159",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-26T19:41:55.898159] 📋 Kuyruğa eklendi (Sıra: 1)",
+    "[2026-01-26T19:41:55.907162] 🚀 DeepScholar v2.0 başlatıldı (Queue)"
+  ]
+}

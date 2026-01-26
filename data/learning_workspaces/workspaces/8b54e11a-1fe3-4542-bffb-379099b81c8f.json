@@ -1,0 +1,19 @@
+{
+  "id": "8b54e11a-1fe3-4542-bffb-379099b81c8f",
+  "name": "Test Workspace",
+  "description": "Test workspace for API testing",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "951adc9c-8eb2-4c8b-bd2c-bd4124e00dda",
+    "ee039152-9538-49a4-9aef-ccbea05d202d",
+    "5317537c-ba58-4e36-813a-51cbc8f594d1"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T19:27:11.201656",
+  "updated_at": "2026-01-26T19:30:07.394619",
+  "settings": {}
+}

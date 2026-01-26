@@ -1,0 +1,17 @@
+{
+  "id": "081290ec-9d8c-4d0d-89b1-39063c0f1211",
+  "name": "Test4",
+  "description": "Test",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "8f13663a-ee05-4f22-a636-c4cfb178edcf"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T20:20:50.403678",
+  "updated_at": "2026-01-26T20:20:50.453658",
+  "settings": {}
+}

@@ -179,6 +179,16 @@ async def text_to_speech(request: TTSRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/synthesize", response_model=TTSResponse)
+async def synthesize_speech(request: TTSRequest):
+    """
+    Synthesize text to speech (alias for /tts)
+    
+    Returns base64 encoded audio
+    """
+    return await text_to_speech(request)
+
+
 @router.post("/tts/stream")
 async def text_to_speech_stream(request: TTSRequest):
     """

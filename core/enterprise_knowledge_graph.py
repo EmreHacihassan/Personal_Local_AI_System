@@ -1598,3 +1598,6 @@ class EnterpriseKnowledgeGraph:
 # =============================================================================
 
 enterprise_knowledge_graph = EnterpriseKnowledgeGraph()
+
+# Alias for backward compatibility
+knowledge_graph = enterprise_knowledge_graph

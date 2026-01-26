@@ -1,6 +1,6 @@
 # ╔═══════════════════════════════════════════════════════════════════════════════════╗
-# ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
-# ║  📁  Konum: .\venv\Scripts\python.exe                                           ║
+# ║  ⚠️  HATIRLATMA: Bu projede ZATEN bir .venv var! Yenisini oluşturmana gerek yok!  ║
+# ║  📁  Konum: .\.venv\Scripts\python.exe                                           ║
 # ╚═══════════════════════════════════════════════════════════════════════════════════╝
 #
 # Enterprise AI Assistant - Core Module v2.0

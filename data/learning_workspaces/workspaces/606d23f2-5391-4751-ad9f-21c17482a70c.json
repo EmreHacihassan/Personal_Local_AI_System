@@ -1,0 +1,17 @@
+{
+  "id": "606d23f2-5391-4751-ad9f-21c17482a70c",
+  "name": "DebugTest",
+  "description": "Debug queue",
+  "topic": "",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "529b6704-e305-4c5f-a558-6164b2865cdd"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-26T21:18:52.582203",
+  "updated_at": "2026-01-26T21:18:52.594914",
+  "settings": {}
+}

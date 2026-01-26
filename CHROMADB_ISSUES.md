@@ -1,8 +1,8 @@
 <!-- 
 ╔═══════════════════════════════════════════════════════════════════════════════════╗
-║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
-║  📁  Konum: .\venv\Scripts\pip.exe                                               ║
-║  💡  Kurulum: .\venv\Scripts\pip.exe install chromadb==0.4.24                    ║
+║  ⚠️  HATIRLATMA: Bu projede ZATEN bir .venv var! Yenisini oluşturmana gerek yok!  ║
+║  📁  Konum: .\.venv\Scripts\pip.exe                                               ║
+║  💡  Kurulum: .\.venv\Scripts\pip.exe install chromadb==0.4.24                    ║
 ╚═══════════════════════════════════════════════════════════════════════════════════╝
 -->
 
@@ -117,8 +117,8 @@ Python 3.11.9 (ZORUNLU)
 ```powershell
 # 1. Python 3.11.9 kur
 # 2. Virtual environment oluştur
-python -m venv venv
-.\venv\Scripts\activate
+python -m venv .venv
+.\.venv\Scripts\activate
 
 # 3. Paketleri kur
 pip install -r requirements.txt
@@ -195,13 +195,13 @@ Remove-Item "data\chroma_db" -Recurse -Force
 New-Item "data\chroma_db" -ItemType Directory
 
 # 3. NumPy'yi düzelt
-.\venv\Scripts\pip.exe install "numpy<2.0" --force-reinstall
+.\.venv\Scripts\pip.exe install "numpy<2.0" --force-reinstall
 
 # 4. ChromaDB'yi düzelt
-.\venv\Scripts\pip.exe install chromadb==0.4.24 --force-reinstall
+.\.venv\Scripts\pip.exe install chromadb==0.4.24 --force-reinstall
 
 # 5. Test et
-.\venv\Scripts\python.exe -c "import chromadb; c = chromadb.Client(); print('OK')"
+.\.venv\Scripts\python.exe -c "import chromadb; c = chromadb.Client(); print('OK')"
 ```
 
 ---

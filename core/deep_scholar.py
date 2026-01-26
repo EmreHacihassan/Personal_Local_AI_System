@@ -605,13 +605,25 @@ class BaseAgent:
         self.global_state = global_state
         self._executor = ThreadPoolExecutor(max_workers=2)
     
-    async def _llm_generate(self, prompt: str, temperature: float = 0.7) -> str:
-        """LLM çağrısı (async wrapper)."""
+    async def _llm_generate(self, prompt: str, temperature: float = 0.7, timeout: int = 600) -> str:
+        """LLM çağrısı (async wrapper with timeout).
+        
+        Args:
+            prompt: LLM'e gönderilecek prompt
+            temperature: Yaratıcılık seviyesi
+            timeout: Maksimum bekleme süresi (saniye), varsayılan 10 dakika (kalite için yeterli düşünme süresi)
+        """
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            lambda: llm_manager.generate(prompt, temperature=temperature)
-        )
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(
+                    self._executor,
+                    lambda: llm_manager.generate(prompt, temperature=temperature)
+                ),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"LLM çağrısı {timeout} saniye içinde yanıt vermedi")
     
     def _parse_json(self, text: str) -> Any:
         """JSON parse with fallback."""

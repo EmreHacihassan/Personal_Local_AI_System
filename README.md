@@ -1,8 +1,8 @@
 <!-- 
 ╔═══════════════════════════════════════════════════════════════════════════════════╗
-║  ⚠️  HATIRLATMA: Bu projede ZATEN bir venv var! Yenisini oluşturmana gerek yok!  ║
-║  📁  Konum: .\venv\Scripts\python.exe                                           ║
-║  💡  Çalıştırma: .\venv\Scripts\python.exe run.py                                ║
+║  ⚠️  HATIRLATMA: Bu projede ZATEN bir .venv var! Yenisini oluşturmana gerek yok!  ║
+║  📁  Konum: .\.venv\Scripts\python.exe                                           ║
+║  💡  Çalıştırma: .\.venv\Scripts\python.exe run.py                                ║
 ╚═══════════════════════════════════════════════════════════════════════════════════╝
 -->
 
@@ -109,9 +109,9 @@ git clone <repo-url>
 cd AgenticManagingSystem
 
 # 2. Virtual environment oluştur
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
 
 # 3. Bağımlılıkları yükle
 pip install -r requirements.txt

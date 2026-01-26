@@ -156,7 +156,7 @@ export function WorkflowOrchestratorPanel() {
 
   const loadNodeTypes = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/workflows/nodes/types`);
+      const res = await fetch(`${API_BASE}/api/workflow-orchestrator/nodes/types`);
       if (res.ok) {
         const data = await res.json();
         setNodeTypes(data.node_types || []);
@@ -168,7 +168,7 @@ export function WorkflowOrchestratorPanel() {
 
   const loadTemplates = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/workflows/templates`);
+      const res = await fetch(`${API_BASE}/api/workflow-orchestrator/templates`);
       if (res.ok) {
         const data = await res.json();
         setTemplates(data.templates || []);

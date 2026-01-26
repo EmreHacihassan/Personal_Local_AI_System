@@ -588,7 +588,7 @@ export default function ComputerUsePanel() {
                             <div className="flex items-center gap-2">
                               <span className="text-gray-500">Text:</span>
                               <code className="px-2 py-0.5 bg-gray-800 rounded text-green-400">
-                                "{approval.params.text}"
+                                &ldquo;{approval.params.text}&rdquo;
                               </code>
                             </div>
                           )}

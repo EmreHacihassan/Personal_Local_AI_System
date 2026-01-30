@@ -16,12 +16,16 @@ ENTERPRISE FEATURES:
 import asyncio
 import time
 import hashlib
+import logging
 from typing import AsyncGenerator, Optional, Dict, Any, Iterator
 from functools import lru_cache
 import ollama
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .config import settings
+
+# Logger setup
+logger = logging.getLogger(__name__)
 
 
 class TokenCounter:
@@ -505,19 +509,27 @@ class LLMManager:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         
-        messages.append({"role": "user", "content": prompt})
+        # Qwen3 - thinking mode aktif, içerik ayrı gönderilecek
+        # /think ile düşünme sürecini gösterebiliriz
+        user_content = prompt
+        
+        messages.append({"role": "user", "content": user_content})
         
         # Context window management
         messages = ContextWindowManager.truncate_messages(messages, target_model)
         
         # Queue for thread-safe communication
         import queue
+        import traceback
         chunk_queue: queue.Queue = queue.Queue()
         done_event = asyncio.Event()
         
         def stream_in_thread():
             """Thread'de streaming yap."""
             try:
+                logger.debug(f"Streaming başlıyor: model={target_model}")
+                logger.debug(f"Messages: {len(messages)} message(s)")
+                
                 stream = self.client.chat(
                     model=target_model,
                     messages=messages,
@@ -532,24 +544,90 @@ class LLMManager:
                     stream=True,
                 )
                 
-                in_thinking = True  # Qwen3 önce thinking mode'da başlar
+                logger.debug("Stream oluşturuldu, iterating...")
+                chunk_count = 0
+                in_thinking_block = False
+                thinking_buffer = []
+                
                 for chunk in stream:
+                    chunk_count += 1
+                    if chunk_count == 1:
+                        logger.debug(f"İlk chunk alındı: {type(chunk)}")
+                    
                     if "message" in chunk:
                         msg = chunk["message"]
-                        # Qwen3 thinking mode desteği - önce thinking, sonra content gelir
-                        # thinking bitince content'e geçer
-                        if hasattr(msg, 'thinking') and msg.thinking:
-                            # Thinking mode - bu kısmı atlıyoruz (veya opsiyonel gösterebiliriz)
-                            continue
-                        elif hasattr(msg, 'content') and msg.content:
-                            chunk_queue.put(msg.content)
-                        elif isinstance(msg, dict):
-                            # Dict formatı için fallback
-                            if msg.get("content"):
-                                chunk_queue.put(msg["content"])
+                        # Qwen3 thinking mode desteği - Dict'ten okuma
+                        if isinstance(msg, dict):
+                            # thinking veya content kontrol
+                            if msg.get("thinking"):
+                                # Thinking content - ayrı gönder
+                                thinking_content = msg.get("thinking", "")
+                                if thinking_content:
+                                    chunk_queue.put({"type": "thinking", "content": thinking_content})
+                                continue
+                            
+                            content = msg.get("content", "")
+                            if content:
+                                # <think>...</think> bloklarını yakala ve ayrı gönder
+                                import re
+                                
+                                # Thinking bloğu başlangıcı
+                                if "<think>" in content:
+                                    in_thinking_block = True
+                                    # <think> öncesi varsa gönder
+                                    before_think = content.split("<think>")[0]
+                                    if before_think.strip():
+                                        chunk_queue.put({"type": "content", "content": before_think})
+                                    # <think> sonrasını buffer'a ekle
+                                    after_tag = content.split("<think>")[-1]
+                                    if "</think>" not in after_tag:
+                                        thinking_buffer.append(after_tag)
+                                    else:
+                                        # Aynı chunk'ta kapanış var
+                                        parts = after_tag.split("</think>")
+                                        thinking_text = parts[0]
+                                        if thinking_text.strip():
+                                            chunk_queue.put({"type": "thinking", "content": thinking_text})
+                                        in_thinking_block = False
+                                        # </think> sonrası varsa gönder
+                                        if len(parts) > 1 and parts[1].strip():
+                                            chunk_queue.put({"type": "content", "content": parts[1]})
+                                    continue
+                                
+                                # Thinking bloğu içindeyiz
+                                if in_thinking_block:
+                                    if "</think>" in content:
+                                        # Thinking bloğu kapanıyor
+                                        parts = content.split("</think>")
+                                        thinking_buffer.append(parts[0])
+                                        full_thinking = "".join(thinking_buffer)
+                                        if full_thinking.strip():
+                                            chunk_queue.put({"type": "thinking", "content": full_thinking})
+                                        thinking_buffer = []
+                                        in_thinking_block = False
+                                        # </think> sonrası varsa gönder
+                                        if len(parts) > 1 and parts[1].strip():
+                                            chunk_queue.put({"type": "content", "content": parts[1]})
+                                    else:
+                                        thinking_buffer.append(content)
+                                    continue
+                                
+                                # Normal content
+                                chunk_queue.put({"type": "content", "content": content})
+                                if chunk_count <= 3:
+                                    logger.debug(f"Content queue'ya eklendi: {len(content)} chars")
+                        else:
+                            # Object attribute erişimi
+                            if hasattr(msg, 'thinking') and msg.thinking:
+                                chunk_queue.put({"type": "thinking", "content": msg.thinking})
+                            elif hasattr(msg, 'content') and msg.content:
+                                chunk_queue.put({"type": "content", "content": msg.content})
                 
+                logger.debug(f"Stream tamamlandı: {chunk_count} chunk")
                 chunk_queue.put(None)  # Signal completion
             except Exception as e:
+                logger.error(f"Stream hatası: {e}")
+                logger.debug(traceback.format_exc())
                 chunk_queue.put(e)  # Signal error
         
         # Thread'i başlat
@@ -558,6 +636,7 @@ class LLMManager:
         future = loop.run_in_executor(executor, stream_in_thread)
         
         full_response = []
+        thinking_chunks = []
         try:
             while True:
                 # Non-blocking queue check
@@ -572,8 +651,17 @@ class LLMManager:
                 elif isinstance(chunk, Exception):
                     raise chunk
                 else:
-                    full_response.append(chunk)
-                    yield chunk
+                    # Dict olarak yield et
+                    if isinstance(chunk, dict):
+                        if chunk.get("type") == "content":
+                            full_response.append(chunk.get("content", ""))
+                        elif chunk.get("type") == "thinking":
+                            thinking_chunks.append(chunk.get("content", ""))
+                        yield chunk
+                    else:
+                        # Eski format için backward compatibility
+                        full_response.append(chunk)
+                        yield {"type": "content", "content": chunk}
             
             # Metrics güncelle
             latency = (time.time() - start_time) * 1000

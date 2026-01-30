@@ -16,6 +16,7 @@ aksine zengin perspektifleri ÖDÜLLENDIRIR.
 
 import asyncio
 import json
+import logging
 import re
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -23,6 +24,9 @@ from enum import Enum
 from datetime import datetime
 
 from core.llm_manager import llm_manager
+
+# Logger setup
+logger = logging.getLogger(__name__)
 
 
 class ArgumentStrength(str, Enum):
@@ -204,7 +208,7 @@ class CriticAgent:
                     specific_suggestions=data.get("specific_suggestions", [])
                 )
         except Exception as e:
-            pass
+            logger.warning(f"Failed to parse critique response: {e}")
         
         # Varsayılan sonuç
         return CritiqueResult(

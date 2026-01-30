@@ -35,6 +35,22 @@ import traceback
 from core.config import settings
 from core.llm_manager import llm_manager
 
+# Premium modüller (opsiyonel)
+try:
+    from core.deep_scholar_premium.advanced import (
+        DynamicPageManager,
+        MultiAgentDebate,
+        RealTimeStreamingManager,
+        OriginalityChecker,
+        MultilingualResearchEngine,
+        ResearchAnalyticsEngine,
+        LiteratureReviewEngine,
+        PRISMAGenerator
+    )
+    PREMIUM_ADVANCED_AVAILABLE = True
+except ImportError:
+    PREMIUM_ADVANCED_AVAILABLE = False
+
 
 # ============================================================================
 # ENUMS & CONSTANTS
@@ -305,6 +321,18 @@ class DeepScholarConfig:
     visuals_per_section: int = 2  # Bölüm başına maksimum görsel sayısı
     enable_code_examples: bool = True  # Kod örnekleri ekle
     enable_formulas: bool = True  # Matematiksel formüller ekle
+    
+    # 🚀 Premium V2 Özellikler
+    enable_dynamic_pages: bool = True  # Dinamik sayfa artırma (max +15)
+    max_page_expansion: int = 15  # Maksimum ek sayfa sayısı
+    enable_debate_mode: bool = False  # Çok ajanlı tartışma modu
+    debate_perspectives: List[str] = field(default_factory=lambda: ["pro", "con", "devils_advocate"])
+    enable_originality_check: bool = True  # Orijinallik kontrolü
+    enable_multilingual: bool = False  # Çok dilli araştırma
+    research_languages: List[str] = field(default_factory=lambda: ["en", "tr"])
+    enable_analytics: bool = True  # Araştırma analitiği
+    enable_literature_review: bool = False  # Sistematik literatür tarama (PRISMA)
+    enable_realtime_streaming: bool = True  # Gerçek zamanlı streaming
 
 
 @dataclass
@@ -737,11 +765,15 @@ JSON formatında döndür:
         
         outline_data = self._parse_json(response)
         
-        if not outline_data:
+        # Validate outline_data is a list of dicts
+        if not outline_data or not isinstance(outline_data, list):
             return self._default_outline(config)
         
         sections = []
         for i, sec in enumerate(outline_data):
+            # Skip non-dict elements (e.g., if LLM returns list of strings)
+            if not isinstance(sec, dict):
+                continue
             sections.append(SectionOutline(
                 id=sec.get("id", f"sec_{i+1}"),
                 title=sec.get("title", f"Bölüm {i+1}"),
@@ -755,6 +787,10 @@ JSON formatında döndür:
                 dependencies=sec.get("dependencies", []),
                 parent_id=sec.get("parent_id")
             ))
+        
+        # If no valid sections found, use default
+        if not sections:
+            return self._default_outline(config)
         
         return sections
     
@@ -1832,6 +1868,15 @@ class DeepScholarOrchestrator:
         # Görsel üretici
         self.visual_generator = VisualGenerator()
         
+        # 🚀 Premium V2 Modüller
+        self.dynamic_page_manager: Optional['DynamicPageManager'] = None
+        self.multi_agent_debate: Optional['MultiAgentDebate'] = None
+        self.realtime_streaming: Optional['RealTimeStreamingManager'] = None
+        self.originality_checker: Optional['OriginalityChecker'] = None
+        self.multilingual_engine: Optional['MultilingualResearchEngine'] = None
+        self.analytics_engine: Optional['ResearchAnalyticsEngine'] = None
+        self.literature_review: Optional['LiteratureReviewEngine'] = None
+        
         # Event callback
         self._event_callback: Optional[Callable] = None
         
@@ -1920,6 +1965,27 @@ class DeepScholarOrchestrator:
                 language=config.language,
                 citation_style=config.citation_style
             )
+            
+            # 🚀 Premium V2 Modüllerini Başlat
+            if PREMIUM_ADVANCED_AVAILABLE:
+                if config.enable_dynamic_pages:
+                    self.dynamic_page_manager = DynamicPageManager(
+                        base_page_count=config.page_count,
+                        max_expansion=config.max_page_expansion
+                    )
+                
+                if config.enable_realtime_streaming:
+                    # target_sections = outline length (will be set after planning)
+                    self.realtime_streaming = RealTimeStreamingManager(
+                        target_pages=config.page_count,
+                        target_sections=10  # Default, will be updated after outline
+                    )
+                
+                if config.enable_originality_check:
+                    self.originality_checker = OriginalityChecker()
+                
+                if config.enable_analytics:
+                    self.analytics_engine = ResearchAnalyticsEngine()
             
             # Ajanları oluştur
             self.planner = PlannerAgent(self.global_state)
@@ -2014,6 +2080,42 @@ class DeepScholarOrchestrator:
                 "message": f"📚 Toplam {total_sources} kaynak bulundu",
                 "progress": 30
             }
+            
+            # 🚀 Research Analytics (Premium V2)
+            if PREMIUM_ADVANCED_AVAILABLE and config.enable_analytics and self.analytics_engine:
+                yield {
+                    "type": EventType.AGENT_THINKING.value,
+                    "agent": "ResearchAnalytics",
+                    "thought": "📊 Araştırma kalitesi analiz ediliyor..."
+                }
+                
+                # Tüm kaynakları düz listeye çevir
+                flat_sources = []
+                for section_id, research_items in all_research.items():
+                    for item in research_items:
+                        flat_sources.append({
+                            "id": item.id,
+                            "title": item.source_title,
+                            "type": item.source_type,
+                            "content": item.content[:500] if item.content else "",
+                            "keywords": [],
+                            "year": 2024
+                        })
+                
+                analytics_report = await self.analytics_engine.analyze_sources(
+                    flat_sources, config.topic
+                )
+                
+                yield {
+                    "type": "research_analytics",
+                    "quality_score": analytics_report.quality_score,
+                    "diversity_score": round(analytics_report.source_metrics.diversity_score, 2),
+                    "recency_score": round(analytics_report.source_metrics.recency_score, 2),
+                    "topic_clusters": [c.name for c in analytics_report.topic_clusters[:5]],
+                    "gaps": analytics_report.gaps_identified[:3],
+                    "recommendations": analytics_report.recommendations[:3],
+                    "message": f"📊 Araştırma kalitesi: {analytics_report.quality_score}/100"
+                }
             
             # ============ PHASE 3: WRITING ============
             yield {
@@ -2197,6 +2299,34 @@ class DeepScholarOrchestrator:
                         "section": section.title,
                         "clarity": review.get("clarity_score", 7),
                         "issues": review.get("issues", [])
+                    }
+                
+                # 🚀 Originality Check (Premium V2)
+                if PREMIUM_ADVANCED_AVAILABLE and config.enable_originality_check and self.originality_checker:
+                    yield {
+                        "type": EventType.AGENT_THINKING.value,
+                        "agent": "OriginalityChecker",
+                        "thought": f"📝 Orijinallik kontrolü yapılıyor: {section.title}"
+                    }
+                    
+                    # Kaynak metinleri al
+                    source_texts = [
+                        r.content for r in self.local_state.current_sources
+                        if r.content
+                    ]
+                    
+                    originality_report = await self.originality_checker.check_originality(
+                        content, source_texts
+                    )
+                    
+                    yield {
+                        "type": "originality_check",
+                        "section": section.title,
+                        "originality_score": originality_report.originality_score,
+                        "similarity_index": originality_report.similarity_index,
+                        "unique_phrases_ratio": originality_report.unique_phrases_ratio,
+                        "citation_count": len(originality_report.cited_passages),
+                        "message": f"📊 Orijinallik: {originality_report.originality_score:.0%}"
                     }
                 
                 yield {

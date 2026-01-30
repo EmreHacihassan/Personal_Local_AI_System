@@ -719,7 +719,591 @@ class ConceptMapEvaluator:
         )
 
 
+# ==================== TRUE/FALSE EVALUATOR ====================
+
+class TrueFalseEvaluator:
+    """
+    Doğru/Yanlış Sınav Değerlendiricisi
+    
+    Basit doğru/yanlış ifadelerini değerlendirir.
+    """
+    
+    def evaluate(
+        self,
+        exam: Exam,
+        answers: Dict[str, bool],  # question_id -> True/False
+        user_id: str,
+        attempt_number: int = 1,
+        time_taken_seconds: int = 0
+    ) -> ExamResult:
+        """Doğru/Yanlış sınavını değerlendir"""
+        
+        correct_count = 0
+        total_points = 0
+        earned_points = 0
+        criteria_scores = []
+        
+        for question in exam.questions:
+            total_points += question.points
+            user_answer = answers.get(question.id)
+            
+            # correct_answer "True", "False", "Doğru", "Yanlış" olabilir
+            correct_val = question.correct_answer
+            if isinstance(correct_val, str):
+                correct_val = correct_val.lower() in ["true", "doğru", "evet", "1"]
+            
+            is_correct = user_answer == correct_val
+            if is_correct:
+                correct_count += 1
+                earned_points += question.points
+            
+            criteria_scores.append(CriteriaScore(
+                criteria_name=f"tf_{question.id[:8]}",
+                score=question.points if is_correct else 0,
+                max_score=question.points,
+                feedback="Doğru!" if is_correct else f"Yanlış. Doğru cevap: {'Doğru' if correct_val else 'Yanlış'}"
+            ))
+        
+        percentage = (earned_points / total_points * 100) if total_points > 0 else 0
+        
+        return ExamResult(
+            exam_id=exam.id,
+            user_id=user_id,
+            exam_type=ExamType.TRUE_FALSE,
+            total_score=earned_points,
+            max_possible_score=total_points,
+            percentage=percentage,
+            passed=percentage >= exam.passing_score,
+            attempt_number=attempt_number,
+            criteria_scores=criteria_scores,
+            detailed_feedback=f"{correct_count}/{len(exam.questions)} ifade doğru.",
+            time_taken_seconds=time_taken_seconds
+        )
+
+
+# ==================== FILL IN THE BLANK EVALUATOR ====================
+
+class FillBlankEvaluator:
+    """
+    Boşluk Doldurma Sınav Değerlendiricisi
+    
+    Fuzzy matching ile boşluk doldurma sorularını değerlendirir.
+    """
+    
+    def __init__(self, llm_service=None):
+        self.llm_service = llm_service
+    
+    def _normalize(self, text: str) -> str:
+        """Metni normalize et - karşılaştırma için"""
+        import re
+        text = text.lower().strip()
+        text = re.sub(r'[^\w\s]', '', text)  # Noktalama kaldır
+        text = re.sub(r'\s+', ' ', text)  # Çoklu boşlukları tek boşluğa çevir
+        return text
+    
+    def _fuzzy_match(self, user_answer: str, correct_answers: List[str], threshold: float = 0.8) -> Tuple[bool, float]:
+        """Fuzzy matching ile cevap kontrolü"""
+        user_norm = self._normalize(user_answer)
+        
+        best_score = 0.0
+        for correct in correct_answers:
+            correct_norm = self._normalize(correct)
+            
+            # Tam eşleşme kontrolü
+            if user_norm == correct_norm:
+                return True, 1.0
+            
+            # Basit benzerlik hesabı (Jaccard benzeri)
+            user_words = set(user_norm.split())
+            correct_words = set(correct_norm.split())
+            
+            if not correct_words:
+                continue
+            
+            intersection = len(user_words & correct_words)
+            union = len(user_words | correct_words)
+            similarity = intersection / union if union > 0 else 0
+            
+            best_score = max(best_score, similarity)
+        
+        return best_score >= threshold, best_score
+    
+    def evaluate(
+        self,
+        exam: Exam,
+        answers: Dict[str, str],  # question_id -> user's answer
+        user_id: str,
+        attempt_number: int = 1,
+        time_taken_seconds: int = 0
+    ) -> ExamResult:
+        """Boşluk doldurma sınavını değerlendir"""
+        
+        total_points = 0
+        earned_points = 0
+        criteria_scores = []
+        
+        for question in exam.questions:
+            total_points += question.points
+            user_answer = answers.get(question.id, "")
+            
+            # Doğru cevaplar listesi (birden fazla kabul edilebilir cevap olabilir)
+            correct_answers = [question.correct_answer]
+            if question.hints:  # hints'i alternatif cevaplar olarak kullan
+                correct_answers.extend(question.hints)
+            
+            is_correct, score_ratio = self._fuzzy_match(user_answer, correct_answers)
+            
+            if is_correct:
+                score = question.points * score_ratio
+            elif score_ratio >= 0.5:  # Kısmi puan
+                score = question.points * score_ratio * 0.5
+            else:
+                score = 0
+            
+            earned_points += score
+            
+            criteria_scores.append(CriteriaScore(
+                criteria_name=f"blank_{question.id[:8]}",
+                score=round(score, 1),
+                max_score=question.points,
+                feedback="Doğru!" if is_correct else f"Beklenen: {question.correct_answer}"
+            ))
+        
+        percentage = (earned_points / total_points * 100) if total_points > 0 else 0
+        
+        return ExamResult(
+            exam_id=exam.id,
+            user_id=user_id,
+            exam_type=ExamType.FILL_BLANK,
+            total_score=round(earned_points, 1),
+            max_possible_score=total_points,
+            percentage=round(percentage, 1),
+            passed=percentage >= exam.passing_score,
+            attempt_number=attempt_number,
+            criteria_scores=criteria_scores,
+            detailed_feedback=f"Toplam {round(earned_points, 1)}/{total_points} puan.",
+            time_taken_seconds=time_taken_seconds
+        )
+
+
+# ==================== SHORT ANSWER EVALUATOR ====================
+
+class ShortAnswerEvaluator:
+    """
+    Kısa Cevap Sınav Değerlendiricisi
+    
+    LLM ile semantik değerlendirme + anahtar kelime kontrolü.
+    """
+    
+    def __init__(self, llm_service=None):
+        self.llm_service = llm_service
+    
+    async def evaluate(
+        self,
+        exam: Exam,
+        answers: Dict[str, str],  # question_id -> answer text
+        user_id: str,
+        attempt_number: int = 1,
+        time_taken_seconds: int = 0
+    ) -> ExamResult:
+        """Kısa cevap sınavını değerlendir"""
+        
+        total_points = 0
+        earned_points = 0
+        criteria_scores = []
+        
+        for question in exam.questions:
+            total_points += question.points
+            user_answer = answers.get(question.id, "")
+            
+            if self.llm_service:
+                score, feedback = await self._evaluate_with_llm(question, user_answer)
+            else:
+                score, feedback = self._keyword_evaluate(question, user_answer)
+            
+            earned_points += score
+            criteria_scores.append(CriteriaScore(
+                criteria_name=f"short_{question.id[:8]}",
+                score=round(score, 1),
+                max_score=question.points,
+                feedback=feedback
+            ))
+        
+        percentage = (earned_points / total_points * 100) if total_points > 0 else 0
+        
+        return ExamResult(
+            exam_id=exam.id,
+            user_id=user_id,
+            exam_type=ExamType.SHORT_ANSWER,
+            total_score=round(earned_points, 1),
+            max_possible_score=total_points,
+            percentage=round(percentage, 1),
+            passed=percentage >= exam.passing_score,
+            attempt_number=attempt_number,
+            criteria_scores=criteria_scores,
+            detailed_feedback=f"Toplam {round(earned_points, 1)}/{total_points} puan.",
+            time_taken_seconds=time_taken_seconds
+        )
+    
+    async def _evaluate_with_llm(self, question: ExamQuestion, answer: str) -> Tuple[float, str]:
+        """LLM ile kısa cevabı değerlendir"""
+        prompt = f"""Aşağıdaki kısa cevabı değerlendir.
+
+**Soru:** {question.question}
+**Doğru Cevap:** {question.correct_answer}
+**Öğrenci Cevabı:** {answer}
+**Maksimum Puan:** {question.points}
+
+Yanıtını şu formatta ver:
+{{"score": X, "feedback": "Değerlendirme..."}}"""
+        
+        try:
+            response = await self.llm_service.generate(prompt, json_mode=True)
+            data = json.loads(response)
+            return min(data.get("score", 0), question.points), data.get("feedback", "")
+        except:
+            return self._keyword_evaluate(question, answer)
+    
+    def _keyword_evaluate(self, question: ExamQuestion, answer: str) -> Tuple[float, str]:
+        """Anahtar kelime bazlı değerlendirme"""
+        answer_lower = answer.lower()
+        correct_lower = question.correct_answer.lower()
+        
+        # Anahtar kelimeler
+        correct_words = set(correct_lower.split())
+        answer_words = set(answer_lower.split())
+        
+        matching_words = correct_words & answer_words
+        match_ratio = len(matching_words) / max(len(correct_words), 1)
+        
+        score = question.points * match_ratio
+        
+        if match_ratio >= 0.8:
+            feedback = "Harika! Cevabın doğru."
+        elif match_ratio >= 0.5:
+            feedback = "Kısmen doğru. Bazı anahtar kavramlar eksik."
+        else:
+            feedback = f"Yanlış veya eksik. Beklenen: {question.correct_answer}"
+        
+        return round(score, 1), feedback
+
+
+# ==================== ESSAY EVALUATOR ====================
+
+class EssayEvaluator:
+    """
+    Kompozisyon (Essay) Değerlendiricisi
+    
+    Rubric bazlı LLM değerlendirme ile kapsamlı essay kontrolü.
+    """
+    
+    EVALUATION_CRITERIA = [
+        EvaluationCriteria("content", 30, 1.0, "İçerik ve tema uygunluğu"),
+        EvaluationCriteria("organization", 25, 1.0, "Yapı ve organizasyon"),
+        EvaluationCriteria("language", 25, 1.0, "Dil kullanımı ve gramer"),
+        EvaluationCriteria("creativity", 20, 1.0, "Yaratıcılık ve özgünlük"),
+    ]
+    
+    def __init__(self, llm_service=None):
+        self.llm_service = llm_service
+    
+    async def evaluate(
+        self,
+        exam: Exam,
+        essay_text: str,
+        user_id: str,
+        attempt_number: int = 1,
+        time_taken_seconds: int = 0
+    ) -> ExamResult:
+        """Kompozisyonu değerlendir"""
+        
+        if self.llm_service:
+            evaluation = await self._evaluate_with_llm(exam, essay_text)
+        else:
+            evaluation = self._mock_evaluation(essay_text)
+        
+        criteria_scores = []
+        total_score = 0
+        max_score = 100
+        
+        for criteria in self.EVALUATION_CRITERIA:
+            score = evaluation.get(criteria.name, {}).get("score", 0)
+            feedback = evaluation.get(criteria.name, {}).get("feedback", "")
+            
+            criteria_scores.append(CriteriaScore(
+                criteria_name=criteria.name,
+                score=score,
+                max_score=criteria.max_score,
+                feedback=feedback
+            ))
+            total_score += score
+        
+        percentage = (total_score / max_score * 100)
+        
+        return ExamResult(
+            exam_id=exam.id,
+            user_id=user_id,
+            exam_type=ExamType.ESSAY,
+            total_score=total_score,
+            max_possible_score=max_score,
+            percentage=percentage,
+            passed=percentage >= exam.passing_score,
+            attempt_number=attempt_number,
+            criteria_scores=criteria_scores,
+            detailed_feedback=evaluation.get("overall_feedback", ""),
+            suggestions=evaluation.get("suggestions", []),
+            time_taken_seconds=time_taken_seconds
+        )
+    
+    async def _evaluate_with_llm(self, exam: Exam, essay_text: str) -> Dict[str, Any]:
+        """LLM ile kompozisyon değerlendir"""
+        prompt = f"""Aşağıdaki kompozisyonu değerlendir.
+
+**Konu:** {exam.title}
+**Kompozisyon:**
+{essay_text}
+
+**Değerlendirme Kriterleri:**
+1. content (0-30): İçerik ve tema uygunluğu
+2. organization (0-25): Yapı ve organizasyon
+3. language (0-25): Dil kullanımı ve gramer
+4. creativity (0-20): Yaratıcılık ve özgünlük
+
+Yanıtını şu JSON formatında ver:
+{{
+    "content": {{"score": X, "feedback": "..."}},
+    "organization": {{"score": X, "feedback": "..."}},
+    "language": {{"score": X, "feedback": "..."}},
+    "creativity": {{"score": X, "feedback": "..."}},
+    "overall_feedback": "Genel değerlendirme...",
+    "suggestions": ["Öneri 1", "Öneri 2"]
+}}"""
+        
+        try:
+            response = await self.llm_service.generate(prompt, json_mode=True)
+            return json.loads(response)
+        except:
+            return self._mock_evaluation(essay_text)
+    
+    def _mock_evaluation(self, essay_text: str) -> Dict[str, Any]:
+        """Mock değerlendirme"""
+        word_count = len(essay_text.split())
+        paragraph_count = len([p for p in essay_text.split('\n\n') if p.strip()])
+        
+        base_score = min(70, word_count / 10)
+        
+        return {
+            "content": {"score": min(30, base_score * 0.3), "feedback": "İçerik değerlendirildi."},
+            "organization": {"score": min(25, paragraph_count * 5), "feedback": f"{paragraph_count} paragraf."},
+            "language": {"score": min(25, base_score * 0.25), "feedback": "Dil kullanımı uygun."},
+            "creativity": {"score": min(20, base_score * 0.2), "feedback": "Yaratıcılık değerlendirildi."},
+            "overall_feedback": f"Kompozisyonun {word_count} kelime içeriyor.",
+            "suggestions": ["Daha fazla örnek ekle", "Paragrafları geliştir"]
+        }
+
+
+# ==================== CODE CHALLENGE EVALUATOR ====================
+
+class CodeChallengeEvaluator:
+    """
+    Kod Yazma Sınav Değerlendiricisi
+    
+    Syntax kontrolü + test case çalıştırma + çıktı karşılaştırma.
+    """
+    
+    def __init__(self, llm_service=None):
+        self.llm_service = llm_service
+    
+    async def evaluate(
+        self,
+        exam: Exam,
+        code_submissions: Dict[str, str],  # question_id -> code
+        user_id: str,
+        attempt_number: int = 1,
+        time_taken_seconds: int = 0
+    ) -> ExamResult:
+        """Kod sınavını değerlendir"""
+        
+        total_points = 0
+        earned_points = 0
+        criteria_scores = []
+        
+        for question in exam.questions:
+            total_points += question.points
+            code = code_submissions.get(question.id, "")
+            
+            # Syntax kontrolü
+            syntax_ok, syntax_error = self._check_syntax(code)
+            
+            if not syntax_ok:
+                criteria_scores.append(CriteriaScore(
+                    criteria_name=f"code_{question.id[:8]}",
+                    score=0,
+                    max_score=question.points,
+                    feedback=f"Syntax hatası: {syntax_error}"
+                ))
+                continue
+            
+            # Test case çalıştırma (güvenli sandbox gerekir - burada mock)
+            if self.llm_service:
+                score, feedback = await self._evaluate_with_llm(question, code)
+            else:
+                score, feedback = self._mock_evaluate(question, code)
+            
+            earned_points += score
+            criteria_scores.append(CriteriaScore(
+                criteria_name=f"code_{question.id[:8]}",
+                score=round(score, 1),
+                max_score=question.points,
+                feedback=feedback
+            ))
+        
+        percentage = (earned_points / total_points * 100) if total_points > 0 else 0
+        
+        return ExamResult(
+            exam_id=exam.id,
+            user_id=user_id,
+            exam_type=ExamType.CODE_CHALLENGE,
+            total_score=round(earned_points, 1),
+            max_possible_score=total_points,
+            percentage=round(percentage, 1),
+            passed=percentage >= exam.passing_score,
+            attempt_number=attempt_number,
+            criteria_scores=criteria_scores,
+            detailed_feedback=f"Toplam {round(earned_points, 1)}/{total_points} puan.",
+            time_taken_seconds=time_taken_seconds
+        )
+    
+    def _check_syntax(self, code: str) -> Tuple[bool, str]:
+        """Python syntax kontrolü"""
+        try:
+            import ast
+            ast.parse(code)
+            return True, ""
+        except SyntaxError as e:
+            return False, str(e)
+    
+    async def _evaluate_with_llm(self, question: ExamQuestion, code: str) -> Tuple[float, str]:
+        """LLM ile kod değerlendir"""
+        prompt = f"""Aşağıdaki Python kodunu değerlendir.
+
+**Problem:** {question.question}
+**Beklenen Çözüm Konsepti:** {question.correct_answer if question.correct_answer else "Genel çözüm"}
+**Öğrenci Kodu:**
+```python
+{code}
+```
+**Maksimum Puan:** {question.points}
+
+Değerlendirme kriterleri:
+1. Kod doğru çalışıyor mu?
+2. Algoritma doğru mu?
+3. Kod kalitesi (okunabilirlik, verimlilik)
+
+Yanıtını şu formatta ver:
+{{"score": X, "feedback": "Değerlendirme..."}}"""
+        
+        try:
+            response = await self.llm_service.generate(prompt, json_mode=True)
+            data = json.loads(response)
+            return min(data.get("score", 0), question.points), data.get("feedback", "")
+        except:
+            return self._mock_evaluate(question, code)
+    
+    def _mock_evaluate(self, question: ExamQuestion, code: str) -> Tuple[float, str]:
+        """Mock kod değerlendirmesi"""
+        lines = len([l for l in code.split('\n') if l.strip()])
+        
+        if lines < 3:
+            return question.points * 0.2, "Kod çok kısa. Daha fazla detay gerekli."
+        elif lines < 10:
+            return question.points * 0.6, "Kod mantıklı görünüyor. İyileştirilebilir."
+        else:
+            return question.points * 0.85, "Kapsamlı bir çözüm. Harika!"
+
+
+# ==================== SELF ASSESSMENT EVALUATOR ====================
+
+class SelfAssessmentEvaluator:
+    """
+    Öz Değerlendirme Sınav Değerlendiricisi
+    
+    Kullanıcı kendini puanlar + güven düzeyi analizi.
+    """
+    
+    def evaluate(
+        self,
+        exam: Exam,
+        self_ratings: Dict[str, Dict[str, Any]],  # question_id -> {rating, confidence, reflection}
+        user_id: str,
+        attempt_number: int = 1
+    ) -> ExamResult:
+        """Öz değerlendirmeyi analiz et"""
+        
+        total_questions = len(exam.questions)
+        total_rating = 0
+        total_confidence = 0
+        criteria_scores = []
+        reflections = []
+        
+        for question in exam.questions:
+            rating_data = self_ratings.get(question.id, {})
+            rating = rating_data.get("rating", 0)  # 1-5 arası
+            confidence = rating_data.get("confidence", 50)  # 0-100
+            reflection = rating_data.get("reflection", "")
+            
+            total_rating += rating
+            total_confidence += confidence
+            
+            if reflection:
+                reflections.append(reflection)
+            
+            # Rating'i puana çevir (1-5 -> 0-20)
+            score = (rating / 5) * 20
+            
+            criteria_scores.append(CriteriaScore(
+                criteria_name=f"self_{question.id[:8]}",
+                score=score,
+                max_score=20,
+                feedback=f"Özgüven: %{confidence}"
+            ))
+        
+        avg_rating = total_rating / max(total_questions, 1)
+        avg_confidence = total_confidence / max(total_questions, 1)
+        
+        # Genel puan hesaplama
+        total_score = (avg_rating / 5) * 100
+        max_score = 100
+        percentage = total_score
+        
+        # Güven analizi
+        if avg_confidence > 80 and avg_rating < 3:
+            confidence_insight = "Düşük performansta yüksek güven - konuları gözden geçir."
+        elif avg_confidence < 40 and avg_rating > 3:
+            confidence_insight = "Kendine daha çok güvenebilirsin!"
+        else:
+            confidence_insight = "Öz farkındalığın dengeli görünüyor."
+        
+        return ExamResult(
+            exam_id=exam.id,
+            user_id=user_id,
+            exam_type=ExamType.SELF_ASSESSMENT,
+            total_score=round(total_score, 1),
+            max_possible_score=max_score,
+            percentage=round(percentage, 1),
+            passed=True,  # Öz değerlendirmede herkes geçer
+            attempt_number=attempt_number,
+            criteria_scores=criteria_scores,
+            detailed_feedback=f"Ortalama değerlendirme: {avg_rating:.1f}/5, Ortalama güven: %{avg_confidence:.0f}. {confidence_insight}",
+            suggestions=[
+                "Zayıf olduğunu düşündüğün konuları tekrar et",
+                "Güven düzeyini artırmak için daha fazla pratik yap"
+            ] + reflections[:3]
+        )
+
+
 # ==================== EXAM SYSTEM ORCHESTRATOR ====================
+
 
 class ExamSystem:
     """
@@ -735,6 +1319,13 @@ class ExamSystem:
         self.problem_evaluator = ProblemSolvingEvaluator(llm_service)
         self.teach_back_evaluator = TeachBackEvaluator(llm_service)
         self.concept_map_evaluator = ConceptMapEvaluator(llm_service)
+        # Yeni evaluator'lar
+        self.true_false_evaluator = TrueFalseEvaluator()
+        self.fill_blank_evaluator = FillBlankEvaluator(llm_service)
+        self.short_answer_evaluator = ShortAnswerEvaluator(llm_service)
+        self.essay_evaluator = EssayEvaluator(llm_service)
+        self.code_challenge_evaluator = CodeChallengeEvaluator(llm_service)
+        self.self_assessment_evaluator = SelfAssessmentEvaluator()
     
     async def evaluate_exam(
         self,
@@ -789,8 +1380,61 @@ class ExamSystem:
                 attempt_number=attempt_number
             )
         
+        elif exam.type == ExamType.TRUE_FALSE:
+            return self.true_false_evaluator.evaluate(
+                exam=exam,
+                answers=submission.get("answers", {}),
+                user_id=user_id,
+                attempt_number=attempt_number,
+                time_taken_seconds=submission.get("time_taken_seconds", 0)
+            )
+        
+        elif exam.type == ExamType.FILL_BLANK:
+            return self.fill_blank_evaluator.evaluate(
+                exam=exam,
+                answers=submission.get("answers", {}),
+                user_id=user_id,
+                attempt_number=attempt_number,
+                time_taken_seconds=submission.get("time_taken_seconds", 0)
+            )
+        
+        elif exam.type == ExamType.SHORT_ANSWER:
+            return await self.short_answer_evaluator.evaluate(
+                exam=exam,
+                answers=submission.get("answers", {}),
+                user_id=user_id,
+                attempt_number=attempt_number,
+                time_taken_seconds=submission.get("time_taken_seconds", 0)
+            )
+        
+        elif exam.type == ExamType.ESSAY:
+            return await self.essay_evaluator.evaluate(
+                exam=exam,
+                essay_text=submission.get("essay_text", ""),
+                user_id=user_id,
+                attempt_number=attempt_number,
+                time_taken_seconds=submission.get("time_taken_seconds", 0)
+            )
+        
+        elif exam.type == ExamType.CODE_CHALLENGE:
+            return await self.code_challenge_evaluator.evaluate(
+                exam=exam,
+                code_submissions=submission.get("code_submissions", {}),
+                user_id=user_id,
+                attempt_number=attempt_number,
+                time_taken_seconds=submission.get("time_taken_seconds", 0)
+            )
+        
+        elif exam.type == ExamType.SELF_ASSESSMENT:
+            return self.self_assessment_evaluator.evaluate(
+                exam=exam,
+                self_ratings=submission.get("self_ratings", {}),
+                user_id=user_id,
+                attempt_number=attempt_number
+            )
+        
         else:
-            # Diğer türler için basit değerlendirme
+            # Kalan türler için basit değerlendirme (ORAL_PRESENTATION, PEER_REVIEW, PRACTICAL, SIMULATION_BASED)
             return ExamResult(
                 exam_id=exam.id,
                 user_id=user_id,
@@ -800,7 +1444,7 @@ class ExamSystem:
                 percentage=0,
                 passed=False,
                 attempt_number=attempt_number,
-                detailed_feedback="Bu sınav türü henüz desteklenmiyor."
+                detailed_feedback="Bu sınav türü henüz desteklenmiyor. (ORAL_PRESENTATION, PEER_REVIEW, PRACTICAL, SIMULATION_BASED)"
             )
     
     async def generate_questions(

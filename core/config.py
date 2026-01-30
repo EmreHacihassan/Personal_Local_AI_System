@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, ConfigDict
 
 
 class Settings(BaseSettings):
@@ -17,7 +17,9 @@ class Settings(BaseSettings):
     
     # Project paths
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
-    DATA_DIR: Path = Field(default_factory=lambda: Path(__file__).resolve().parent.parent / "data")
+    # Data isolation: User data stored outside project workspace for privacy
+    # External AI coding assistants cannot access this path
+    DATA_DIR: Path = Field(default_factory=lambda: Path(os.environ.get("AGENTIC_DATA_DIR", "C:/Users/LENOVO/AgenticData")))
     LOGS_DIR: Path = Field(default_factory=lambda: Path(__file__).resolve().parent.parent / "logs")
     
     # Ollama settings
@@ -37,12 +39,12 @@ class Settings(BaseSettings):
     # Frontend settings
     STREAMLIT_PORT: int = 8501
     
-    # ChromaDB settings
-    CHROMA_PERSIST_DIR: str = "./data/chroma_db"
+    # ChromaDB settings - relative to DATA_DIR
+    CHROMA_PERSIST_DIR: str = Field(default_factory=lambda: str(Path(os.environ.get("AGENTIC_DATA_DIR", "C:/Users/LENOVO/AgenticData")) / "chroma_db"))
     CHROMA_COLLECTION_NAME: str = "enterprise_knowledge"
     
-    # SQLite settings
-    SQLITE_DB_PATH: str = "./data/enterprise.db"
+    # SQLite settings - relative to DATA_DIR
+    SQLITE_DB_PATH: str = Field(default_factory=lambda: str(Path(os.environ.get("AGENTIC_DATA_DIR", "C:/Users/LENOVO/AgenticData")) / "enterprise.db"))
     
     # RAG settings
     CHUNK_SIZE: int = 1000
@@ -70,10 +72,12 @@ class Settings(BaseSettings):
     # Logging settings
     LOG_LEVEL: str = "INFO"
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    # Pydantic V2 model config
+    model_config = ConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
     
     def ensure_directories(self) -> None:
         """Gerekli klasörleri oluştur."""

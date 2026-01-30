@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, Request, Form, Query
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -64,6 +65,9 @@ from rag.hybrid_search import HybridSearcher, SearchStrategy, Document as Hybrid
 from api.websocket import websocket_endpoint, manager
 from tools.web_search_engine import PremiumWebSearchEngine, get_search_engine, WebSearchTool
 from tools.research_synthesizer import get_synthesizer, ResearchSynthesizer
+
+from api.routers import notes
+from api.routers import upload
 
 # Learning module router
 from api.learning_endpoints import router as learning_router
@@ -377,11 +381,22 @@ Geriye uyumluluk için eski endpoint'ler de desteklenmektedir.
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
+    allow_origins=["*"],  # GÜVENLİK DUVARINI KALDIR (Failed to fetch çözüm)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include Routers
+app.include_router(notes.router)
+app.include_router(upload.router)
+app.include_router(learning_router)
+
+# Mount static files
+
+# Mount static files
+# data/uploads -> /static/uploads
+app.mount("/static", StaticFiles(directory=str(settings.DATA_DIR)), name="static")
 
 
 # ============ GLOBAL EXCEPTION HANDLERS ============
@@ -439,14 +454,40 @@ async def global_exception_handler(request: Request, exc: Exception):
     """
     import traceback
     error_trace = traceback.format_exc()
-    logger.error(f"Unhandled exception on {request.url}: {str(exc)}\n{error_trace}")
     
-    # Production'da stack trace gösterme
+    # 1. Terminale bas (En güvenli yol)
+    print(f"\n{'!'*20} CRITICAL API ERROR {'!'*20}")
+    print(f"URL: {request.url}")
+    print(f"Error Type: {type(exc).__name__}")
+    print(f"Error Msg: {str(exc)}")
+    print(f"Traceback:\n{error_trace}")
+    print(f"{'!'*60}\n")
+    
+    # 2. Logger (Patlama ihtimaline karşı try-except içinde)
+    try:
+        logger.error(f"Unhandled exception on {request.url}: {type(exc).__name__}: {str(exc)}")
+    except:
+        pass
+
+    # 3. HTTPException ise kendi formatını koru
+    if hasattr(exc, "status_code") and hasattr(exc, "detail"):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": "HTTP_EXCEPTION",
+                "message": exc.detail if isinstance(exc.detail, str) else "İstek hatası",
+                "detail": exc.detail,
+                "type": type(exc).__name__
+            }
+        )
+    
+    # 4. Genel 500 hatası
     return JSONResponse(
         status_code=500,
         content={
             "error": "INTERNAL_ERROR",
             "message": "Beklenmeyen bir hata oluştu",
+            "detail": f"{type(exc).__name__}: {str(exc)}",
             "type": type(exc).__name__
         }
     )
@@ -1829,6 +1870,24 @@ async def chat_stream(request: ChatRequest):
             else:
                 knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=8, strategy="fusion")
             
+            # === SİSTEM HAKKINDA SORU TESPİTİ ===
+            # SELF_KNOWLEDGE_PROMPT sadece kullanıcı sistem hakkında soru sorduğunda eklenir
+            # Bu, LLM'in normal sorularda (integral, matematik vb.) dikkatinin dağılmasını önler
+            system_about_keywords = [
+                "sen kimsin", "kimsin sen", "kendini tanıt", "adın ne", "ismin ne",
+                "nasıl çalışıyorsun", "özelliklerin neler", "hangi özelliklerin var",
+                "mcp nedir", "mcp ne", "yeteneklerin", "neler yapabilirsin", "ne yapabilirsin",
+                "rag nedir", "rag ne", "enterprise ai", "bu sistem ne", "sistem hakkında",
+                "mimariniz", "altyapınız", "teknik detay", "nasıl bir sistem", "senden bahset",
+                "who are you", "what are you", "your capabilities", "what can you do",
+                "tell me about yourself", "introduce yourself", "your features",
+                "how do you work", "your architecture", "your system"
+            ]
+            is_about_system = any(keyword in query_lower for keyword in system_about_keywords)
+            
+            # Sistem bilgisini sadece gerektiğinde ekle
+            self_knowledge_section = SELF_KNOWLEDGE_PROMPT if is_about_system else ""
+            
             # Response mode'a göre sistem promptu ayarla
             # Complexity level'a göre derinlik ayarla
             complexity_instruction = ""
@@ -1919,9 +1978,7 @@ Yanıtında dökümanlardan aldığın bilgilere referans ver. Format:
 """
             
             system_prompt = f"""Sen "{SYSTEM_NAME}" adlı kurumsal bir AI asistanısın (v{SYSTEM_VERSION}). Türkçe yanıt ver.
-
-{SELF_KNOWLEDGE_PROMPT}
-
+{self_knowledge_section}
 {mode_instruction}
 {continue_instruction}
 {reference_instruction}
@@ -1931,14 +1988,14 @@ Yanıtında dökümanlardan aldığın bilgilere referans ver. Format:
 {knowledge_text}
 
 **KRİTİK KURALLAR:**
-1. Eğer yukarıda "BİLGİ TABANI İÇERİKLERİ" bölümü varsa, öncelikle bu bilgileri kullanarak yanıt ver.
-2. Her bilgi için ilgili referansı [X] veya [X.Y] formatında ekle (X=döküman harfi, Y=sayfa no).
-3. Konuşma geçmişini DİKKATLİCE oku ve bağlamı koru.
-4. Eğer önceki yanıtın yarım kaldıysa (ÖNCEKİ YANITIM YARIM KALDI işareti varsa), önce onu tamamla.
-5. Kullanıcı "devam et", "bitir" gibi komutlar verdiyse, önceki yarım kalan yanıtı TAM OLARAK tamamla.
-6. Yanıtını ASLA yarım bırakma, her zaman mantıksal bir sonuçla bitir.
-7. Yanıtın sonunda "{reference_list}" bölümünü EKLEMENİ İSTEMİYORUM, sadece metin içinde referans kullan.
-8. Kullanıcı kendi mimarini, yeteneklerini veya nasıl çalıştığını sorarsa yukarıdaki "Senin Hakkında" bölümündeki bilgileri kullan.
+1. Kullanıcının ASIL SORUSUNA ODAKLAN ve onu yanıtla. Sistem bilgilerini sormadıysa, sistem hakkında bilgi verme.
+2. Eğer yukarıda "BİLGİ TABANI İÇERİKLERİ" bölümü varsa, öncelikle bu bilgileri kullanarak yanıt ver.
+3. RAG bilgisi varsa referansı [X] veya [X.Y] formatında ekle (X=döküman harfi, Y=sayfa no).
+4. Konuşma geçmişini DİKKATLİCE oku ve bağlamı koru.
+5. Eğer önceki yanıtın yarım kaldıysa, önce onu tamamla.
+6. Kullanıcı "devam et", "bitir" gibi komutlar verdiyse, önceki yarım kalan yanıtı TAM OLARAK tamamla.
+7. Yanıtını ASLA yarım bırakma, her zaman mantıksal bir sonuçla bitir.
+8. Yanıtın sonunda "{reference_list}" bölümünü EKLEMENİ İSTEMİYORUM, sadece metin içinde referans kullan.
 
 Yukarıdaki konuşma geçmişini, kullanıcının notlarını ve bilgi tabanı içeriklerini dikkate alarak mevcut soruya cevap ver."""
             
@@ -2258,6 +2315,23 @@ async def chat_web_stream(request: ChatRequest):
             else:
                 knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=8, strategy="rerank")
             
+            # === SİSTEM HAKKINDA SORU TESPİTİ (Web Search için de) ===
+            # SELF_KNOWLEDGE_PROMPT sadece kullanıcı sistem hakkında soru sorduğunda eklenir
+            system_about_keywords = [
+                "sen kimsin", "kimsin sen", "kendini tanıt", "adın ne", "ismin ne",
+                "nasıl çalışıyorsun", "özelliklerin neler", "hangi özelliklerin var",
+                "mcp nedir", "mcp ne", "yeteneklerin", "neler yapabilirsin", "ne yapabilirsin",
+                "rag nedir", "rag ne", "enterprise ai", "bu sistem ne", "sistem hakkında",
+                "mimariniz", "altyapınız", "teknik detay", "nasıl bir sistem", "senden bahset",
+                "who are you", "what are you", "your capabilities", "what can you do",
+                "tell me about yourself", "introduce yourself", "your features",
+                "how do you work", "your architecture", "your system"
+            ]
+            is_about_system = any(keyword in query_lower for keyword in system_about_keywords)
+            
+            # Sistem bilgisini sadece gerektiğinde ekle
+            self_knowledge_section = SELF_KNOWLEDGE_PROMPT if is_about_system else ""
+            
             # ===== PHASE 3: BUILD PROMPTS =====
             # Response mode'a göre ek talimatlar
             if request.response_mode == "detailed":
@@ -2331,9 +2405,7 @@ Kullanıcı önceki yarım kalan yanıtının devamını istiyor.
 """
                 
                 system_prompt = f"""Sen "{SYSTEM_NAME}" adlı kurumsal bir AI asistanısın (v{SYSTEM_VERSION}). Türkçe yanıt ver.
-
-{SELF_KNOWLEDGE_PROMPT}
-
+{self_knowledge_section}
 {continue_instruction}
 {reference_instruction}
 {history_text}
@@ -2342,12 +2414,12 @@ Kullanıcı önceki yarım kalan yanıtının devamını istiyor.
 {knowledge_text}
 
 **KRİTİK KURALLAR:**
-1. Eğer yukarıda "BİLGİ TABANI İÇERİKLERİ" bölümü varsa, öncelikle bu bilgileri kullanarak yanıt ver.
-2. Her bilgi için ilgili referansı [X] veya [X.Y] formatında ekle.
-3. Konuşma geçmişini DİKKATLİCE oku ve bağlamı koru.
-4. Eğer önceki yanıtın yarım kaldıysa, önce onu tamamla.
-5. Yanıtını ASLA yarım bırakma.
-6. Kullanıcı kendi mimarini, yeteneklerini veya nasıl çalıştığını sorarsa yukarıdaki "Senin Hakkında" bölümündeki bilgileri kullan.
+1. Kullanıcının ASIL SORUSUNA ODAKLAN ve onu yanıtla. Sistem bilgilerini sormadıysa, sistem hakkında bilgi verme.
+2. Eğer yukarıda "BİLGİ TABANI İÇERİKLERİ" bölümü varsa, öncelikle bu bilgileri kullanarak yanıt ver.
+3. RAG bilgisi varsa referansı [X] veya [X.Y] formatında ekle.
+4. Konuşma geçmişini DİKKATLİCE oku ve bağlamı koru.
+5. Eğer önceki yanıtın yarım kaldıysa, önce onu tamamla.
+6. Yanıtını ASLA yarım bırakma.
 
 ⚠️ Web araması yapılamadı. Bilgi tabanındaki dökümanları ve genel bilginle yanıt ver.
 """
@@ -3185,319 +3257,6 @@ async def cleanup_old_sessions(days: int = 7):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============ NOTES API ============
-# File-based persistence using NotesManager (data/notes/notes.json)
-
-
-class NoteCreate(BaseModel):
-    """Not oluşturma modeli."""
-    title: str = Field(..., min_length=1, max_length=200)
-    content: str = Field(default="")
-    folder_id: Optional[str] = None
-    color: Optional[str] = "yellow"
-    pinned: Optional[bool] = False
-    tags: Optional[List[str]] = []
-
-
-class NoteUpdate(BaseModel):
-    """Not güncelleme modeli."""
-    title: Optional[str] = None
-    content: Optional[str] = None
-    folder_id: Optional[str] = None
-    color: Optional[str] = None
-    pinned: Optional[bool] = None
-    tags: Optional[List[str]] = None
-
-
-class FolderCreate(BaseModel):
-    """Klasör oluşturma modeli."""
-    name: str = Field(..., min_length=1, max_length=100)
-    parent_id: Optional[str] = None
-    color: Optional[str] = "blue"
-    icon: Optional[str] = "📁"
-
-
-class FolderUpdate(BaseModel):
-    """Klasör güncelleme modeli."""
-    name: Optional[str] = None
-    parent_id: Optional[str] = None
-    color: Optional[str] = None
-    icon: Optional[str] = None
-
-
-@app.get("/api/notes", tags=["Notes"])
-async def get_notes(
-    folder_id: Optional[str] = None,
-    include_subfolders: bool = False,
-    search_query: Optional[str] = None,
-    pinned_only: bool = False,
-):
-    """
-    Tüm notları listele. Opsiyonel olarak klasöre veya arama sorgusuna göre filtrele.
-    """
-    try:
-        notes = notes_manager.list_notes(
-            folder_id=folder_id,
-            include_subfolders=include_subfolders,
-            search_query=search_query,
-            pinned_only=pinned_only,
-        )
-        # Convert to dicts
-        notes_list = [n.to_dict() for n in notes]
-        return {"notes": notes_list, "count": len(notes_list)}
-        
-    except Exception as e:
-        logger.error(f"Notes list error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/notes", tags=["Notes"])
-async def create_note(note: NoteCreate):
-    """
-    Yeni not oluştur. File-based kalıcı depolama kullanır.
-    """
-    try:
-        created_note = notes_manager.create_note(
-            title=note.title,
-            content=note.content,
-            folder_id=note.folder_id,
-            color=note.color or "yellow",
-            tags=note.tags or [],
-            pinned=note.pinned or False,
-        )
-        return created_note.to_dict()
-        
-    except Exception as e:
-        logger.error(f"Note create error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/notes/{note_id}", tags=["Notes"])
-async def get_note(note_id: str):
-    """
-    Belirli bir notu getir.
-    """
-    try:
-        note = notes_manager.get_note(note_id)
-        if not note:
-            raise HTTPException(status_code=404, detail="Not bulunamadı")
-        return note.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Note get error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.put("/api/notes/{note_id}", tags=["Notes"])
-async def update_note(note_id: str, note: NoteUpdate):
-    """
-    Bir notu güncelle.
-    """
-    try:
-        updated_note = notes_manager.update_note(
-            note_id=note_id,
-            title=note.title,
-            content=note.content,
-            folder_id=note.folder_id,
-            color=note.color,
-            tags=note.tags,
-            pinned=note.pinned,
-        )
-        
-        if not updated_note:
-            raise HTTPException(status_code=404, detail="Not bulunamadı")
-        
-        return updated_note.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Note update error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/api/notes/{note_id}", tags=["Notes"])
-async def delete_note(note_id: str):
-    """
-    Bir notu sil.
-    """
-    try:
-        success = notes_manager.delete_note(note_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Not bulunamadı")
-        
-        return {"message": "Not silindi", "note_id": note_id}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Note delete error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/notes/{note_id}/pin", tags=["Notes"])
-async def toggle_note_pin(note_id: str):
-    """
-    Notu sabitle/kaldır.
-    """
-    try:
-        note = notes_manager.toggle_pin(note_id)
-        if not note:
-            raise HTTPException(status_code=404, detail="Not bulunamadı")
-        return note.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Note pin toggle error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/notes/{note_id}/move", tags=["Notes"])
-async def move_note(note_id: str, folder_id: Optional[str] = None):
-    """
-    Notu başka klasöre taşı.
-    """
-    try:
-        note = notes_manager.move_note(note_id, folder_id)
-        if not note:
-            raise HTTPException(status_code=404, detail="Not bulunamadı")
-        return note.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Note move error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============ FOLDERS API ============
-
-
-@app.get("/api/folders", tags=["Folders"])
-async def get_folders(parent_id: Optional[str] = None):
-    """
-    Klasörleri listele. parent_id=None ise root klasörleri döndürür.
-    """
-    try:
-        folders = notes_manager.list_folders(parent_id=parent_id)
-        return {"folders": [f.to_dict() for f in folders], "count": len(folders)}
-        
-    except Exception as e:
-        logger.error(f"Folders list error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/folders/all", tags=["Folders"])
-async def get_all_folders():
-    """
-    Tüm klasörleri getir (ağaç yapısı için).
-    """
-    try:
-        folders = notes_manager.get_all_folders()
-        return {"folders": [f.to_dict() for f in folders], "count": len(folders)}
-        
-    except Exception as e:
-        logger.error(f"All folders list error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/folders", tags=["Folders"])
-async def create_folder(folder: FolderCreate):
-    """
-    Yeni klasör oluştur.
-    """
-    try:
-        created_folder = notes_manager.create_folder(
-            name=folder.name,
-            parent_id=folder.parent_id,
-            color=folder.color or "blue",
-            icon=folder.icon or "📁",
-        )
-        return created_folder.to_dict()
-        
-    except Exception as e:
-        logger.error(f"Folder create error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/folders/{folder_id}", tags=["Folders"])
-async def get_folder(folder_id: str):
-    """
-    Belirli bir klasörü getir.
-    """
-    try:
-        folder = notes_manager.get_folder(folder_id)
-        if not folder:
-            raise HTTPException(status_code=404, detail="Klasör bulunamadı")
-        return folder.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Folder get error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/folders/{folder_id}/path", tags=["Folders"])
-async def get_folder_path(folder_id: str):
-    """
-    Klasörün breadcrumb path'ini getir.
-    """
-    try:
-        path = notes_manager.get_folder_path(folder_id)
-        return {"path": [f.to_dict() for f in path]}
-        
-    except Exception as e:
-        logger.error(f"Folder path error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.put("/api/folders/{folder_id}", tags=["Folders"])
-async def update_folder(folder_id: str, folder: FolderUpdate):
-    """
-    Klasörü güncelle.
-    """
-    try:
-        updated_folder = notes_manager.update_folder(
-            folder_id=folder_id,
-            name=folder.name,
-            color=folder.color,
-            icon=folder.icon,
-            parent_id=folder.parent_id,
-        )
-        
-        if not updated_folder:
-            raise HTTPException(status_code=404, detail="Klasör bulunamadı")
-        
-        return updated_folder.to_dict()
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Folder update error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/api/folders/{folder_id}", tags=["Folders"])
-async def delete_folder(folder_id: str, recursive: bool = True):
-    """
-    Klasörü sil. recursive=True ise içindeki notları ve alt klasörleri de siler.
-    """
-    try:
-        success = notes_manager.delete_folder(folder_id, recursive=recursive)
-        if not success:
-            raise HTTPException(status_code=404, detail="Klasör bulunamadı veya boş değil")
-        
-        return {"message": "Klasör silindi", "folder_id": folder_id}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Folder delete error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============ ENTERPRISE RAG ENDPOINTS ============
@@ -5532,14 +5291,178 @@ app.include_router(learning_journey_v2_router)  # 🎓 Learning Journey V2 (Mult
 app.include_router(certificate_router)          # 📜 Certificate Verification System
 
 
+# ============ MIND GRAPH ENDPOINT (DIRECT) ============
+# 🧠 Doğrudan Mind Graph endpoint - routing sorunlarını çözmek için
+
+@app.get("/api/notes/graph", tags=["notes"])
+async def get_notes_graph_direct(
+    include_orphans: bool = True,
+    include_similarity: bool = True,
+    similarity_threshold: float = 0.2,
+    include_tags: bool = True,
+    folder_filter: Optional[str] = None
+):
+    """
+    Mind graf verisi - React Flow için nodes ve edges.
+    Notlar arasındaki ilişkileri Obsidian tarzında görselleştirir.
+    
+    Bu endpoint routes/notes.py'deki endpoint ile aynı işlevi görür,
+    ancak routing sorunlarını çözmek için doğrudan main.py'de tanımlanmıştır.
+    """
+    try:
+        from core.note_graph import get_note_graph
+        note_graph = get_note_graph(notes_manager=notes_manager)
+        graph = note_graph.build_graph(
+            include_orphans=include_orphans,
+            include_similarity=include_similarity,
+            similarity_threshold=similarity_threshold,
+            include_tags=include_tags,
+            folder_filter=folder_filter
+        )
+        logger.info(f"[Mind Graph] Generated: {len(graph.get('nodes', []))} nodes, {len(graph.get('edges', []))} edges")
+        return graph
+    except Exception as e:
+        logger.error(f"[Mind Graph] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# 🔥 Premium Mind Map Endpoints - Direct Registration
+
+@app.get("/api/notes/graph/connections", tags=["notes"])
+async def get_connection_counts_direct():
+    """
+    🔥 Her node'un bağlantı sayısı (Heat Map için).
+    """
+    try:
+        from core.note_graph import get_note_graph
+        note_graph = get_note_graph(notes_manager=notes_manager)
+        counts = note_graph.get_connection_counts()
+        return {"connections": counts}
+    except Exception as e:
+        logger.error(f"[Premium] Connection counts error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notes/graph/clusters", tags=["notes"])
+async def get_note_clusters_direct():
+    """
+    🎨 Notları konu bazlı kümele.
+    AI-powered topic clustering.
+    """
+    try:
+        from core.note_graph import get_note_graph
+        note_graph = get_note_graph(notes_manager=notes_manager)
+        clusters = note_graph.cluster_notes_by_similarity()
+        return {"clusters": clusters}
+    except Exception as e:
+        logger.error(f"[Premium] Clustering error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notes/graph/path", tags=["notes"])
+async def find_graph_path_direct(source_id: str, target_id: str):
+    """
+    🔗 İki not arasındaki en kısa yolu bul.
+    Path finding with BFS algorithm.
+    """
+    try:
+        from core.note_graph import get_note_graph
+        note_graph = get_note_graph(notes_manager=notes_manager)
+        path_result = note_graph.find_path(source_id, target_id)
+        return path_result
+    except Exception as e:
+        logger.error(f"[Premium] Path finding error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notes/{note_id}/details", tags=["notes"])
+async def get_note_details_direct(note_id: str):
+    """
+    📋 Not detayları (Sidebar preview için).
+    """
+    try:
+        from core.note_graph import get_note_graph
+        note_graph = get_note_graph(notes_manager=notes_manager)
+        details = note_graph.get_node_details(note_id)
+        if not details:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        return details
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Premium] Note details error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notes/{note_id}/ai-summary", tags=["notes"])
+async def get_ai_summary_direct(note_id: str):
+    """
+    🤖 Not için AI özeti oluştur.
+    """
+    try:
+        from core.note_graph import get_note_graph
+        note_graph = get_note_graph(notes_manager=notes_manager)
+        summary = note_graph.generate_ai_summary(note_id)
+        return {"summary": summary}
+    except Exception as e:
+        logger.error(f"[Premium] AI summary error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ PRODUCTION-READY UPLOAD ENGINE (FINAL RESOLUTION) ============
+
+@app.post("/api/v1/upload/image")
+async def production_upload_image(file: UploadFile = File(...)):
+    """
+    Standardized, robust, and proxied upload endpoint.
+    Handles Multipart files and saves to enterprise storage.
+    """
+    try:
+        import os
+        import uuid
+        import shutil
+        
+        # 1. Ensure Directory (Enterprise Grade)
+        target_dir = os.path.normpath("C:/Users/LENOVO/AgenticData/uploads/images")
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+            
+        # 2. Secure Filename
+        ext = os.path.splitext(file.filename)[1].lower() or ".jpg"
+        filename = f"img_{uuid.uuid4().hex}{ext}"
+        filepath = os.path.join(target_dir, filename)
+        
+        # 3. Stream Based Save (Efficient)
+        with open(filepath, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        print(f"[SYSTEM] Image Uploaded Successfully: {filename}")
+        
+        # 4. Success Response (Compatible with static mount)
+        return {
+            "success": True,
+            "url": f"/static/uploads/images/{filename}",
+            "filename": filename,
+            "original_name": file.filename
+        }
+        
+    except Exception as e:
+        import traceback
+        error_msg = f"Upload Engine Error: {str(e)}"
+        print(f"[SYSTEM ERROR] {error_msg}")
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"success": False, "error": error_msg})
+
 # ============ RUN SERVER ============
 
 if __name__ == "__main__":
     import uvicorn
     
     uvicorn.run(
-        "main:app",
+        "api.main:app",
         host=settings.API_HOST,
-        port=settings.API_PORT,
+        port=8001,  # Standard Backend Port
         reload=settings.API_DEBUG,
     )

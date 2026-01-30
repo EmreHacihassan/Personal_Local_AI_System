@@ -545,8 +545,9 @@ Relationships (JSON only):"""
                             source_doc=source_doc
                         )
                         relationships.append(rel)
-                    except:
-                        pass
+                    except (KeyError, ValueError, TypeError) as e:
+                        logger.debug(f"Skipping invalid relationship: {e}")
+                        continue
                 
                 return relationships
         

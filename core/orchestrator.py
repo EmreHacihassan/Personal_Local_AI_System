@@ -444,21 +444,57 @@ class EnterpriseAIOrchestrator:
         )
     
     async def _generate_simple_response(self, query: str, context: str) -> str:
-        """Generate a simple LLM response"""
+        """Generate a language-aware LLM response with multi-task support and language override."""
         from .llm_manager import llm_manager
+        from .language_detector import (
+            detect_language, 
+            detect_requested_language,
+            get_system_prompt_for_language, 
+            Language
+        )
         
-        prompt = f"""Context:
+        # 1. Önce açık dil talebi kontrol et (override)
+        requested_lang = detect_requested_language(query)
+        
+        # 2. Override yoksa otomatik dil tespiti
+        if requested_lang:
+            response_lang = requested_lang
+            is_override = True
+        else:
+            response_lang = detect_language(query)
+            is_override = False
+        
+        # 3. Dile göre system prompt al
+        sys_prompt = get_system_prompt_for_language(response_lang)
+        
+        # Override durumunda ek talimat ekle
+        if is_override:
+            if response_lang == Language.ENGLISH:
+                sys_prompt += "\n\n⚠️ KULLANICI AÇIKÇA İNGİLİZCE YANIT İSTEDİ. Sorgu hangi dilde olursa olsun İNGİLİZCE yanıt ver."
+            else:
+                sys_prompt += "\n\n⚠️ USER EXPLICITLY REQUESTED TURKISH RESPONSE. Respond in TURKISH regardless of query language."
+        
+        # 4. Prompt oluştur
+        if response_lang == Language.TURKISH:
+            prompt = f"""Bağlam:
+{context}
+
+Soru: {query}
+
+Bağlama dayalı yardımcı ve doğru bir yanıt ver. Birden fazla görev varsa hepsini tamamla."""
+        else:
+            prompt = f"""Context:
 {context}
 
 Question: {query}
 
-Provide a helpful, accurate answer based on the context."""
+Provide a helpful, accurate answer based on the context. If there are multiple tasks, complete all of them."""
         
         try:
             # Use actual LLM client
             response = await llm_manager.generate_async(
                 prompt=prompt,
-                system_prompt="You are a helpful AI assistant that provides accurate answers based on the given context.",
+                system_prompt=sys_prompt,
                 temperature=0.7,
                 max_tokens=2048
             )
@@ -468,6 +504,8 @@ Provide a helpful, accurate answer based on the context."""
             from .logger import get_logger
             logger = get_logger("orchestrator")
             logger.warning(f"LLM generation failed, using fallback: {e}")
+            if response_lang == Language.TURKISH:
+                return f"Verilen bağlama göre yanıtım: {query}"
             return f"Based on the provided context, here is my response to: {query}"
     
     async def transcribe_audio(self, audio_data: bytes) -> str:

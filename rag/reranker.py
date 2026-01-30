@@ -316,7 +316,7 @@ class CrossEncoderReranker(RerankerStrategy):
         """Lazy loading for embedding manager"""
         if self._embedding_manager is None:
             try:
-                from core.embedding_manager import embedding_manager
+                from core.embedding import embedding_manager
                 self._embedding_manager = embedding_manager
             except ImportError:
                 self._embedding_manager = False  # Mark as unavailable

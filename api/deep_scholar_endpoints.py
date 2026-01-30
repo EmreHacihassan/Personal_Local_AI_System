@@ -157,7 +157,7 @@ async def _process_queue_item(document_id: str, workspace_id: str, config: 'Deep
             document.generation_log.append(f"[{datetime.now().isoformat()}] 🚀 DeepScholar v2.0 başlatıldı (Queue)")
             learning_workspace_manager.update_document(document)
         
-        # Event callback - state güncelle
+        # Event callback - state güncelle VE WebSocket'e gönder
         async def update_state(event: Dict):
             if not gen_state:
                 return
@@ -167,6 +167,14 @@ async def _process_queue_item(document_id: str, workspace_id: str, config: 'Deep
             gen_state["progress"] = event.get("progress", gen_state["progress"])
             gen_state["current_phase"] = event.get("phase", gen_state.get("current_phase", ""))
             gen_state["current_agent"] = event.get("agent", gen_state.get("current_agent", ""))
+            
+            # 🔥 FIX: WebSocket bağlıysa doğrudan event gönder
+            ws = gen_state.get("websocket")
+            if ws and gen_state.get("websocket_connected"):
+                try:
+                    await ws.send_json(event)
+                except Exception as ws_err:
+                    logger.warning(f"[Queue] WebSocket send error: {ws_err}")
             
             # Bölüm tamamlandıysa
             if event_type in ["section_written", "section_complete"]:
@@ -204,11 +212,14 @@ async def _process_queue_item(document_id: str, workspace_id: str, config: 'Deep
                     except Exception as e:
                         print(f"[Queue Resilience Error] {e}")
             
-            # Agent düşüncesi
-            if event_type == "agent_thinking":
+            # Agent düşüncesi - hem agent_thinking hem agent_message
+            if event_type in ["agent_thinking", "agent_message"]:
+                thought_text = event.get("thought", "") or event.get("message", "")
                 gen_state["agent_thoughts"].append({
                     "agent": event.get("agent", ""),
-                    "thought": event.get("thought", ""),
+                    "thought": thought_text,
+                    "message": thought_text,  # Frontend uyumu için
+                    "type": event_type,
                     "timestamp": datetime.now().isoformat()
                 })
             
@@ -723,8 +734,9 @@ async def deep_scholar_websocket(websocket: WebSocket, document_id: str):
         if gen_state and gen_state.get("status") in ["generating", "starting", "paused"]:
             print(f"[WebSocket] Reconnecting to active generation: {document_id}")
             
-            # WebSocket bağlantısını işaretle
+            # WebSocket bağlantısını işaretle ve referansı kaydet
             gen_state["websocket_connected"] = True
+            gen_state["websocket"] = websocket  # 🔥 FIX: WebSocket referansı ekle
             
             # Mevcut durumu gönder - RECONNECT event
             await websocket.send_json({
@@ -750,10 +762,12 @@ async def deep_scholar_websocket(websocket: WebSocket, document_id: str):
             
             # Agent düşüncelerini gönder
             for thought in gen_state.get("agent_thoughts", []):
+                thought_type = thought.get("type", "agent_message")
                 await websocket.send_json({
-                    "type": "agent_thinking",
+                    "type": thought_type,
                     "agent": thought.get("agent"),
-                    "thought": thought.get("thought")
+                    "thought": thought.get("thought", "") or thought.get("message", ""),
+                    "message": thought.get("message", "") or thought.get("thought", "")
                 })
             
             # Görselleri gönder
@@ -783,6 +797,7 @@ async def deep_scholar_websocket(websocket: WebSocket, document_id: str):
                     await websocket.send_json({"type": "ping"})
                 except WebSocketDisconnect:
                     gen_state["websocket_connected"] = False
+                    gen_state["websocket"] = None  # 🔥 FIX: Referansı temizle
                     return
             return
         
@@ -815,6 +830,7 @@ async def deep_scholar_websocket(websocket: WebSocket, document_id: str):
         
         config = gen_state["config"]
         gen_state["websocket_connected"] = True
+        gen_state["websocket"] = websocket  # 🔥 FIX: WebSocket referansı ekle
         
         # Eğer kuyrukta veya başlatılıyor durumundaysa, generation başlamasını bekle
         initial_status = gen_state.get("status")
@@ -1026,6 +1042,7 @@ async def deep_scholar_websocket(websocket: WebSocket, document_id: str):
         # State'i silme, sadece websocket bağlantısını kapat
         if gen_state:
             gen_state["websocket_connected"] = False
+            gen_state["websocket"] = None  # 🔥 FIX: Referansı temizle
     except Exception as e:
         import traceback
         print(f"[WebSocket Error] {e}")

@@ -149,7 +149,14 @@ class BaseCurriculumAgent(ABC):
             try:
                 from core.llm_router import get_best_available_llm
                 self._llm_service = get_best_available_llm()
-            except:
+            except ImportError:
+                # Fallback: use llm_manager directly
+                try:
+                    from core.llm_manager import llm_manager
+                    self._llm_service = llm_manager
+                except Exception:
+                    pass
+            except Exception:
                 pass
         return self._llm_service
     
@@ -333,8 +340,8 @@ Yanıtını JSON formatında döndür:
                     "evidence": [],
                     "recommendations": []
                 }
-        except Exception as e:
-            raise e
+        except Exception:
+            raise
     
     def _generate_mock_response(
         self, 

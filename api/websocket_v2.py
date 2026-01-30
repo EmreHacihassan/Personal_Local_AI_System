@@ -112,6 +112,7 @@ class ClientConnection:
     stop_flag: bool = False
     session_id: Optional[str] = None
     current_stream_id: Optional[str] = None  # Aktif stream ID
+    active_agents: Dict[str, Any] = field(default_factory=dict)  # Aktif agent'lar
     
     @property
     def connection_duration(self) -> float:
@@ -190,8 +191,8 @@ class WebSocketManagerV2:
                 old_conn = self._connections[client_id]
                 try:
                     await old_conn.websocket.close(code=1000, reason="New connection")
-                except:
-                    pass
+                except Exception:
+                    pass  # Ignore errors when closing old connection
             
             # Bağlantıyı kabul et
             await websocket.accept()
@@ -543,6 +544,10 @@ class WebSocketHandlerV2:
         session_id = data.get("session_id") or str(uuid.uuid4())
         self.conn.session_id = session_id
         
+        # Model routing modu - frontend'den gelen use_routing parametresini kontrol et
+        use_routing = data.get("use_routing", False)
+        force_model = data.get("force_model")
+        
         # Web search modu
         web_search = data.get("web_search", False)
         response_mode = data.get("response_mode", "normal")
@@ -561,9 +566,18 @@ class WebSocketHandlerV2:
         self.conn.is_streaming = True
         self.conn.total_requests += 1
         
-        self._stream_task = asyncio.create_task(
-            self._stream_response(message, session_id, web_search, response_mode, complexity_level)
-        )
+        # use_routing=true ise model routing kullan, yoksa normal stream
+        if use_routing:
+            self._stream_task = asyncio.create_task(
+                self._stream_routed_response(
+                    message, session_id, use_routing, force_model,
+                    web_search, complexity_level, response_mode
+                )
+            )
+        else:
+            self._stream_task = asyncio.create_task(
+                self._stream_response(message, session_id, web_search, response_mode, complexity_level)
+            )
     
     async def _handle_routed_message(self, data: dict) -> None:
         """
@@ -601,6 +615,11 @@ class WebSocketHandlerV2:
         use_routing = data.get("use_routing", True)
         force_model = data.get("force_model")
         
+        # Yeni parametreler
+        web_search = data.get("web_search", False)
+        complexity_level = data.get("complexity_level", "auto")
+        response_mode = data.get("response_mode", "normal")
+        
         # Önceki stream'i iptal et
         if self._stream_task and not self._stream_task.done():
             self._stream_task.cancel()
@@ -615,7 +634,10 @@ class WebSocketHandlerV2:
         self.conn.total_requests += 1
         
         self._stream_task = asyncio.create_task(
-            self._stream_routed_response(message, session_id, use_routing, force_model)
+            self._stream_routed_response(
+                message, session_id, use_routing, force_model,
+                web_search, complexity_level, response_mode
+            )
         )
     
     async def _handle_feedback(self, data: dict) -> None:
@@ -1115,6 +1137,9 @@ class WebSocketHandlerV2:
         session_id: str,
         use_routing: bool = True,
         force_model: Optional[str] = None,
+        web_search: bool = False,
+        complexity_level: str = "auto",
+        response_mode: str = "normal",
     ) -> None:
         """
         Model routing ile streaming yanıt üret.
@@ -1124,6 +1149,9 @@ class WebSocketHandlerV2:
             session_id: Session ID
             use_routing: Model routing kullanılsın mı
             force_model: Zorla belirli model kullan
+            web_search: Web araması yapılsın mı
+            complexity_level: simple/normal/comprehensive/research
+            response_mode: normal/analytical/creative/technical
         """
         stats = StreamStats(start_time=time.time())
         
@@ -1135,27 +1163,74 @@ class WebSocketHandlerV2:
         try:
             model_router = get_model_router()
             
-            # 1. ROUTING
+            # Başlangıç mesajı
+            await self._send({
+                "type": "start",
+                "ts": int(time.time() * 1000),
+                "session_id": session_id,
+                "stream_id": stream_id,
+            })
+            
+            # ⚡ Basit sorgu tespiti - ROUTING'DEN ÖNCE kontrol et
+            simple_query_patterns = [
+                "merhaba", "selam", "nasılsın", "naber", "günaydın", "iyi akşamlar",
+                "hello", "hi", "hey", "good morning", "good evening",
+                "bugün nasılsın", "ne yapıyorsun", "ne haber", "teşekkür",
+                "sağol", "thanks", "thank you"
+            ]
+            message_lower = message.lower().strip()
+            is_simple_query = any(pattern in message_lower for pattern in simple_query_patterns) or len(message) < 20
+            
+            # Complexity override - simple mode forced
+            if complexity_level == "simple":
+                is_simple_query = True
+            elif complexity_level in ["comprehensive", "research"]:
+                is_simple_query = False
+            
+            # === PHASE 1: ROUTING ===
+            await self._send({
+                "type": "status",
+                "message": "⚡ Hızlı yanıt..." if is_simple_query else "Model seçiliyor...",
+                "phase": "routing"
+            })
+            
             if force_model:
-                # Zorla belirtilen model
+                # Zorla belirtilen model - 'small' veya 'large' string olarak gelebilir
+                if force_model == "small":
+                    actual_model = MODEL_CONFIG[ModelSize.SMALL]["name"]
+                    model_size = "small"
+                elif force_model == "large":
+                    actual_model = MODEL_CONFIG[ModelSize.LARGE]["name"]
+                    model_size = "large"
+                else:
+                    actual_model = force_model
+                    model_size = "unknown"
+                    
                 routing_info = {
-                    "model_name": force_model,
-                    "model_size": "unknown",
+                    "model_name": actual_model,
+                    "model_size": model_size,
+                    "model_icon": MODEL_CONFIG.get(ModelSize.SMALL if model_size == "small" else ModelSize.LARGE, {}).get("icon", "🤖"),
+                    "model_display_name": MODEL_CONFIG.get(ModelSize.SMALL if model_size == "small" else ModelSize.LARGE, {}).get("display_name", actual_model),
                     "decision_source": "forced",
                     "confidence": 1.0,
                     "response_id": str(uuid.uuid4()),
+                }
+            elif is_simple_query:
+                # ⚡ Basit sorgular için routing atla, direkt small model
+                routing_info = {
+                    "model_name": MODEL_CONFIG[ModelSize.SMALL]["name"],
+                    "model_size": "small",
+                    "model_icon": MODEL_CONFIG[ModelSize.SMALL]["icon"],
+                    "model_display_name": MODEL_CONFIG[ModelSize.SMALL]["display_name"],
+                    "decision_source": "simple_query_bypass",
+                    "confidence": 1.0,
+                    "response_id": str(uuid.uuid4()),
+                    "reasoning": "Basit sorgu - hızlı yanıt modu"
                 }
             elif use_routing:
                 # Model router kullan
                 routing_result = await model_router.route_async(message)
                 routing_info = routing_result.to_dict()
-                
-                # Routing bilgisini gönder
-                await self._send({
-                    "type": "routing",
-                    "routing_info": routing_info,
-                    "timestamp": datetime.now().isoformat()
-                })
             else:
                 # Default small model
                 routing_info = {
@@ -1166,57 +1241,233 @@ class WebSocketHandlerV2:
                     "response_id": str(uuid.uuid4()),
                 }
             
+            # Routing bilgisini gönder
+            await self._send({
+                "type": "routing",
+                "routing_info": routing_info,
+                "timestamp": datetime.now().isoformat()
+            })
+            
             model_name = routing_info["model_name"]
             response_id = routing_info.get("response_id", str(uuid.uuid4()))
             
-            # Başlangıç mesajı
+            # === RAG ARAŞI (Karmaşık sorgular için) ===
+            knowledge_context = ""
+            sources = []
+            
+            if is_simple_query:
+                # === PHASE 2: SEARCH (skipped) ===
+                await self._send({
+                    "type": "status",
+                    "message": "⚡ Atlandı",
+                    "phase": "search"
+                })
+                # === PHASE 3: ANALYZE (skipped) ===
+                await self._send({
+                    "type": "status",
+                    "message": "⚡ Atlandı",
+                    "phase": "analyze"
+                })
+            else:
+                # === PHASE 2: SEARCH ===
+                await self._send({
+                    "type": "status",
+                    "message": "Bilgi tabanı aranıyor...",
+                    "phase": "search"
+                })
+                
+                # RAG Search - karmaşık sorgular için bilgi tabanını ara
+                try:
+                    # Arama sonuç sayısını complexity'ye göre ayarla
+                    n_results = 3 if complexity_level == "normal" else 5 if complexity_level == "comprehensive" else 7
+                    score_threshold = 0.25 if complexity_level in ["comprehensive", "research"] else 0.35
+                    
+                    results = vector_store.search_with_scores(
+                        query=message, 
+                        n_results=n_results, 
+                        score_threshold=score_threshold
+                    )
+                    
+                    if results:
+                        knowledge_context = "\n\n".join([
+                            f"[Kaynak: {r.get('metadata', {}).get('filename', 'unknown')}]\n{r.get('document', '')}"
+                            for r in results[:5]
+                        ])
+                        
+                        # Frontend için sources formatı
+                        for r in results:
+                            meta = r.get('metadata', {})
+                            doc_text = r.get('document', '')[:200]
+                            sources.append({
+                                "title": meta.get('filename', 'Kaynak'),
+                                "url": meta.get('source', '#'),
+                                "domain": "📄 Yerel Dosya",
+                                "snippet": doc_text,
+                                "type": "document",
+                                "reliability": r.get('score', 0.5),
+                            })
+                except Exception as e:
+                    logger.warning(f"RAG search error: {e}")
+                
+                # === PHASE 3: ANALYZE ===
+                if sources:
+                    await self._send({
+                        "type": "status",
+                        "message": f"{len(sources)} kaynak bulundu, analiz ediliyor...",
+                        "phase": "analyze"
+                    })
+                    
+                    # Kaynakları buffer'a ve frontend'e gönder
+                    stream_buffer.set_sources(stream_id, sources[:5])
+                    await self._send({
+                        "type": "sources",
+                        "sources": sources[:5]
+                    })
+                else:
+                    await self._send({
+                        "type": "status",
+                        "message": "Genel bilgi kullanılacak",
+                        "phase": "analyze"
+                    })
+            
+            # === PHASE 4: CONTEXT ===
             await self._send({
-                "type": "start",
-                "ts": int(time.time() * 1000),
-                "session_id": session_id,
-                "stream_id": stream_id,
+                "type": "status",
+                "message": "⚡ Hazır" if is_simple_query else "Bağlam hazırlanıyor...",
+                "phase": "context"
             })
             
-            # 2. LLM'DEN STREAMING YANIT
+            # === PHASE 5: GENERATE ===
+            await self._send({
+                "type": "status",
+                "message": "⚡ Hızlı yanıt..." if is_simple_query else "Yanıt üretiliyor...",
+                "phase": "generate"
+            })
+            
+            # LLM'DEN STREAMING YANIT
             from core.system_knowledge import SELF_KNOWLEDGE_PROMPT
-            system_prompt = SELF_KNOWLEDGE_PROMPT
+            
+            # Sistem hakkında mı soruyor kontrolü
+            system_about_keywords = [
+                "sen kimsin", "seni kim yaptı", "enterprise ai", "kimsin", 
+                "kendini tanıt", "hakkında bilgi", "ne yapabilirsin",
+                "what can you do", "who are you", "who made you",
+                "mcp nedir", "multi-agent", "teknolojilerin", "yeteneklerin"
+            ]
+            is_about_system = any(kw in message_lower for kw in system_about_keywords)
+            
+            # System prompt oluştur
+            if is_simple_query and not is_about_system:
+                system_prompt = "Sen yardımcı bir AI asistanısın. Samimi ve kısa yanıt ver."
+            elif is_about_system:
+                system_prompt = SELF_KNOWLEDGE_PROMPT
+            else:
+                # Karmaşık sorgular için zengin system prompt
+                system_prompt = "Sen Enterprise AI Asistan'sın. Kullanıcının sorusuna odaklan ve yardımcı ol."
+                
+                # Response mode'a göre ek talimatlar
+                if response_mode == "analytical":
+                    system_prompt += "\n\nAnalitik ve detaylı yanıt ver. Karşılaştırma, analiz ve değerlendirme yap."
+                elif response_mode == "creative":
+                    system_prompt += "\n\nYaratıcı ve özgün yanıt ver. Farklı perspektifler sun."
+                elif response_mode == "technical":
+                    system_prompt += "\n\nTeknik ve ayrıntılı yanıt ver. Kod örnekleri, teknik terimler kullan."
+            
+            # RAG context'i prompt'a ekle
+            final_prompt = message
+            if knowledge_context:
+                final_prompt = f"""Aşağıdaki bilgiler kullanarak soruyu yanıtla:
+
+=== KAYNAKLARDAN BİLGİ ===
+{knowledge_context}
+=== KAYNAKLARDAN BİLGİ SONU ===
+
+Kullanıcı sorusu: {message}
+
+Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkça belirt."""
             
             full_response = ""
             token_index = 0
             
+            # DEBUG: LLM streaming başlıyor
+            logger.info(f"🚀 LLM STREAMING BAŞLIYOR: model={model_name}, prompt_len={len(final_prompt)}")
+            
+            thinking_content = ""  # AI düşünce sürecini biriktir
+            
             async with asyncio_timeout(STREAM_TIMEOUT):
-                async for chunk in llm_manager.generate_stream_async(
-                    prompt=message,
+                async for chunk_data in llm_manager.generate_stream_async(
+                    prompt=final_prompt,
                     system_prompt=system_prompt,
-                    temperature=0.7,
+                    temperature=0.7 if response_mode != "analytical" else 0.4,
                     model=model_name,
                 ):
+                    # DEBUG: Her chunk'ta log
+                    if token_index == 0:
+                        logger.info(f"✅ İLK CHUNK GELDİ: {type(chunk_data)}")
+                    
                     # Stop kontrolü
                     if self.conn.stop_flag or stream_buffer.is_stop_requested(stream_id):
                         stats.was_stopped = True
                         stream_buffer.stop_stream(stream_id)
                         break
                     
-                    if chunk:
-                        stats.token_count += 1
-                        stats.char_count += len(chunk)
-                        full_response += chunk
-                        
-                        # Token'ı buffer'a kaydet
-                        token = stream_buffer.add_token(stream_id, chunk)
-                        
-                        # ANLIK gönder
-                        await self._send({
-                            "type": "chunk",
-                            "content": chunk,
-                            "index": token.index if token else token_index
-                        })
-                        token_index += 1
+                    if chunk_data:
+                        # Dict format: {"type": "content"|"thinking", "content": "..."}
+                        if isinstance(chunk_data, dict):
+                            chunk_type = chunk_data.get("type", "content")
+                            chunk_content = chunk_data.get("content", "")
+                            
+                            if chunk_type == "thinking":
+                                # Thinking content - ayrı mesaj olarak gönder
+                                thinking_content += chunk_content
+                                await self._send({
+                                    "type": "thinking",
+                                    "content": chunk_content,
+                                    "index": token_index
+                                })
+                                token_index += 1
+                            else:
+                                # Normal content
+                                stats.token_count += 1
+                                stats.char_count += len(chunk_content)
+                                full_response += chunk_content
+                                
+                                # Token'ı buffer'a kaydet
+                                token = stream_buffer.add_token(stream_id, chunk_content)
+                                
+                                # ANLIK gönder
+                                await self._send({
+                                    "type": "chunk",
+                                    "content": chunk_content,
+                                    "index": token.index if token else token_index
+                                })
+                                token_index += 1
+                        else:
+                            # Backward compatibility - string
+                            chunk = str(chunk_data)
+                            stats.token_count += 1
+                            stats.char_count += len(chunk)
+                            full_response += chunk
+                            
+                            token = stream_buffer.add_token(stream_id, chunk)
+                            await self._send({
+                                "type": "chunk",
+                                "content": chunk,
+                                "index": token.index if token else token_index
+                            })
+                            token_index += 1
             
             stats.end_time = time.time()
             self.conn.total_tokens += stats.token_count
             
-            # 3. BİTİŞ
+            # === PHASE 6: COMPLETE ===
+            await self._send({
+                "type": "status",
+                "message": "Tamamlandı",
+                "phase": "complete"
+            })
+            
+            # BİTİŞ
             if stats.was_stopped:
                 stream_buffer.stop_stream(stream_id)
                 await self._send({
@@ -1228,7 +1479,7 @@ class WebSocketHandlerV2:
             else:
                 stream_buffer.complete_stream(stream_id)
                 await self._send({
-                    "type": "complete",
+                    "type": "end",
                     "response_id": response_id,
                     "model_info": routing_info,
                     "stats": stats.to_dict(),
@@ -1239,11 +1490,20 @@ class WebSocketHandlerV2:
             # Session'a kaydet
             if full_response:
                 try:
+                    # Session yoksa oluştur
+                    session = session_manager.get_session(session_id)
+                    if not session:
+                        # Yeni session oluştur - ID'yi koruyarak
+                        from core.session_manager import Session
+                        session = Session(id=session_id, title=message[:50])
+                        session_manager._cache[session_id] = session
+                    
                     session_manager.add_message(session_id, "user", message)
                     saved_response = full_response
                     if stats.was_stopped:
                         saved_response += "\n\n*[Yanıt durduruldu]*"
                     session_manager.add_message(session_id, "assistant", saved_response)
+                    logger.info(f"✅ Session saved: {session_id}, messages: {len(session.messages)}")
                 except Exception as e:
                     logger.warning(f"Session save error: {e}")
             
@@ -1319,6 +1579,28 @@ class WebSocketHandlerV2:
         })
         
         try:
+            # === PHASE 1: ROUTING ===
+            await self._send({
+                "type": "status",
+                "message": "Sorgu analiz ediliyor...",
+                "phase": "routing"
+            })
+            
+            # Basit sorgu tespiti - selamlama ve kısa sorular için RAG'ı atla
+            simple_query_patterns = [
+                "merhaba", "selam", "nasılsın", "naber", "günaydın", "iyi akşamlar",
+                "hello", "hi", "hey", "good morning", "good evening",
+                "bugün nasılsın", "ne yapıyorsun", "ne haber", "teşekkür",
+                "sağol", "thanks", "thank you"
+            ]
+            message_lower = message.lower().strip()
+            is_simple_greeting = any(pattern in message_lower for pattern in simple_query_patterns)
+            is_short_query = len(message) < 25
+            
+            # Auto modda basit sorgular için otomatik simple mod kullan
+            if complexity_level == "auto" and (is_simple_greeting or is_short_query):
+                complexity_level = "simple"
+            
             # ⚡ SIMPLE MOD: Ultra hızlı - RAG araması yapma, direkt LLM
             skip_rag = complexity_level == "simple"
             
@@ -1328,7 +1610,7 @@ class WebSocketHandlerV2:
                 
                 # Simple modda RAG'ı atla - maksimum hız
                 if not skip_rag:
-                    # Knowledge base'den context al
+                    # === PHASE 2: SEARCH ===
                     await self._send({
                         "type": "status",
                         "message": "Bilgi tabanı aranıyor...",
@@ -1360,13 +1642,27 @@ class WebSocketHandlerV2:
                     
                 # Kaynakları buffer'a kaydet
                 if sources:
+                    # === PHASE 3: ANALYZE ===
+                    await self._send({
+                        "type": "status",
+                        "message": "Kaynaklar analiz ediliyor...",
+                        "phase": "analyze"
+                    })
+                    
                     stream_buffer.set_sources(stream_id, sources[:5])
                     await self._send({
                         "type": "sources",
                         "sources": sources[:5]
                     })
                 
-                # LLM'e gönder
+                # === PHASE 4: CONTEXT ===
+                await self._send({
+                    "type": "status",
+                    "message": "Bağlam hazırlanıyor...",
+                    "phase": "context"
+                })
+                
+                # === PHASE 5: GENERATE ===
                 await self._send({
                     "type": "status",
                     "message": "Yanıt oluşturuluyor..." if not skip_rag else "⚡ Hızlı yanıt...",
@@ -1375,7 +1671,23 @@ class WebSocketHandlerV2:
                 
                 # System prompt oluştur
                 from core.system_knowledge import SELF_KNOWLEDGE_PROMPT
-                system_prompt = SELF_KNOWLEDGE_PROMPT
+                
+                # Sistem hakkında mı soruyor kontrolü
+                system_about_keywords = [
+                    "sen kimsin", "seni kim yaptı", "enterprise ai", "kimsin", 
+                    "kendini tanıt", "hakkında bilgi", "ne yapabilirsin",
+                    "what can you do", "who are you", "who made you",
+                    "mcp nedir", "multi-agent", "teknolojilerin", "yeteneklerin"
+                ]
+                is_about_system = any(kw in message_lower for kw in system_about_keywords)
+                
+                if skip_rag and not is_about_system:
+                    # Basit sorular için minimal sistem prompt
+                    system_prompt = "Sen yardımcı bir AI asistanısın. Samimi ve kısa yanıt ver."
+                elif is_about_system:
+                    system_prompt = SELF_KNOWLEDGE_PROMPT
+                else:
+                    system_prompt = "Sen Enterprise AI Asistan'sın. Kullanıcının sorusuna odaklan ve yardımcı ol."
                 
                 if knowledge_context:
                     system_prompt += f"\n\n📚 İlgili Bilgiler:\n{knowledge_context}"
@@ -1390,12 +1702,19 @@ class WebSocketHandlerV2:
                 if complexity_level in complexity_instructions:
                     system_prompt += complexity_instructions[complexity_level]
                 
+                # ⚡ Simple modda küçük model kullan - ultra hızlı
+                selected_model = None
+                if skip_rag:
+                    # Basit sorgular için küçük model (qwen3:4b veya benzeri)
+                    selected_model = MODEL_CONFIG[ModelSize.SMALL]["name"]
+                
                 # Streaming response - token'lar buffer'a kaydedilir
                 full_response = ""
                 token_index = 0
                 async for chunk in llm_manager.generate_stream_async(
                     prompt=message,
                     system_prompt=system_prompt,
+                    model=selected_model,  # Simple modda küçük model
                 ):
                     # Stop kontrolü - hem local flag hem buffer'dan
                     if self.conn.stop_flag or stream_buffer.is_stop_requested(stream_id):
@@ -1421,6 +1740,13 @@ class WebSocketHandlerV2:
                 
                 stats.end_time = time.time()
                 self.conn.total_tokens += stats.token_count
+                
+                # === PHASE 6: COMPLETE ===
+                await self._send({
+                    "type": "status",
+                    "message": "Tamamlandı",
+                    "phase": "complete"
+                })
                 
                 # Bitiş mesajı ve buffer güncelle
                 if stats.was_stopped:

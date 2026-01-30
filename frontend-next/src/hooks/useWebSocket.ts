@@ -46,6 +46,14 @@ export interface WebSocketMessage {
   session_id?: string;
   client_id?: string;
   from_index?: number;
+  
+  // Chat request fields
+  use_routing?: boolean;
+  force_model?: string;
+  web_search?: boolean;
+  complexity_level?: string;
+  response_mode?: string;
+  
   sources?: Array<{
     title: string;
     url: string;
@@ -64,8 +72,30 @@ export interface WebSocketMessage {
   phase?: string;
   ts?: number;
   
+  // Model info from end message
+  model_info?: {
+    model_size: 'small' | 'large';
+    model_name: string;
+    model_icon: string;
+    model_display_name: string;
+    confidence: number;
+    decision_source?: string;
+  };
+  
   // Model Routing fields
   routing?: {
+    model_size: 'small' | 'large';
+    model_name: string;
+    model_icon: string;
+    model_display_name: string;
+    confidence: number;
+    decision_source: string;
+    reasoning?: string;
+    response_id: string;
+    attempt_number: number;
+  };
+  // Backend may send routing_info instead of routing
+  routing_info?: {
     model_size: 'small' | 'large';
     model_name: string;
     model_icon: string;
@@ -105,8 +135,6 @@ export interface WebSocketMessage {
   };
   
   // Outgoing message fields (client to server)
-  use_routing?: boolean;
-  force_model?: 'small' | 'large';
   feedback_type?: 'correct' | 'downgrade' | 'upgrade';
   comment?: string;
   query?: string;
@@ -394,11 +422,13 @@ export interface FeedbackInfo {
 
 export interface ChatStreamState {
   streamingResponse: string;
+  thinkingContent: string;  // AI düşünce süreci içeriği
   isStreaming: boolean;
   streamError: string | null;
   currentStreamId: string | null;
   sources: WebSocketMessage['sources'];
   statusMessage: string | null;
+  currentPhase: string | null;  // Current pipeline phase
   stats: WebSocketMessage['stats'] | null;
   // Model Routing state
   routingInfo: ModelRoutingInfo | null;
@@ -417,11 +447,13 @@ export function useChatWebSocket(
 ) {
   const [streamState, setStreamState] = useState<ChatStreamState>({
     streamingResponse: '',
+    thinkingContent: '',
     isStreaming: false,
     streamError: null,
     currentStreamId: null,
     sources: undefined,
     statusMessage: null,
+    currentPhase: null,
     stats: null,
     // Model Routing initial state
     routingInfo: null,
@@ -452,11 +484,13 @@ export function useChatWebSocket(
         setStreamState(prev => ({
           ...prev,
           streamingResponse: '',
+          thinkingContent: '',
           isStreaming: true,
           streamError: null,
           currentStreamId: message.stream_id || null,
           sources: undefined,
           statusMessage: null,
+          currentPhase: 'routing',  // Initial phase
           stats: null,
           routingInfo: null,
           feedbackInfo: null,
@@ -470,7 +504,7 @@ export function useChatWebSocket(
       case 'routing':
         setStreamState(prev => ({
           ...prev,
-          routingInfo: message.routing || null,
+          routingInfo: message.routing_info || message.routing || null,
         }));
         break;
       
@@ -480,6 +514,15 @@ export function useChatWebSocket(
           ...prev,
           streamingResponse: prev.streamingResponse + (message.content || ''),
           statusMessage: null,
+          currentPhase: 'generate',  // Tokens mean we're generating
+        }));
+        break;
+
+      case 'thinking':  // AI düşünce süreci
+        setStreamState(prev => ({
+          ...prev,
+          thinkingContent: prev.thinkingContent + (message.content || ''),
+          currentPhase: 'thinking',
         }));
         break;
 
@@ -488,6 +531,7 @@ export function useChatWebSocket(
         setStreamState(prev => ({
           ...prev,
           statusMessage: message.message || null,
+          currentPhase: message.phase || prev.currentPhase,
         }));
         break;
 
@@ -499,14 +543,22 @@ export function useChatWebSocket(
         break;
       
       case 'end':
+      case 'complete':  // Backend may send 'complete' or 'end'
         // End mesajı artık model bilgilerini de içerir
         setStreamState(prev => ({
           ...prev,
           isStreaming: false,
           stats: message.stats || null,
           statusMessage: null,
+          currentPhase: 'complete',  // Mark as complete
           // Model bilgilerini routingInfo'ya ekle (eğer yoksa)
-          routingInfo: prev.routingInfo || (message.response_id ? {
+          routingInfo: prev.routingInfo || (message.model_info ? {
+            ...message.model_info,
+            decision_source: message.model_info.decision_source || '',
+            response_id: message.response_id || '',
+            attempt_number: 1,
+            reasoning: '',
+          } as ModelRoutingInfo : null) || (message.response_id ? {
             model_size: message.model_size as 'small' | 'large',
             model_name: message.model_name || '',
             model_icon: message.model_icon || '',
@@ -545,6 +597,7 @@ export function useChatWebSocket(
           comparisonRouting: message.comparison_routing || undefined,
           isStreaming: true,
           streamingResponse: '',
+          thinkingContent: '',
         }));
         break;
       
@@ -585,6 +638,7 @@ export function useChatWebSocket(
     setStreamState(prev => ({
       ...prev,
       streamingResponse: '',
+      thinkingContent: '',
       streamError: null,
       sources: undefined,
       statusMessage: null,
@@ -601,21 +655,25 @@ export function useChatWebSocket(
     });
   }, [ws, sessionId]);
 
-  // Send message in v2 format (message at root level)
-  const sendChatMessage = useCallback((content: string, chatSessionId?: string) => {
+  // Send message in v2 format (message at root level) - WITH routing support
+  const sendChatMessage = useCallback((content: string, chatSessionId?: string, useRouting: boolean = true) => {
     setStreamState(prev => ({
       ...prev,
       streamingResponse: '',
+      thinkingContent: '',
       streamError: null,
       sources: undefined,
       statusMessage: null,
       stats: null,
+      currentPhase: 'routing',  // Reset phase
+      routingInfo: null,
     }));
 
     return ws.sendMessage({
       type: 'chat',
       message: content,
       session_id: chatSessionId || sessionId,
+      use_routing: useRouting,  // Enable model routing by default
     });
   }, [ws, sessionId]);
 
@@ -648,11 +706,15 @@ export function useChatWebSocket(
       sessionId?: string;
       useRouting?: boolean;
       forceModel?: 'small' | 'large';
+      webSearch?: boolean;
+      complexityLevel?: 'auto' | 'simple' | 'normal' | 'comprehensive' | 'research';
+      responseMode?: 'normal' | 'analytical' | 'creative' | 'technical';
     }
   ) => {
     setStreamState(prev => ({
       ...prev,
       streamingResponse: '',
+      thinkingContent: '',
       streamError: null,
       sources: undefined,
       statusMessage: null,
@@ -670,6 +732,9 @@ export function useChatWebSocket(
       session_id: opts?.sessionId || sessionId,
       use_routing: opts?.useRouting !== false, // Default true
       force_model: opts?.forceModel,
+      web_search: opts?.webSearch || false,
+      complexity_level: opts?.complexityLevel || 'auto',
+      response_mode: opts?.responseMode || 'normal',
     });
   }, [ws, sessionId]);
 
@@ -704,6 +769,7 @@ export function useChatWebSocket(
     setStreamState(prev => ({
       ...prev,
       streamingResponse: '',
+      thinkingContent: '',
       isStreaming: true,
     }));
 

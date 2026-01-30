@@ -47,6 +47,9 @@ export interface Message {
   modelInfo?: ModelRoutingInfo;
   feedback?: ModelFeedback;
   comparisonResponse?: string;  // Alternative response for comparison
+  // Like/Dislike tracking
+  isLiked?: boolean;
+  isDisliked?: boolean;
 }
 
 export interface Source {
@@ -97,8 +100,17 @@ export interface Note {
   updatedAt: Date;
 }
 
+export interface NoteFolder {
+  id: string;
+  name: string;
+  icon: string;
+  parentId: string | null;
+  color: string;
+  createdAt: Date;
+}
+
 export type Theme = 'light' | 'dark' | 'ocean' | 'forest' | 'sunset' | 'lavender' | 'minimalist' | 'cherry';
-export type Page = 'chat' | 'documents' | 'history' | 'dashboard' | 'settings' | 'notes' | 'learning' | 'favorites' | 'templates' | 'search';
+export type Page = 'chat' | 'documents' | 'history' | 'dashboard' | 'settings' | 'notes' | 'mind' | 'learning' | 'favorites' | 'templates' | 'search';
 
 interface AppState {
   // Theme
@@ -139,9 +151,17 @@ interface AppState {
 
   // Notes
   notes: Note[];
+  setNotes: (notes: Note[]) => void;
   addNote: (note: Note) => void;
   updateNote: (id: string, updates: Partial<Note>) => void;
   deleteNote: (id: string) => void;
+
+  // Folders
+  noteFolders: NoteFolder[];
+  setFolders: (folders: NoteFolder[]) => void;
+  addFolder: (folder: NoteFolder) => void;
+  updateFolder: (id: string, updates: Partial<NoteFolder>) => void;
+  deleteFolder: (id: string) => void;
 
   // Widget
   widgetEnabled: boolean;
@@ -160,7 +180,7 @@ interface AppState {
   setResponseLength: (length: 'auto' | 'short' | 'medium' | 'long' | 'very_long') => void;
   complexityLevel: 'simple' | 'normal' | 'comprehensive' | 'research';
   setComplexityLevel: (level: 'simple' | 'normal' | 'comprehensive' | 'research') => void;
-  
+
   // Model Selection (Manual Override)
   selectedModel: 'auto' | 'qwen-8b' | 'qwen-4b';
   setSelectedModel: (model: 'auto' | 'qwen-8b' | 'qwen-4b') => void;
@@ -197,6 +217,8 @@ interface AppState {
   toggleMessageFavorite: (id: string) => void;
   editMessage: (id: string, newContent: string) => void;
   getFavoriteMessages: () => Message[];
+  setMessageLike: (id: string, isLiked: boolean | null) => void;
+  setMessageDislike: (id: string, isDisliked: boolean | null) => void;
 
   // Session actions
   toggleSessionPin: (id: string) => void;
@@ -236,8 +258,8 @@ export const useStore = create<AppState>()(
 
       // Chat
       messages: [] as Message[],
-      addMessage: (message: Message) => set((state) => ({ 
-        messages: [...state.messages, message] 
+      addMessage: (message: Message) => set((state) => ({
+        messages: [...state.messages, message]
       })),
       clearMessages: () => set({ messages: [] as Message[], currentSessionId: null }), // Also clear session ID
       isTyping: false,
@@ -251,15 +273,15 @@ export const useStore = create<AppState>()(
       sessions: [] as Session[],
       currentSessionId: null as string | null,
       setCurrentSession: (id: string | null) => set({ currentSessionId: id }),
-      addSession: (session: Session) => set((state) => ({ 
-        sessions: [session, ...state.sessions] 
+      addSession: (session: Session) => set((state) => ({
+        sessions: [session, ...state.sessions]
       })),
-      deleteSession: (id: string) => set((state) => ({ 
-        sessions: state.sessions.filter((s) => s.id !== id) 
+      deleteSession: (id: string) => set((state) => ({
+        sessions: state.sessions.filter((s) => s.id !== id)
       })),
-      loadSessionMessages: (sessionId: string, messages: Message[]) => set({ 
+      loadSessionMessages: (sessionId: string, messages: Message[]) => set({
         currentSessionId: sessionId,
-        messages: messages 
+        messages: messages
       }),
       updateCurrentSession: (sessionId: string, messages: Message[]) => set((state) => ({
         currentSessionId: sessionId,
@@ -272,11 +294,11 @@ export const useStore = create<AppState>()(
       // Documents
       documents: [] as Document[],
       setDocuments: (docs: Document[]) => set({ documents: docs }),
-      addDocument: (doc: Document) => set((state) => ({ 
-        documents: [doc, ...state.documents] 
+      addDocument: (doc: Document) => set((state) => ({
+        documents: [doc, ...state.documents]
       })),
-      removeDocument: (id: string) => set((state) => ({ 
-        documents: state.documents.filter((d) => d.id !== id) 
+      removeDocument: (id: string) => set((state) => ({
+        documents: state.documents.filter((d) => d.id !== id)
       })),
 
       // Notes
@@ -312,16 +334,32 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
           updatedAt: new Date('2026-01-21'),
         }
       ] as Note[],
-      addNote: (note: Note) => set((state) => ({ 
-        notes: [note, ...state.notes] 
+      setNotes: (notes: Note[]) => set({ notes }),
+      addNote: (note: Note) => set((state) => ({
+        notes: [note, ...state.notes]
       })),
       updateNote: (id: string, updates: Partial<Note>) => set((state) => ({
-        notes: state.notes.map((n) => 
+        notes: state.notes.map((n) =>
           n.id === id ? { ...n, ...updates, updatedAt: new Date() } : n
         ),
       })),
-      deleteNote: (id: string) => set((state) => ({ 
-        notes: state.notes.filter((n) => n.id !== id) 
+      deleteNote: (id: string) => set((state) => ({
+        notes: state.notes.filter((n) => n.id !== id)
+      })),
+
+      // Folders
+      noteFolders: [] as NoteFolder[],
+      setFolders: (folders: NoteFolder[]) => set({ noteFolders: folders }),
+      addFolder: (folder: NoteFolder) => set((state) => ({
+        noteFolders: [folder, ...state.noteFolders]
+      })),
+      updateFolder: (id: string, updates: Partial<NoteFolder>) => set((state) => ({
+        noteFolders: state.noteFolders.map((f) =>
+          f.id === id ? { ...f, ...updates } : f
+        ),
+      })),
+      deleteFolder: (id: string) => set((state) => ({
+        noteFolders: state.noteFolders.filter((f) => f.id !== id)
       })),
 
       // Widget
@@ -341,7 +379,7 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
       setResponseLength: (length: 'auto' | 'short' | 'medium' | 'long' | 'very_long') => set({ responseLength: length }),
       complexityLevel: 'normal' as 'simple' | 'normal' | 'comprehensive' | 'research',
       setComplexityLevel: (level: 'simple' | 'normal' | 'comprehensive' | 'research') => set({ complexityLevel: level }),
-      
+
       // Model Selection (Manual Override)
       selectedModel: 'auto' as 'auto' | 'qwen-8b' | 'qwen-4b',
       setSelectedModel: (model: 'auto' | 'qwen-8b' | 'qwen-4b') => set({ selectedModel: model }),
@@ -370,16 +408,16 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
 
       // Templates
       templates: [] as Template[],
-      addTemplate: (template: Template) => set((state) => ({ 
-        templates: [template, ...state.templates] 
+      addTemplate: (template: Template) => set((state) => ({
+        templates: [template, ...state.templates]
       })),
       updateTemplate: (id: string, updates: Partial<Template>) => set((state) => ({
-        templates: state.templates.map((t) => 
+        templates: state.templates.map((t) =>
           t.id === id ? { ...t, ...updates } : t
         ),
       })),
-      deleteTemplate: (id: string) => set((state) => ({ 
-        templates: state.templates.filter((t) => t.id !== id) 
+      deleteTemplate: (id: string) => set((state) => ({
+        templates: state.templates.filter((t) => t.id !== id)
       })),
 
       // Message actions
@@ -396,6 +434,16 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
       getFavoriteMessages: (): Message[] => {
         return get().messages.filter((m: Message) => m.isFavorite);
       },
+      setMessageLike: (id: string, isLiked: boolean | null) => set((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === id ? { ...m, isLiked: isLiked ?? undefined, isDisliked: isLiked ? false : m.isDisliked } : m
+        ),
+      })),
+      setMessageDislike: (id: string, isDisliked: boolean | null) => set((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === id ? { ...m, isDisliked: isDisliked ?? undefined, isLiked: isDisliked ? false : m.isLiked } : m
+        ),
+      })),
 
       // Session actions
       toggleSessionPin: (id: string) => set((state) => ({
@@ -441,8 +489,8 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
       setIsStreaming: (streaming: boolean) => set({ isStreaming: streaming }),
       streamingContent: '',
       setStreamingContent: (content: string) => set({ streamingContent: content }),
-      appendStreamingContent: (chunk: string) => set((state) => ({ 
-        streamingContent: state.streamingContent + chunk 
+      appendStreamingContent: (chunk: string) => set((state) => ({
+        streamingContent: state.streamingContent + chunk
       })),
     }),
     {
@@ -453,6 +501,7 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
         // sessions: state.sessions,  // REMOVED - sessions are now synced from backend API
         currentSessionId: state.currentSessionId, // Keep current session ID for navigation
         notes: state.notes,
+        noteFolders: state.noteFolders,
         templates: state.templates,
         widgetEnabled: state.widgetEnabled,
         widgetPosition: state.widgetPosition,

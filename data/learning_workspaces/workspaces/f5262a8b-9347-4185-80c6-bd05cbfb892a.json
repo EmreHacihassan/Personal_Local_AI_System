@@ -1,0 +1,17 @@
+{
+  "id": "f5262a8b-9347-4185-80c6-bd05cbfb892a",
+  "name": "poje fikri ",
+  "description": "proje",
+  "topic": "proje",
+  "active_sources": [],
+  "inactive_sources": [],
+  "documents": [
+    "0eb903b2-548e-48f6-bbe7-441d862e6eb2"
+  ],
+  "tests": [],
+  "chat_history": [],
+  "status": "active",
+  "created_at": "2026-01-27T16:00:54.934186",
+  "updated_at": "2026-01-27T16:19:54.493098",
+  "settings": {}
+}

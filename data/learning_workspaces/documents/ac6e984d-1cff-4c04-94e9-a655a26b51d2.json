@@ -1,0 +1,17 @@
+{
+  "id": "ac6e984d-1cff-4c04-94e9-a655a26b51d2",
+  "workspace_id": "62ab9a20-4f6d-4e84-bdf1-184d0b57b8fd",
+  "title": "Test Document",
+  "topic": "Artificial Intelligence Testing",
+  "page_count": 2,
+  "style": "academic",
+  "content": "",
+  "status": "generating",
+  "references": [],
+  "created_at": "2026-01-29T02:20:25.809426",
+  "completed_at": null,
+  "generation_log": [
+    "[2026-01-29T02:20:25.810432] 📋 Kuyruğa eklendi (Sıra: 1)",
+    "[2026-01-29T02:23:31.425905] 🚀 DeepScholar v2.0 başlatıldı (Queue)"
+  ]
+}

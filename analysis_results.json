@@ -1,0 +1,1634 @@
+{
+  "summary": {
+    "total_modules": 39,
+    "successful_imports": 39,
+    "failed_imports": 0,
+    "categories": {
+      "🔌 Backend API": {
+        "success": 12,
+        "total": 12,
+        "rate": "100%"
+      },
+      "⚙️ Core Modüller": {
+        "success": 13,
+        "total": 13,
+        "rate": "100%"
+      },
+      "🤖 Agent Sistemi": {
+        "success": 7,
+        "total": 7,
+        "rate": "100%"
+      },
+      "📚 RAG Sistemi": {
+        "success": 7,
+        "total": 7,
+        "rate": "100%"
+      }
+    }
+  },
+  "categories": {
+    "🔌 Backend API": {
+      "description": "FastAPI endpoint'leri ve WebSocket",
+      "modules": {
+        "api.main": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "AutostartRequest",
+              "BaseModel",
+              "BatchEvaluationRequest",
+              "CORSMiddleware",
+              "ChatRequest",
+              "ChatResponse",
+              "CircuitBreakerOpenError",
+              "CritiqueRequest",
+              "DocumentUploadResponse",
+              "EnhancedAgentRequest",
+              "ErrorCategory",
+              "ErrorRecoveryManager",
+              "ErrorSeverity",
+              "ExpertType",
+              "FastAPI",
+              "FolderCreate",
+              "FolderUpdate",
+              "HTTPException",
+              "HealthResponse",
+              "HybridDocument",
+              "HybridSearcher",
+              "JSONResponse",
+              "LivenessResponse",
+              "MoEQueryRequest",
+              "MoERouteResponse",
+              "MoERouter",
+              "NoteCreate",
+              "NoteUpdate",
+              "PageSearchRequest",
+              "Path",
+              "PlanningRequest",
+              "PluginExecuteRequest",
+              "PremiumWebSearchEngine",
+              "PydanticValidationError",
+              "QueryComplexity",
+              "RAGEvaluationRequest",
+              "RAGQueryRequest",
+              "RAGStreamRequest",
+              "RateLimitMiddleware",
+              "ReActRequest",
+              "ReadinessResponse",
+              "RefineRequest",
+              "Request",
+              "RequestValidationError",
+              "ResearchSynthesizer",
+              "RoutingStrategy",
+              "SearchRequest",
+              "SearchResponse",
+              "SearchStrategy",
+              "ServiceStartRequest",
+              "SessionMessagesResponse",
+              "SessionResponse",
+              "StreamingResponse",
+              "UploadFile",
+              "WebSearchRequest",
+              "WebSearchTool",
+              "WebSocket",
+              "datetime",
+              "defaultdict"
+            ],
+            "functions": [
+              "Depends",
+              "Dict",
+              "Field",
+              "File",
+              "Form",
+              "List",
+              "Optional",
+              "Query",
+              "activate_plugin",
+              "add_score",
+              "admin_router",
+              "advanced_rag_router",
+              "advanced_session_search",
+              "agent_marketplace_router",
+              "agent_router",
+              "analytics_dashboard_router",
+              "analyze_query",
+              "analyze_query_routing",
+              "app",
+              "auto_reindex_unsynced_documents",
+              "auto_sync_rag",
+              "autonomous_agent_router",
+              "batch_evaluate_rag",
+              "certificate_router",
+              "chat",
+              "chat_stream",
+              "chat_web_stream",
+              "chat_with_vision",
+              "check_rag_sync_status",
+              "check_task_scheduler",
+              "chromadb_circuit",
+              "cleanup_old_sessions",
+              "clear_agent_history",
+              "clear_rag_cache",
+              "clear_session",
+              "clear_web_search_cache",
+              "code_interpreter_router",
+              "computer_use_router",
+              "constitutional_check",
+              "create_and_execute_plan",
+              "create_folder",
+              "create_note",
+              "create_plan_only",
+              "critique_content",
+              "deactivate_plugin",
+              "deduplicate_results",
+              "deep_scholar_router",
+              "delete_document",
+              "delete_folder",
+              "delete_note",
+              "delete_session",
+              "detailed_health_check",
+              "documents_router",
+              "download_document",
+              "evaluate_rag_response",
+              "execute_enhanced_agent",
+              "execute_enhanced_agent_stream",
+              "execute_plugin",
+              "export_analytics",
+              "export_full_backup",
+              "export_sessions",
+              "external_api_circuit",
+              "format_reference_list",
+              "full_meta_premium_router",
+              "full_meta_quality_router",
+              "full_meta_router",
+              "generate_source_ref_id",
+              "get_agent_history",
+              "get_agent_usage",
+              "get_all_categories",
+              "get_all_folders",
+              "get_all_services_status",
+              "get_all_tags",
+              "get_analytics_stats",
+              "get_autostart_status",
+              "get_available_experts",
+              "get_chat_history",
+              "get_circuit_breaker_status",
+              "get_complexity_levels",
+              "get_connected_clients",
+              "get_document_sources",
+              "get_embedding_stats",
+              "get_enhanced_agent_stats",
+              "get_evaluation_metrics_info",
+              "get_folder",
+              "get_folder_path",
+              "get_folders",
+              "get_global_rate_limit_status",
+              "get_health_report",
+              "get_hourly_activity",
+              "get_moe_stats",
+              "get_note",
+              "get_notes",
+              "get_observability_dashboard",
+              "get_observability_metrics",
+              "get_pages",
+              "get_plugin_stats",
+              "get_rag_stats",
+              "get_rag_sync_status",
+              "get_rate_limit_status",
+              "get_recent_traces",
+              "get_search_engine",
+              "get_session",
+              "get_sessions",
+              "get_startup_path",
+              "get_stats",
+              "get_status",
+              "get_synthesizer",
+              "get_uploaded_document_list",
+              "get_uploaded_documents_info",
+              "get_web_search_stats",
+              "get_websocket_stats",
+              "global_exception_handler",
+              "guardrails_premium_router",
+              "health_check",
+              "health_router",
+              "import_sessions",
+              "initialize_default_plugins",
+              "kg_enterprise_router",
+              "knowledge_graph_router",
+              "learning_journey_router",
+              "learning_journey_v2_router",
+              "learning_router",
+              "list_documents",
+              "list_plugins",
+              "liveness_probe",
+              "memory_premium_router",
+              "memory_router",
+              "move_note",
+              "multimodal_rag_router",
+              "notes_router",
+              "ollama_circuit",
+              "plugins_router",
+              "premium_integrations_router",
+              "premium_router",
+              "preview_document",
+              "rag_query",
+              "rag_router",
+              "rag_search_only",
+              "rag_stream",
+              "readiness_probe",
+              "refine_content",
+              "reindex_documents",
+              "reset_chromadb",
+              "reset_circuit_breakers",
+              "resilience_router",
+              "restart_backend_hint",
+              "retry_with_backoff",
+              "root",
+              "route_query",
+              "routing_router",
+              "run_react_agent",
+              "run_react_agent_stream",
+              "screen_recording_router",
+              "screen_router",
+              "search_documents",
+              "search_documents_get",
+              "search_knowledge_base",
+              "security_scanner_router",
+              "self_reflect",
+              "set_routing_strategy",
+              "start_chromadb_service",
+              "start_nextjs_service",
+              "start_ollama_service",
+              "toggle_autostart",
+              "toggle_note_pin",
+              "update_folder",
+              "update_note",
+              "upload_document",
+              "validation_exception_handler",
+              "vision_router",
+              "voice_ai_router",
+              "voice_router",
+              "web_search",
+              "websocket_chat",
+              "websocket_chat_v2",
+              "websocket_endpoint",
+              "websocket_endpoint_v2",
+              "with_fallback",
+              "workflow_orchestrator_router",
+              "workflow_router"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.websocket_v2": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "ClientConnection",
+              "FeedbackStatus",
+              "FeedbackType",
+              "ModelSize",
+              "StreamStats",
+              "WebSocket",
+              "WebSocketDisconnect",
+              "WebSocketHandlerV2",
+              "WebSocketManagerV2",
+              "WebSocketState",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "Set",
+              "asynccontextmanager",
+              "asyncio_timeout",
+              "dataclass",
+              "field",
+              "get_model_router",
+              "websocket_endpoint_v2"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.agent_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "AgentTask",
+              "Any",
+              "AutonomousAgent",
+              "BaseModel",
+              "CreateTaskRequest",
+              "HTTPException",
+              "InterventionResponse",
+              "InterventionType",
+              "StreamingAutonomousAgent",
+              "StreamingResponse",
+              "TaskListResponse",
+              "TaskResponse",
+              "TaskStatus",
+              "ToolListResponse",
+              "WebSocket",
+              "WebSocketDisconnect",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "Field",
+              "List",
+              "Optional",
+              "Query",
+              "cancel_task",
+              "create_task",
+              "get_agent_stats",
+              "get_autonomous_agent",
+              "get_router",
+              "get_streaming_agent",
+              "get_task",
+              "get_task_progress",
+              "list_tasks",
+              "list_tools",
+              "quick_agent_task",
+              "respond_to_intervention",
+              "router",
+              "start_task",
+              "stream_task_execution",
+              "websocket_task_execution"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.learning_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "Any",
+              "BackgroundTasks",
+              "BaseModel",
+              "BuildGraphRequest",
+              "BulkToggleSourceRequest",
+              "ChatMessageRequest",
+              "CreateCardsFromContentRequest",
+              "CreateDocumentRequest",
+              "CreateFlashcardRequest",
+              "CreateKnowledgeEdgeRequest",
+              "CreateKnowledgeNodeRequest",
+              "CreateScenarioRequest",
+              "CreateSnippetRequest",
+              "CreateTestRequest",
+              "CreateWorkspaceRequest",
+              "DocumentStatus",
+              "ExplainQuestionRequest",
+              "HTTPException",
+              "LearningPathRequest",
+              "LearningWorkspace",
+              "LogEventRequest",
+              "MultimediaRequest",
+              "NextTopicsRequest",
+              "PodcastRequest",
+              "ReviewCardRequest",
+              "ReviewRating",
+              "RunCodeRequest",
+              "ScenarioDifficulty",
+              "ScenarioInteractRequest",
+              "ScenarioType",
+              "SlideRequest",
+              "StartTutorSessionRequest",
+              "StreamingResponse",
+              "StudyDocument",
+              "SubmitAnswerRequest",
+              "Test",
+              "TestStatus",
+              "TestType",
+              "ToggleSourceRequest",
+              "TutorMessageRequest",
+              "TutorMode",
+              "UpdateDocumentRequest",
+              "UpdateWorkspaceRequest",
+              "VisualContentRequest",
+              "WorkspaceStatus",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "Field",
+              "List",
+              "Optional",
+              "abandon_simulation",
+              "analyze_code",
+              "archive_workspace",
+              "build_knowledge_graph",
+              "bulk_toggle_sources",
+              "cancel_document_generation",
+              "chat_stream",
+              "complete_test",
+              "create_audio_summary",
+              "create_code_snippet",
+              "create_concept_map",
+              "create_document",
+              "create_flashcard",
+              "create_flowchart",
+              "create_infographic",
+              "create_knowledge_edge",
+              "create_knowledge_node",
+              "create_mind_map",
+              "create_podcast_script",
+              "create_simulation",
+              "create_slide_deck",
+              "create_test",
+              "create_timeline",
+              "create_video_script",
+              "create_workspace",
+              "delete_document",
+              "delete_flashcard",
+              "delete_workspace",
+              "edit_and_restart_document",
+              "end_tutor_session",
+              "explain_question",
+              "export_knowledge_graph",
+              "generate_document",
+              "generate_document_multimedia",
+              "generate_document_visuals",
+              "generate_flashcards",
+              "generate_test",
+              "get_chat_history",
+              "get_code_snippets",
+              "get_difficulty_levels",
+              "get_document",
+              "get_document_styles",
+              "get_due_flashcards",
+              "get_flashcard_stats",
+              "get_flashcards",
+              "get_knowledge_clusters",
+              "get_knowledge_graph",
+              "get_learning_advanced_features",
+              "get_learning_insights",
+              "get_learning_path",
+              "get_learning_report",
+              "get_learning_stats",
+              "get_next_topics",
+              "get_node_suggestions",
+              "get_premium_features",
+              "get_premium_status",
+              "get_prerequisites",
+              "get_related_content",
+              "get_scenario_types",
+              "get_simulation",
+              "get_test",
+              "get_test_types",
+              "get_tutor_session",
+              "get_weak_areas",
+              "get_weekly_activity",
+              "get_workspace",
+              "get_workspace_analytics",
+              "get_workspace_sources",
+              "get_workspace_stats",
+              "interact_with_simulation",
+              "list_documents",
+              "list_simulations",
+              "list_tests",
+              "list_workspaces",
+              "log_learning_event",
+              "restart_document_generation",
+              "review_flashcard",
+              "router",
+              "run_code",
+              "run_code_snippet",
+              "send_chat_message",
+              "send_tutor_message",
+              "start_tutor_session",
+              "submit_answer",
+              "toggle_source",
+              "update_document",
+              "update_workspace"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.learning_journey_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "Any",
+              "BaseModel",
+              "ContentCompletionRequest",
+              "ContentType",
+              "CreatePathRequest",
+              "DifficultyLevel",
+              "HTTPException",
+              "PackageTheme",
+              "StageStartRequest",
+              "StageStatus",
+              "UpdateProgressRequest",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "Field",
+              "List",
+              "Optional",
+              "Query",
+              "complete_stage_content",
+              "create_learning_path",
+              "get_available_curricula",
+              "get_content_detail",
+              "get_content_generator",
+              "get_learning_path",
+              "get_math_curriculum",
+              "get_next_content",
+              "get_package_detail",
+              "get_package_map",
+              "get_path_summary",
+              "get_stage_detail",
+              "get_stage_map_generator",
+              "get_user_packages",
+              "get_user_stats",
+              "router",
+              "start_stage",
+              "update_progress"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.deep_scholar_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "Any",
+              "BaseModel",
+              "CitationStyle",
+              "CreateDeepDocumentRequest",
+              "DeepScholarConfig",
+              "DeepScholarOrchestrator",
+              "DocumentLanguage",
+              "DocumentStatus",
+              "EventType",
+              "ExportPDFRequest",
+              "FileResponse",
+              "GenerationState",
+              "HTTPException",
+              "PDFExporter",
+              "ResilienceEventType",
+              "StreamingResponse",
+              "WebSocket",
+              "WebSocketDisconnect",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "Field",
+              "List",
+              "Optional",
+              "cancel_generation",
+              "deep_scholar_websocket",
+              "export_to_markdown",
+              "export_to_pdf",
+              "field_validator",
+              "get_active_generations",
+              "get_agent_info",
+              "get_checkpoint",
+              "get_config_options",
+              "get_deep_scholar_info",
+              "get_generation_status",
+              "get_queue_status",
+              "pause_generation",
+              "remove_from_queue",
+              "resume_generation",
+              "router",
+              "search_academic_sources",
+              "search_arxiv",
+              "search_semantic_scholar",
+              "start_deep_generation",
+              "update_queue_priority"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.premium_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "Any",
+              "BackgroundTasks",
+              "BaseModel",
+              "GuardrailCheckRequest",
+              "HTTPException",
+              "QueryExpansionRequest",
+              "RAGEvaluationRequest",
+              "TaskStatusResponse",
+              "TaskSubmitRequest",
+              "WorkflowRunRequest",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "Field",
+              "List",
+              "Optional",
+              "Query",
+              "add_evaluation_sample",
+              "check_guardrails",
+              "evaluate_rag",
+              "expand_query",
+              "get_batch_evaluation_summary",
+              "get_logger",
+              "get_premium_status",
+              "get_task_queue_stats",
+              "get_task_status",
+              "initialize_all_modules",
+              "router",
+              "run_workflow",
+              "submit_task",
+              "wait_for_task"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.voice_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "BaseModel",
+              "HTTPException",
+              "StreamingResponse",
+              "TTSRequest",
+              "TTSResponse",
+              "TranscriptionResponse",
+              "UploadFile",
+              "VoiceStatus",
+              "WebSocket",
+              "WebSocketDisconnect"
+            ],
+            "functions": [
+              "File",
+              "Form",
+              "List",
+              "Optional",
+              "get_languages",
+              "get_status",
+              "get_voice_ai",
+              "router",
+              "synthesize_speech",
+              "text_to_speech",
+              "text_to_speech_stream",
+              "transcribe_audio",
+              "transcribe_base64",
+              "voice_conversation_ws"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.mcp_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "Any",
+              "BackgroundTasks",
+              "BaseModel",
+              "CoreToolProvider",
+              "DocumentResourceProvider",
+              "HTTPException",
+              "JSONResponse",
+              "MCPHTTPTransport",
+              "MCPRequest",
+              "MCPResource",
+              "MCPResponse",
+              "MCPServer",
+              "MCPTool",
+              "MCPToolResult",
+              "MCPWebSocketTransport",
+              "NotesResourceProvider",
+              "Path",
+              "PromptGetRequest",
+              "RAGToolProvider",
+              "ResourceReadRequest",
+              "SessionResourceProvider",
+              "StreamingResponse",
+              "SystemPromptProvider",
+              "ToolCallRequest",
+              "WebSearchToolProvider",
+              "WebSocket",
+              "WebSocketDisconnect",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "Query",
+              "asynccontextmanager",
+              "call_tool",
+              "get_claude_desktop_config",
+              "get_mcp_server",
+              "get_prompt",
+              "list_prompts",
+              "list_resources",
+              "list_tools",
+              "mcp_diagnostics",
+              "mcp_events",
+              "mcp_info",
+              "mcp_router",
+              "mcp_rpc",
+              "mcp_websocket",
+              "read_resource"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.workflow_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "Any",
+              "BaseModel",
+              "ExecutionResponse",
+              "HTTPException",
+              "WebSocket",
+              "WebSocketDisconnect",
+              "WorkflowCreate",
+              "WorkflowExecute",
+              "WorkflowResponse",
+              "WorkflowUpdate"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "create_from_template",
+              "create_workflow",
+              "delete_workflow",
+              "duplicate_workflow",
+              "execute_workflow",
+              "execute_workflow_ws",
+              "get_engine",
+              "get_execution",
+              "get_node_types",
+              "get_workflow",
+              "list_templates",
+              "list_workflows",
+              "router",
+              "update_workflow"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.security_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "AIReviewRequest",
+              "APIRouter",
+              "BaseModel",
+              "HTTPException",
+              "ScanCodeRequest",
+              "ScanDirectoryRequest",
+              "UploadFile"
+            ],
+            "functions": [
+              "File",
+              "Form",
+              "List",
+              "Optional",
+              "ai_code_review",
+              "check_dependencies",
+              "get_scan",
+              "get_scan_report",
+              "get_scanner",
+              "get_status",
+              "list_scans",
+              "router",
+              "scan_code",
+              "scan_directory",
+              "scan_file",
+              "scan_upload"
+            ],
+            "has_docstring": true
+          }
+        },
+        "api.knowledge_graph_endpoints": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "APIRouter",
+              "Any",
+              "BaseModel",
+              "EntityCreate",
+              "EntityResponse",
+              "ExtractRequest",
+              "HTTPException",
+              "QueryRequest",
+              "RelationshipCreate",
+              "RelationshipResponse"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "clear_graph",
+              "create_entity",
+              "create_relationship",
+              "export_graph",
+              "extract_from_text",
+              "find_path",
+              "get_entity",
+              "get_kg",
+              "get_statistics",
+              "get_status",
+              "get_visualization_data",
+              "list_entities",
+              "list_relationships",
+              "query_graph",
+              "router",
+              "search_entities"
+            ],
+            "has_docstring": true
+          }
+        }
+      },
+      "stats": {
+        "total": 12,
+        "success": 12,
+        "failed": 0
+      }
+    },
+    "⚙️ Core Modüller": {
+      "description": "Temel sistem modülleri",
+      "modules": {
+        "core.config": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "BaseSettings",
+              "Path",
+              "Settings"
+            ],
+            "functions": [
+              "Field",
+              "Optional"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.llm_manager": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "ContextWindowManager",
+              "LLMManager",
+              "TokenCounter",
+              "retry_if_exception_type",
+              "stop_after_attempt",
+              "wait_exponential"
+            ],
+            "functions": [
+              "AsyncGenerator",
+              "Dict",
+              "Iterator",
+              "Optional",
+              "lru_cache",
+              "retry"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.model_router": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "AIRouter",
+              "Any",
+              "Enum",
+              "Feedback",
+              "FeedbackStatus",
+              "FeedbackStorage",
+              "FeedbackType",
+              "LearnedPattern",
+              "ModelRouter",
+              "ModelSize",
+              "Path",
+              "PatternLearner",
+              "RouterMetrics",
+              "RoutingDecision",
+              "RoutingResult",
+              "RuleBasedRouter",
+              "datetime",
+              "timedelta"
+            ],
+            "functions": [
+              "AsyncGenerator",
+              "Callable",
+              "Dict",
+              "Iterator",
+              "List",
+              "Optional",
+              "Tuple",
+              "Union",
+              "abstractmethod",
+              "asdict",
+              "dataclass",
+              "field",
+              "get_model_router"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.session_manager": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "Message",
+              "Path",
+              "Session",
+              "SessionManager",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "Tuple",
+              "asdict",
+              "dataclass",
+              "field"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.vector_store": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "ChromaDBConfig",
+              "ChromaDBManager",
+              "ContentQualityConfig",
+              "DuplicateConfig",
+              "EnterpriseVectorStore",
+              "Path",
+              "VectorStore"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "get_chromadb_manager",
+              "get_enterprise_vector_store",
+              "get_logger",
+              "initialize_vector_store"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.embedding": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "EmbeddingCache",
+              "EmbeddingManager",
+              "OrderedDict",
+              "ThreadPoolExecutor"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "Tuple",
+              "as_completed"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.stream_buffer": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "OrderedDict",
+              "StreamBuffer",
+              "StreamState",
+              "StreamToken"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Lock",
+              "Optional",
+              "dataclass",
+              "field"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.health": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "ComponentHealth",
+              "Enum",
+              "HealthChecker",
+              "HealthStatus",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "dataclass",
+              "get_health_report"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.screen_capture": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "AnalysisResult",
+              "Any",
+              "CaptureMode",
+              "Enum",
+              "LocalVisionAnalyzer",
+              "Path",
+              "ScreenCaptureConfig",
+              "ScreenCaptureEngine",
+              "ScreenCaptureSystem",
+              "ScreenshotCache",
+              "ScreenshotMetadata",
+              "datetime",
+              "timedelta"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "Tuple",
+              "Union",
+              "dataclass",
+              "field",
+              "get_logger",
+              "get_screen_capture_system"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.voice_ai": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "Enum",
+              "Path",
+              "TTSResult",
+              "TranscriptionResult",
+              "VoiceAI",
+              "VoiceLanguage"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "dataclass",
+              "get_voice_ai"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.code_interpreter": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "CodeInterpreter",
+              "Enum",
+              "ExecutionLanguage",
+              "ExecutionResult",
+              "ExecutionStatus",
+              "Path",
+              "SandboxConfig",
+              "datetime",
+              "redirect_stderr",
+              "redirect_stdout"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "Tuple",
+              "dataclass",
+              "field",
+              "get_code_interpreter"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.knowledge_graph": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "Entity",
+              "GraphQuery",
+              "KnowledgeGraph",
+              "Path",
+              "Relationship",
+              "datetime",
+              "defaultdict"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "Set",
+              "Tuple",
+              "dataclass",
+              "field",
+              "get_knowledge_graph"
+            ],
+            "has_docstring": true
+          }
+        },
+        "core.workflow_engine": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "Enum",
+              "ExecutionContext",
+              "NodeType",
+              "Path",
+              "Workflow",
+              "WorkflowEdge",
+              "WorkflowEngine",
+              "WorkflowNode",
+              "WorkflowStatus",
+              "datetime"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Union",
+              "dataclass",
+              "field",
+              "get_workflow_engine"
+            ],
+            "has_docstring": true
+          }
+        }
+      },
+      "stats": {
+        "total": 13,
+        "success": 13,
+        "failed": 0
+      }
+    },
+    "🤖 Agent Sistemi": {
+      "description": "Multi-agent orkestrasyon",
+      "modules": {
+        "agents.orchestrator": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "AgentMessage",
+              "AgentResponse",
+              "AgentRole",
+              "AnalyzerAgent",
+              "Any",
+              "AssistantAgent",
+              "BaseAgent",
+              "Enum",
+              "Orchestrator",
+              "Path",
+              "ResearchAgent",
+              "TaskPlan",
+              "TaskType",
+              "WriterAgent"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "dataclass"
+            ],
+            "has_docstring": true
+          }
+        },
+        "agents.base_agent": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "AgentMessage",
+              "AgentResponse",
+              "AgentRole",
+              "Any",
+              "BaseAgent",
+              "Enum",
+              "Path",
+              "datetime"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "abstractmethod",
+              "dataclass",
+              "field"
+            ],
+            "has_docstring": true
+          }
+        },
+        "agents.research_agent": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "AgentResponse",
+              "AgentRole",
+              "Any",
+              "BaseAgent",
+              "ResearchAgent"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional"
+            ],
+            "has_docstring": true
+          }
+        },
+        "agents.writer_agent": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "AgentResponse",
+              "AgentRole",
+              "Any",
+              "BaseAgent",
+              "ContentType",
+              "Enum",
+              "WriterAgent",
+              "WritingTone"
+            ],
+            "functions": [
+              "Dict",
+              "Optional"
+            ],
+            "has_docstring": true
+          }
+        },
+        "agents.analyzer_agent": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "AgentResponse",
+              "AgentRole",
+              "AnalysisType",
+              "AnalyzerAgent",
+              "Any",
+              "BaseAgent",
+              "Enum"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional"
+            ],
+            "has_docstring": true
+          }
+        },
+        "agents.planning_agent": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "Any",
+              "Enum",
+              "ExecutionPlan",
+              "Path",
+              "PlanningAgent",
+              "PlanningStrategy",
+              "TaskComplexity",
+              "TaskDecomposer",
+              "TaskNode",
+              "TaskPriority",
+              "TaskStatus",
+              "ThoughtBranch",
+              "TreeOfThoughts",
+              "datetime",
+              "defaultdict"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Set",
+              "Tuple",
+              "Union",
+              "abstractmethod",
+              "create_planning_agent",
+              "dataclass",
+              "field",
+              "get_logger"
+            ],
+            "has_docstring": true
+          }
+        },
+        "agents.react_agent": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "Action",
+              "ActionType",
+              "Any",
+              "Enum",
+              "Observation",
+              "ReActAgent",
+              "ReActAgentWithMemory",
+              "ReActStep",
+              "ReActStepType",
+              "ReActTrace",
+              "StreamingReActAgent",
+              "Thought",
+              "ThoughtType",
+              "ThreadPoolExecutor",
+              "ToolDefinition",
+              "ToolExecutor",
+              "datetime"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Tuple",
+              "Union",
+              "abstractmethod",
+              "create_react_agent",
+              "dataclass",
+              "field",
+              "get_logger"
+            ],
+            "has_docstring": true
+          }
+        }
+      },
+      "stats": {
+        "total": 7,
+        "success": 7,
+        "failed": 0
+      }
+    },
+    "📚 RAG Sistemi": {
+      "description": "Retrieval Augmented Generation",
+      "modules": {
+        "rag.unified_orchestrator": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "Enum",
+              "FailureMode",
+              "GenerationResult",
+              "LLMProtocol",
+              "OrchestratorConfig",
+              "PipelinePhase",
+              "Protocol",
+              "QueryAnalysis",
+              "QueryIntent",
+              "RAGStrategy",
+              "RetrievalResult",
+              "RetrieverProtocol",
+              "StrategyDecision",
+              "StrategySelector",
+              "UnifiedAdvancedOrchestrator",
+              "UnifiedQueryAnalyzer",
+              "UnifiedRAGResponse",
+              "VerificationResult",
+              "datetime"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Set",
+              "Tuple",
+              "Union",
+              "dataclass",
+              "field",
+              "get_logger",
+              "get_unified_orchestrator"
+            ],
+            "has_docstring": true
+          }
+        },
+        "rag.reranker": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "Any",
+              "BM25Reranker",
+              "Counter",
+              "CrossEncoderReranker",
+              "EnsembleReranker",
+              "LLMReranker",
+              "RRFReranker",
+              "RankedDocument",
+              "Reranker",
+              "RerankerStrategy"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Tuple",
+              "abstractmethod",
+              "dataclass",
+              "field",
+              "get_logger"
+            ],
+            "has_docstring": true
+          }
+        },
+        "rag.retriever": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "BM25Reranker",
+              "CrossEncoderReranker",
+              "EnsembleReranker",
+              "Path",
+              "QueryResultCache",
+              "RRFReranker",
+              "RankedDocument",
+              "Reranker",
+              "RetrievalResult",
+              "Retriever"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional",
+              "dataclass",
+              "lru_cache"
+            ],
+            "has_docstring": true
+          }
+        },
+        "rag.chunker": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "Any",
+              "Chunk",
+              "DocumentChunker"
+            ],
+            "functions": [
+              "Dict",
+              "List",
+              "Optional"
+            ],
+            "has_docstring": true
+          }
+        },
+        "rag.hybrid_search": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "Any",
+              "BM25Index",
+              "DenseSearcher",
+              "Document",
+              "Enum",
+              "HybridSearchManager",
+              "HybridSearcher",
+              "SearchResult",
+              "SearchStrategy",
+              "TypeVar",
+              "datetime",
+              "defaultdict"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Set",
+              "Tuple",
+              "abstractmethod",
+              "dataclass",
+              "field"
+            ],
+            "has_docstring": true
+          }
+        },
+        "rag.query_expansion": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "Any",
+              "Enum",
+              "ExpandedQuery",
+              "ExpansionStrategy",
+              "HyDEExpander",
+              "KeywordExpander",
+              "MultiQueryExpander",
+              "QueryExpander",
+              "QueryExpansionManager",
+              "StepBackExpander",
+              "SynonymExpander",
+              "datetime"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Set",
+              "Tuple",
+              "abstractmethod",
+              "dataclass",
+              "field"
+            ],
+            "has_docstring": true
+          }
+        },
+        "rag.agentic_rag": {
+          "status": "OK",
+          "info": {
+            "classes": [
+              "ABC",
+              "ActionType",
+              "AgentAction",
+              "AgentPlan",
+              "AgentState",
+              "AgenticExecutor",
+              "AgenticPlanner",
+              "AgenticQueryAnalyzer",
+              "AgenticRAG",
+              "AgenticResult",
+              "Any",
+              "Enum",
+              "LLMProtocol",
+              "Protocol",
+              "QueryAnalysis",
+              "QueryComplexity",
+              "RetrieverProtocol",
+              "StrategyType",
+              "auto",
+              "datetime",
+              "defaultdict"
+            ],
+            "functions": [
+              "Callable",
+              "Dict",
+              "List",
+              "Optional",
+              "Set",
+              "Tuple",
+              "Type",
+              "Union",
+              "abstractmethod",
+              "dataclass",
+              "field",
+              "get_agentic_rag",
+              "get_logger"
+            ],
+            "has_docstring": true
+          }
+        }
+      },
+      "stats": {
+        "total": 7,
+        "success": 7,
+        "failed": 0
+      }
+    }
+  },
+  "errors": [],
+  "warnings": []
+}

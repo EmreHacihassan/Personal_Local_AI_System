@@ -33,12 +33,18 @@ class SafeStreamHandler(logging.StreamHandler):
     """
     Unicode-safe stream handler.
     Windows console'da emoji/unicode hatalarını önler.
+    Ayrıca shutdown sırasında stream kapanma hatalarını yakalar.
     """
     
     def emit(self, record):
         try:
             msg = self.format(record)
             stream = self.stream
+            
+            # Stream kapanmış mı kontrol et
+            if stream is None or stream.closed:
+                return
+            
             # Emoji'leri güvenli şekilde yaz
             try:
                 stream.write(msg + self.terminator)
@@ -46,7 +52,13 @@ class SafeStreamHandler(logging.StreamHandler):
                 # Encode edilemeyen karakterleri ? ile değiştir
                 safe_msg = msg.encode('ascii', errors='replace').decode('ascii')
                 stream.write(safe_msg + self.terminator)
+            except ValueError:
+                # Stream kapalı - silent fail
+                return
             self.flush()
+        except (ValueError, OSError):
+            # Stream kapanmış veya I/O hatası - silent fail
+            pass
         except Exception:
             self.handleError(record)
 

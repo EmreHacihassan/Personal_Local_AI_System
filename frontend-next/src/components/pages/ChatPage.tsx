@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send,
@@ -39,6 +39,9 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { useStore, Message } from '@/store/useStore';
@@ -130,6 +133,8 @@ export function ChatPage() {
     setSelectedModel,
     toggleMessageFavorite,
     editMessage,
+    setMessageLike,
+    setMessageDislike,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     isStreaming,
     setIsStreaming,
@@ -150,10 +155,12 @@ export function ChatPage() {
     isConnected: wsConnected,
     status: wsStatus,
     streamingResponse: wsStreamingResponse,
+    thinkingContent: wsThinkingContent,
     isStreaming: wsIsStreaming,
     streamError: wsStreamError,
     sources: wsSources,
     statusMessage: wsStatusMessage,
+    currentPhase: wsCurrentPhase,
     sendChatMessage: wsSendChatMessage,
     sendRoutedMessage: wsSendRoutedMessage,
     stopStream: wsStopStream,
@@ -178,10 +185,13 @@ export function ChatPage() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [showThinkingProcess, setShowThinkingProcess] = useState(false); // Düşünce sürecini göster/gizle
+  const [llmStatus, setLlmStatus] = useState<{status: string; model?: string; latency?: number}>({ status: 'unknown' });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const streamStartTimeRef = useRef<number | null>(null); // Gerçek başlangıç zamanı
 
   const scrollToBottom = useCallback(() => {
     if (autoScroll) {
@@ -193,14 +203,52 @@ export function ChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Timer for elapsed time during response
+  // LLM/Ollama health check - Poll every 30s
+  useEffect(() => {
+    const checkLlmHealth = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/health`);
+        if (response.ok) {
+          const data = await response.json();
+          const ollamaComponent = data.components?.find((c: { name: string }) => c.name === 'ollama');
+          if (ollamaComponent) {
+            setLlmStatus({
+              status: ollamaComponent.status,
+              model: ollamaComponent.details?.models?.[0] || 'unknown',
+              latency: ollamaComponent.latency_ms,
+            });
+          } else {
+            setLlmStatus({ status: data.status || 'healthy' });
+          }
+        } else {
+          setLlmStatus({ status: 'unhealthy' });
+        }
+      } catch {
+        setLlmStatus({ status: 'offline' });
+      }
+    };
+
+    checkLlmHealth();
+    const interval = setInterval(checkLlmHealth, 30000); // Check every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Timer for elapsed time during response - Tab gizli olduğunda bile doğru çalışsın
   useEffect(() => {
     if (isTyping) {
+      // Başlangıç zamanını kaydet
+      streamStartTimeRef.current = performance.now();
       setElapsedTime(0);
+      
+      // Her 100ms'de gerçek geçen süreyi hesapla
       timerRef.current = setInterval(() => {
-        setElapsedTime(prev => prev + 0.1);
+        if (streamStartTimeRef.current) {
+          const elapsed = (performance.now() - streamStartTimeRef.current) / 1000;
+          setElapsedTime(elapsed);
+        }
       }, 100);
     } else {
+      streamStartTimeRef.current = null;
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -372,6 +420,17 @@ export function ChatPage() {
     if (wsConnected) {
       console.log('🔌 Using WebSocket for chat');
       
+      // Map frontend settings to backend format
+      const wsWebSearch = webSearchMode === 'on';
+      const wsComplexity = complexityLevel === 'research' ? 'comprehensive' : 
+                          complexityLevel === 'comprehensive' ? 'comprehensive' : 
+                          complexityLevel === 'simple' ? 'simple' : 'auto';
+      const wsResponseMode = responseMode === 'analytical' ? 'analytical' :
+                            responseMode === 'creative' ? 'creative' :
+                            responseMode === 'technical' ? 'technical' : 'normal';
+      
+      console.log('🔧 WebSocket Settings:', { wsWebSearch, wsComplexity, wsResponseMode });
+      
       // Check if manual model is selected
       if (selectedModel !== 'auto') {
         // Use routed message with forced model
@@ -381,10 +440,20 @@ export function ChatPage() {
           sessionId: currentSessionId || undefined,
           useRouting: true,
           forceModel: forceModel,
+          webSearch: wsWebSearch,
+          complexityLevel: wsComplexity as 'auto' | 'simple' | 'normal' | 'comprehensive' | 'research',
+          responseMode: wsResponseMode as 'normal' | 'analytical' | 'creative' | 'technical',
         });
       } else {
-        // Auto mode - let AI decide
-        wsSendChatMessage(userMessage.content, currentSessionId || undefined);
+        // Auto mode - use routing with AI decision (model router decides small/large)
+        console.log('🤖 Auto mode with model routing enabled');
+        wsSendRoutedMessage(userMessage.content, {
+          sessionId: currentSessionId || undefined,
+          useRouting: true,  // Enable model routing for auto mode
+          webSearch: wsWebSearch,
+          complexityLevel: wsComplexity as 'auto' | 'simple' | 'normal' | 'comprehensive' | 'research',
+          responseMode: wsResponseMode as 'normal' | 'analytical' | 'creative' | 'technical',
+        });
       }
       return; // WebSocket handles the response via effects
     }
@@ -602,6 +671,124 @@ export function ChatPage() {
     inputRef.current?.focus();
   };
 
+  // Edit and resend functionality for user messages
+  const handleEditAndResend = useCallback(async (messageId: string, newContent: string) => {
+    // Stop any current generation
+    stopGeneration();
+    
+    // Find the message index
+    const messageIndex = messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    // Update the message content
+    editMessage(messageId, newContent);
+    
+    // Remove all messages after this one (the old response)
+    const messagesToKeep = messages.slice(0, messageIndex + 1);
+    // Clear and re-add messages up to the edited one
+    clearMessages();
+    messagesToKeep.forEach(m => {
+      if (m.id === messageId) {
+        addMessage({ ...m, content: newContent, isEdited: true });
+      } else {
+        addMessage(m);
+      }
+    });
+    
+    // Now send the edited message
+    const startTime = Date.now();
+    setIsTyping(true);
+    setIsStreaming(true);
+    setStreamingContent('');
+    
+    // Store pending message for when streaming completes
+    const userMessage: Message = {
+      id: messageId,
+      role: 'user',
+      content: newContent,
+      timestamp: new Date(),
+      isEdited: true,
+    };
+    pendingMessageRef.current = { userMessage, startTime };
+    
+    // Map frontend settings to backend format (same as handleSend)
+    const wsWebSearch = webSearchMode === 'on';
+    const wsComplexity = complexityLevel === 'research' ? 'comprehensive' : 
+                        complexityLevel === 'comprehensive' ? 'comprehensive' : 
+                        complexityLevel === 'simple' ? 'simple' : 'auto';
+    const wsResponseMode = responseMode === 'analytical' ? 'analytical' :
+                          responseMode === 'creative' ? 'creative' :
+                          responseMode === 'technical' ? 'technical' : 'normal';
+    
+    // Send via WebSocket if connected
+    if (wsConnected) {
+      if (selectedModel !== 'auto') {
+        const forceModel = selectedModel === 'qwen-8b' ? 'large' : 'small';
+        wsSendRoutedMessage(newContent, {
+          sessionId: currentSessionId || undefined,
+          useRouting: true,
+          forceModel: forceModel,
+          webSearch: wsWebSearch,
+          complexityLevel: wsComplexity as 'auto' | 'simple' | 'normal' | 'comprehensive' | 'research',
+          responseMode: wsResponseMode as 'normal' | 'analytical' | 'creative' | 'technical',
+        });
+      } else {
+        // Auto mode - use routing with AI decision
+        wsSendRoutedMessage(newContent, {
+          sessionId: currentSessionId || undefined,
+          useRouting: true,
+          webSearch: wsWebSearch,
+          complexityLevel: wsComplexity as 'auto' | 'simple' | 'normal' | 'comprehensive' | 'research',
+          responseMode: wsResponseMode as 'normal' | 'analytical' | 'creative' | 'technical',
+        });
+      }
+    } else {
+      // HTTP fallback
+      try {
+        const apiWebSearch = webSearchMode === 'on' ? true : webSearchMode === 'off' ? false : undefined;
+        const apiResponseMode = (responseMode === 'analytical' || responseMode === 'technical' || responseMode === 'academic') 
+                                ? 'detailed' : 'normal';
+        const apiComplexity = complexityLevel === 'research' ? 'comprehensive' : 
+                             complexityLevel === 'comprehensive' ? 'advanced' : 
+                             complexityLevel === 'simple' ? 'simple' : 'moderate';
+        const apiLength = responseLength === 'very_long' ? 'comprehensive' : 
+                         responseLength === 'long' ? 'detailed' : 
+                         responseLength === 'short' ? 'short' : 
+                         responseLength === 'medium' ? 'normal' : 'normal';
+        
+        const response = await sendChatMessage({
+          message: newContent,
+          session_id: currentSessionId || undefined,
+          web_search: apiWebSearch,
+          response_mode: apiResponseMode as 'normal' | 'detailed',
+          complexity_level: apiComplexity as 'auto' | 'simple' | 'moderate' | 'advanced' | 'comprehensive',
+          response_length: apiLength as 'short' | 'normal' | 'detailed' | 'comprehensive',
+        });
+        
+        if (response.success && response.data) {
+          const responseTime = (Date.now() - startTime) / 1000;
+          const assistantMessage: Message = {
+            id: generateId(),
+            role: 'assistant',
+            content: response.data.response,
+            timestamp: new Date(),
+            metadata: response.data.metadata || {},
+            responseTime: responseTime,
+            wordCount: response.data.response.split(/\s+/).filter(Boolean).length,
+          };
+          addMessage(assistantMessage);
+        }
+      } catch (error) {
+        console.error('Edit and resend error:', error);
+      } finally {
+        setIsTyping(false);
+        setIsStreaming(false);
+        setStreamingContent('');
+        pendingMessageRef.current = null;
+      }
+    }
+  }, [messages, editMessage, clearMessages, addMessage, setIsTyping, setIsStreaming, setStreamingContent, wsConnected, wsSendChatMessage, wsSendRoutedMessage, selectedModel, currentSessionId, webSearchMode, responseMode, complexityLevel, responseLength, stopGeneration]);
+
   // Model Routing Feedback Handlers
   const handleModelFeedback = useCallback((responseId: string, feedbackType: 'correct' | 'downgrade' | 'upgrade') => {
     if (wsConnected && wsSendFeedback) {
@@ -609,6 +796,44 @@ export function ChatPage() {
       wsSendFeedback(responseId, feedbackType);
     }
   }, [wsConnected, wsSendFeedback]);
+
+  // Like/Dislike with backend sync
+  const handleLike = useCallback((id: string) => {
+    const msg = messages.find(m => m.id === id);
+    const newLikeState = msg?.isLiked ? null : true;
+    setMessageLike(id, newLikeState);
+    
+    // Send to backend as 'correct' feedback
+    const responseId = msg?.modelInfo?.response_id || msg?.id;
+    if (newLikeState && responseId && wsConnected && wsSendFeedback) {
+      console.log('👍 Sending like feedback:', { responseId });
+      wsSendFeedback(responseId, 'correct');
+    }
+  }, [messages, setMessageLike, wsConnected, wsSendFeedback]);
+
+  const handleDislike = useCallback((id: string) => {
+    const msg = messages.find(m => m.id === id);
+    const newDislikeState = msg?.isDisliked ? null : true;
+    setMessageDislike(id, newDislikeState);
+    
+    // Send to backend as 'downgrade' feedback (suggesting need for improvement)
+    const responseId = msg?.modelInfo?.response_id || msg?.id;
+    if (newDislikeState && responseId && wsConnected && wsSendFeedback) {
+      console.log('👎 Sending dislike feedback:', { responseId });
+      wsSendFeedback(responseId, 'downgrade');
+    }
+  }, [messages, setMessageDislike, wsConnected, wsSendFeedback]);
+
+  // Calculate feedback stats
+  const feedbackStats = useMemo(() => {
+    const assistantMessages = messages.filter(m => m.role === 'assistant');
+    const totalResponses = assistantMessages.length;
+    const likedCount = assistantMessages.filter(m => m.isLiked).length;
+    const dislikedCount = assistantMessages.filter(m => m.isDisliked).length;
+    const satisfactionRate = totalResponses > 0 ? Math.round((likedCount / totalResponses) * 100) : 0;
+    
+    return { totalResponses, likedCount, dislikedCount, satisfactionRate };
+  }, [messages]);
 
   const handleRequestComparison = useCallback((responseId: string, originalContent: string) => {
     if (wsConnected && wsRequestComparison) {
@@ -692,6 +917,33 @@ export function ChatPage() {
             <h1 className="text-base font-semibold">{t.title[language]}</h1>
             <p className="text-[10px] text-muted-foreground hidden sm:block">{t.subtitle[language]}</p>
           </div>
+          
+          {/* Feedback Stats Badge */}
+          {feedbackStats.totalResponses > 0 && (
+            <div 
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-800"
+              title={`${feedbackStats.likedCount} ${language === 'tr' ? 'beğeni' : 'likes'}, ${feedbackStats.dislikedCount} ${language === 'tr' ? 'beğenmeme' : 'dislikes'}`}
+            >
+              <ThumbsUp className="w-3 h-3" />
+              <span>{feedbackStats.likedCount}</span>
+              <span className="text-muted-foreground">/</span>
+              <ThumbsDown className="w-3 h-3" />
+              <span>{feedbackStats.dislikedCount}</span>
+              {feedbackStats.satisfactionRate > 0 && (
+                <>
+                  <span className="text-muted-foreground mx-0.5">•</span>
+                  <span className={cn(
+                    feedbackStats.satisfactionRate >= 80 ? "text-green-600 dark:text-green-400" :
+                    feedbackStats.satisfactionRate >= 50 ? "text-yellow-600 dark:text-yellow-400" :
+                    "text-red-600 dark:text-red-400"
+                  )}>
+                    {feedbackStats.satisfactionRate}%
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+          
           {/* WebSocket Status Indicator */}
           <div 
             className={cn(
@@ -710,6 +962,28 @@ export function ChatPage() {
             )} />
             <span className="hidden sm:inline">
               {wsConnected ? 'Live' : wsStatus === 'connecting' ? 'Connecting...' : wsStatus === 'reconnecting' ? 'Reconnecting...' : 'Offline'}
+            </span>
+          </div>
+          
+          {/* LLM/Ollama Status Indicator */}
+          <div 
+            className={cn(
+              "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium",
+              llmStatus.status === 'healthy'
+                ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
+                : llmStatus.status === 'degraded'
+                ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                : llmStatus.status === 'unknown'
+                ? "bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-400 border border-gray-200 dark:border-gray-800"
+                : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800"
+            )}
+            title={`Ollama LLM: ${llmStatus.status}${llmStatus.latency ? ` (${Math.round(llmStatus.latency)}ms)` : ''}`}
+          >
+            <Cpu className="w-3 h-3" />
+            <span className="hidden sm:inline">
+              {llmStatus.status === 'healthy' ? 'LLM Ready' : 
+               llmStatus.status === 'degraded' ? 'LLM Degraded' :
+               llmStatus.status === 'unknown' ? 'LLM...' : 'LLM Offline'}
             </span>
           </div>
         </div>
@@ -1320,6 +1594,9 @@ export function ChatPage() {
                 onRegenerate={regenerateResponse}
                 onToggleFavorite={toggleMessageFavorite}
                 onEdit={editMessage}
+                onEditAndResend={handleEditAndResend}
+                onLike={handleLike}
+                onDislike={handleDislike}
                 onFollowUpClick={handleFollowUpClick}
                 onRelatedQueryClick={handleRelatedQueryClick}
                 onModelFeedback={handleModelFeedback}
@@ -1343,9 +1620,10 @@ export function ChatPage() {
               <div className="flex flex-col max-w-[80%]">
                 <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3">
                   {streamingContent ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <div className="prose prose-sm dark:prose-invert max-w-none math-content">
                       <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
                         components={{
                           code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
                             const match = /language-(\w+)/.exec(className || '');
@@ -1372,16 +1650,351 @@ export function ChatPage() {
                       <span className="inline-block w-2 h-4 bg-primary-500 animate-pulse ml-1" />
                     </div>
                   ) : (
-                    <div className="typing-indicator">
-                      <span></span>
-                      <span></span>
-                      <span></span>
+                    <div className="flex flex-col gap-3 min-w-[320px]">
+                      {/* Multi-Agent Pipeline Header */}
+                      <div className="flex items-center gap-2 pb-2 border-b border-border">
+                        <div className="relative">
+                          <Loader2 className="w-5 h-5 text-primary-500 animate-spin" />
+                          <div className="absolute inset-0 blur-sm bg-primary-500/30 animate-pulse" />
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-semibold text-foreground">
+                            {language === 'tr' ? 'Multi-Agent İşlem Hattı' : 'Multi-Agent Pipeline'}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {wsStatusMessage || (language === 'tr' ? 'AI sistemi çalışıyor...' : 'AI system processing...')}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Pipeline Steps with Inter-Agent Communication Lines */}
+                      <div className="relative space-y-1">
+                        {/* Animated flow line connecting all agents */}
+                        <div className="absolute left-[19px] top-6 bottom-6 w-0.5 bg-gradient-to-b from-amber-300 via-blue-300 via-purple-300 via-cyan-300 to-emerald-300 dark:from-amber-700 dark:via-blue-700 dark:via-purple-700 dark:via-cyan-700 dark:to-emerald-700 opacity-50" />
+                        
+                        {/* Data flow animation */}
+                        {wsCurrentPhase && ['routing', 'search', 'analyze', 'context', 'generate'].includes(wsCurrentPhase) && (
+                          <motion.div
+                            className="absolute left-[17px] w-1.5 h-3 rounded-full bg-primary-500 shadow-lg shadow-primary-500/50"
+                            initial={{ top: 16 }}
+                            animate={{
+                              top: wsCurrentPhase === 'routing' ? 24 :
+                                   wsCurrentPhase === 'search' ? 64 :
+                                   wsCurrentPhase === 'analyze' ? 104 :
+                                   wsCurrentPhase === 'context' ? 144 :
+                                   wsCurrentPhase === 'generate' ? 184 : 24
+                            }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                          />
+                        )}
+                        
+                        {/* Step 1: Router Agent */}
+                        <div className={cn(
+                          "flex items-center gap-3 p-2 rounded-lg transition-all group cursor-pointer",
+                          wsCurrentPhase === 'routing' ? "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800" :
+                          ['search', 'analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800" :
+                          "bg-muted/50 border border-transparent"
+                        )}
+                        title={wsRoutingInfo?.reasoning || (language === 'tr' ? 'Model seçim mantığı' : 'Model selection reasoning')}
+                        >
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center text-sm relative",
+                            wsCurrentPhase === 'routing' ? "bg-amber-500 text-white" :
+                            ['search', 'analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-500 text-white" :
+                            "bg-muted text-muted-foreground"
+                          )}>
+                            {wsCurrentPhase === 'routing' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : ['search', 'analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? (
+                              <Check className="w-4 h-4" />
+                            ) : (
+                              <Cpu className="w-4 h-4" />
+                            )}
+                            {/* Connection line */}
+                            <div className="absolute -bottom-4 left-1/2 w-0.5 h-4 bg-border hidden group-last:hidden" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium flex items-center gap-1">
+                              🧭 Router Agent
+                              {wsRoutingInfo?.decision_source && (
+                                <span className="text-[9px] text-muted-foreground">({wsRoutingInfo.decision_source})</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground truncate">
+                              {wsCurrentPhase === 'routing' ? (language === 'tr' ? 'Model seçiliyor...' : 'Selecting model...') :
+                               wsRoutingInfo ? `${wsRoutingInfo.model_display_name} (${Math.round(wsRoutingInfo.confidence * 100)}%)` :
+                               (language === 'tr' ? 'Beklemede' : 'Waiting')}
+                            </div>
+                            {/* Reasoning hint on hover */}
+                            {wsRoutingInfo?.reasoning && (
+                              <div className="hidden group-hover:block text-[9px] text-amber-600 dark:text-amber-400 mt-0.5 truncate">
+                                💡 {wsRoutingInfo.reasoning.slice(0, 60)}...
+                              </div>
+                            )}
+                          </div>
+                          {wsRoutingInfo && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400">
+                                {wsRoutingInfo.model_icon}
+                              </span>
+                              <span className={cn(
+                                "text-[9px] px-1 py-0.5 rounded",
+                                wsRoutingInfo.model_size === 'large' ? "bg-purple-100 dark:bg-purple-900/30 text-purple-600" : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600"
+                              )}>
+                                {wsRoutingInfo.model_size === 'large' ? '8B' : '4B'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Data flow: Router → Search */}
+                        {['search', 'analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') && (
+                          <div className="flex items-center gap-1 pl-8 py-0.5 text-[9px] text-muted-foreground">
+                            <motion.span 
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              className="text-amber-500"
+                            >
+                              →
+                            </motion.span>
+                            <span>{language === 'tr' ? 'Model seçimi gönderildi' : 'Model selection sent'}</span>
+                          </div>
+                        )}
+
+                        {/* Step 2: Search Agent */}
+                        <div className={cn(
+                          "flex items-center gap-3 p-2 rounded-lg transition-all group",
+                          wsCurrentPhase === 'search' ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800" :
+                          ['analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800" :
+                          "bg-muted/50 border border-transparent"
+                        )}>
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center text-sm",
+                            wsCurrentPhase === 'search' ? "bg-blue-500 text-white" :
+                            ['analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-500 text-white" :
+                            "bg-muted text-muted-foreground"
+                          )}>
+                            {wsCurrentPhase === 'search' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : ['analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? (
+                              <Check className="w-4 h-4" />
+                            ) : (
+                              <Search className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-xs font-medium">🔍 Search Agent</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {wsCurrentPhase === 'search' ? (language === 'tr' ? 'Web ve RAG araması...' : 'Web & RAG search...') :
+                               ['analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? (
+                                 wsSources && wsSources.length > 0 
+                                   ? `${wsSources.length} ${language === 'tr' ? 'kaynak bulundu' : 'sources found'}`
+                                   : (language === 'tr' ? 'Kaynaklar bulundu' : 'Sources found')
+                               ) :
+                               (language === 'tr' ? 'Beklemede' : 'Waiting')}
+                            </div>
+                          </div>
+                          {wsSources && wsSources.length > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                              📚 {wsSources.length}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Data flow: Search → Analyze */}
+                        {['analyze', 'context', 'generate', 'complete'].includes(wsCurrentPhase || '') && wsSources && wsSources.length > 0 && (
+                          <div className="flex items-center gap-1 pl-8 py-0.5 text-[9px] text-muted-foreground">
+                            <motion.span 
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              className="text-blue-500"
+                            >
+                              →
+                            </motion.span>
+                            <span>{wsSources.length} {language === 'tr' ? 'kaynak analiz için gönderildi' : 'sources sent for analysis'}</span>
+                          </div>
+                        )}
+
+                        {/* Step 3: Analyzer Agent */}
+                        <div className={cn(
+                          "flex items-center gap-3 p-2 rounded-lg transition-all",
+                          wsCurrentPhase === 'analyze' ? "bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800" :
+                          ['context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800" :
+                          "bg-muted/50 border border-transparent"
+                        )}>
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center text-sm",
+                            wsCurrentPhase === 'analyze' ? "bg-purple-500 text-white" :
+                            ['context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-500 text-white" :
+                            "bg-muted text-muted-foreground"
+                          )}>
+                            {wsCurrentPhase === 'analyze' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : ['context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? (
+                              <Check className="w-4 h-4" />
+                            ) : (
+                              <Gauge className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-xs font-medium">📊 Analyzer Agent</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {wsCurrentPhase === 'analyze' ? (language === 'tr' ? 'Kaynaklar analiz ediliyor...' : 'Analyzing sources...') :
+                               ['context', 'generate', 'complete'].includes(wsCurrentPhase || '') ? (language === 'tr' ? 'Analiz tamamlandı' : 'Analysis complete') :
+                               (language === 'tr' ? 'Beklemede' : 'Waiting')}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 4: Context Builder */}
+                        <div className={cn(
+                          "flex items-center gap-3 p-2 rounded-lg transition-all",
+                          wsCurrentPhase === 'context' ? "bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800" :
+                          ['generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800" :
+                          "bg-muted/50 border border-transparent"
+                        )}>
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center text-sm",
+                            wsCurrentPhase === 'context' ? "bg-cyan-500 text-white" :
+                            ['generate', 'complete'].includes(wsCurrentPhase || '') ? "bg-green-500 text-white" :
+                            "bg-muted text-muted-foreground"
+                          )}>
+                            {wsCurrentPhase === 'context' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : ['generate', 'complete'].includes(wsCurrentPhase || '') ? (
+                              <Check className="w-4 h-4" />
+                            ) : (
+                              <Layers className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-xs font-medium">📝 Context Builder</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {wsCurrentPhase === 'context' ? (language === 'tr' ? 'Bağlam hazırlanıyor...' : 'Building context...') :
+                               ['generate', 'complete'].includes(wsCurrentPhase || '') ? (language === 'tr' ? 'Bağlam hazır' : 'Context ready') :
+                               (language === 'tr' ? 'Beklemede' : 'Waiting')}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 5: Generator Agent */}
+                        <div className={cn(
+                          "flex items-center gap-3 p-2 rounded-lg transition-all",
+                          wsCurrentPhase === 'generate' ? "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800" :
+                          wsCurrentPhase === 'complete' ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800" :
+                          "bg-muted/50 border border-transparent"
+                        )}>
+                          <div className={cn(
+                            "w-8 h-8 rounded-lg flex items-center justify-center text-sm",
+                            wsCurrentPhase === 'generate' ? "bg-emerald-500 text-white" :
+                            wsCurrentPhase === 'complete' ? "bg-green-500 text-white" :
+                            "bg-muted text-muted-foreground"
+                          )}>
+                            {wsCurrentPhase === 'generate' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : wsCurrentPhase === 'complete' ? (
+                              <Check className="w-4 h-4" />
+                            ) : (
+                              <Sparkles className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-xs font-medium">✨ Generator Agent</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {wsCurrentPhase === 'generate' ? (
+                                streamingContent 
+                                  ? `${streamingContent.split(/\s+/).filter(Boolean).length} ${language === 'tr' ? 'kelime' : 'words'}...`
+                                  : (language === 'tr' ? 'Yanıt üretiliyor...' : 'Generating response...')
+                              ) :
+                               wsCurrentPhase === 'complete' ? (language === 'tr' ? 'Tamamlandı' : 'Complete') :
+                               (language === 'tr' ? 'Beklemede' : 'Waiting')}
+                            </div>
+                          </div>
+                          {wsCurrentPhase === 'generate' && elapsedTime > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">
+                              ⚡ {elapsedTime.toFixed(1)}s
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Progress indicator */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-border">
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <motion.div 
+                            className="h-full bg-gradient-to-r from-primary-400 via-primary-500 to-primary-600"
+                            initial={{ width: '0%' }}
+                            animate={{ 
+                              width: wsCurrentPhase === 'routing' ? '10%' :
+                                     wsCurrentPhase === 'search' ? '30%' :
+                                     wsCurrentPhase === 'analyze' ? '50%' :
+                                     wsCurrentPhase === 'context' ? '70%' :
+                                     wsCurrentPhase === 'generate' ? '90%' :
+                                     wsCurrentPhase === 'complete' ? '100%' : '5%'
+                            }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-medium">
+                          {wsCurrentPhase === 'routing' ? '10%' :
+                           wsCurrentPhase === 'search' ? '30%' :
+                           wsCurrentPhase === 'analyze' ? '50%' :
+                           wsCurrentPhase === 'context' ? '70%' :
+                           wsCurrentPhase === 'generate' ? '90%' :
+                           wsCurrentPhase === 'complete' ? '100%' : '...'}
+                        </span>
+                      </div>
+
+                      {/* AI Thinking Process - Qwen3 Extended Thinking */}
+                      {wsThinkingContent && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          <button
+                            onClick={() => setShowThinkingProcess(!showThinkingProcess)}
+                            className="w-full flex items-center justify-between gap-2 p-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-lg bg-violet-500 flex items-center justify-center">
+                                <Cpu className="w-3 h-3 text-white animate-pulse" />
+                              </div>
+                              <span className="text-xs font-medium text-violet-700 dark:text-violet-300">
+                                {language === 'tr' ? '🧠 AI Düşünce Süreci' : '🧠 AI Thinking Process'}
+                              </span>
+                              <span className="text-[10px] text-violet-500 dark:text-violet-400">
+                                ({wsThinkingContent.length} {language === 'tr' ? 'karakter' : 'chars'})
+                              </span>
+                            </div>
+                            {showThinkingProcess ? (
+                              <ChevronUp className="w-4 h-4 text-violet-500" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-violet-500" />
+                            )}
+                          </button>
+                          
+                          <AnimatePresence>
+                            {showThinkingProcess && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="mt-2 p-3 bg-violet-50/50 dark:bg-violet-900/10 rounded-lg border border-violet-200 dark:border-violet-800">
+                                  <div className="text-xs text-violet-700 dark:text-violet-300 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+                                    {wsThinkingContent}
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
                 <div className="flex items-center gap-3 mt-2">
                   {/* WebSocket Status Message */}
-                  {wsStatusMessage && (
+                  {wsStatusMessage && streamingContent && (
                     <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">
                       <Loader2 className="w-3 h-3 animate-spin" />
                       {wsStatusMessage}
@@ -1605,6 +2218,9 @@ interface MessageBubbleProps {
   onRegenerate: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onEdit: (id: string, content: string) => void;
+  onEditAndResend?: (id: string, content: string) => void;
+  onLike?: (id: string) => void;
+  onDislike?: (id: string) => void;
   onFollowUpClick?: (question: string) => void;
   onRelatedQueryClick?: (query: string) => void;
   onModelFeedback?: (responseId: string, feedbackType: 'correct' | 'downgrade' | 'upgrade') => void;
@@ -1613,7 +2229,7 @@ interface MessageBubbleProps {
   showTimestamps?: boolean;
 }
 
-function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFollowUpClick, onRelatedQueryClick, onModelFeedback, onRequestComparison, language, showTimestamps = true }: MessageBubbleProps) {
+function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onEditAndResend, onLike, onDislike, onFollowUpClick, onRelatedQueryClick, onModelFeedback, onRequestComparison, language, showTimestamps = true }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -1696,13 +2312,26 @@ function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFoll
                 onChange={(e) => setEditContent(e.target.value)}
                 className="w-full min-w-[300px] min-h-[100px] p-2 rounded-lg bg-background text-foreground border border-border"
               />
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                {/* For user messages, show "Save & Resend" option */}
+                {isUser && onEditAndResend && (
+                  <button
+                    onClick={() => {
+                      onEditAndResend(message.id, editContent);
+                      setIsEditing(false);
+                    }}
+                    className="flex items-center gap-1 px-3 py-1 bg-primary-500 hover:bg-primary-600 text-white rounded-lg text-sm transition-colors"
+                  >
+                    <Send className="w-3 h-3" />
+                    {language === 'tr' ? 'Kaydet & Gönder' : language === 'de' ? 'Speichern & Senden' : 'Save & Send'}
+                  </button>
+                )}
                 <button
                   onClick={handleSaveEdit}
                   className="flex items-center gap-1 px-3 py-1 bg-green-500 text-white rounded-lg text-sm"
                 >
                   <Check className="w-3 h-3" />
-                  {language === 'tr' ? 'Kaydet' : 'Save'}
+                  {language === 'tr' ? 'Sadece Kaydet' : language === 'de' ? 'Nur Speichern' : 'Save Only'}
                 </button>
                 <button
                   onClick={handleCancelEdit}
@@ -1716,9 +2345,10 @@ function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFoll
           ) : isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="prose prose-sm dark:prose-invert max-w-none">
+            <div className="prose prose-sm dark:prose-invert max-w-none math-content">
               <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
                 components={{
                   code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children?: React.ReactNode }) {
                     const match = /language-(\w+)/.exec(className || '');
@@ -1906,11 +2536,29 @@ function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFoll
               {/* Fallback ThumbsUp/Down for messages without modelInfo */}
               {!message.modelInfo && (
                 <>
-                  <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                    <ThumbsUp className="w-4 h-4" />
+                  <button 
+                    onClick={() => onLike?.(message.id)}
+                    className={cn(
+                      "p-1.5 rounded-lg transition-colors",
+                      message.isLiked 
+                        ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400" 
+                        : "hover:bg-accent text-muted-foreground hover:text-foreground"
+                    )}
+                    title={language === 'tr' ? 'Beğen' : 'Like'}
+                  >
+                    <ThumbsUp className={cn("w-4 h-4", message.isLiked && "fill-green-500")} />
                   </button>
-                  <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors">
-                    <ThumbsDown className="w-4 h-4" />
+                  <button 
+                    onClick={() => onDislike?.(message.id)}
+                    className={cn(
+                      "p-1.5 rounded-lg transition-colors",
+                      message.isDisliked 
+                        ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400" 
+                        : "hover:bg-accent text-muted-foreground hover:text-foreground"
+                    )}
+                    title={language === 'tr' ? 'Beğenme' : 'Dislike'}
+                  >
+                    <ThumbsDown className={cn("w-4 h-4", message.isDisliked && "fill-red-500")} />
                   </button>
                 </>
               )}
@@ -1944,6 +2592,33 @@ function MessageBubble({ message, onRegenerate, onToggleFavorite, onEdit, onFoll
                 <span className="text-xs text-green-700 dark:text-green-400 flex items-center gap-0.5">
                   <Timer className="w-3 h-3" />
                   {message.responseTime.toFixed(1)}s
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Feature Badges - show what was used for this response */}
+          {!isUser && !message.isError && (
+            <div className="flex items-center gap-1.5 ml-2">
+              {/* Sources/RAG Badge */}
+              {message.sources && message.sources.length > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                  <FileText className="w-2.5 h-2.5" />
+                  {language === 'tr' ? 'RAG' : 'RAG'}
+                </span>
+              )}
+              {/* Web Search Badge - check if any source is from web */}
+              {message.sources?.some(s => s.type === 'web') && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                  <Globe className="w-2.5 h-2.5" />
+                  {language === 'tr' ? 'Web' : 'Web'}
+                </span>
+              )}
+              {/* Model Badge (if modelInfo exists) */}
+              {message.modelInfo && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                  <Cpu className="w-2.5 h-2.5" />
+                  {message.modelInfo.model_size === 'large' ? '8B' : '1.5B'}
                 </span>
               )}
             </div>

@@ -514,8 +514,8 @@ class StartupHealthChecker:
                 ).stdout.strip()
                 
                 os.environ['PATH'] = f"{machine_path};{user_path}"
-            except:
-                pass
+            except (subprocess.SubprocessError, OSError, Exception):
+                pass  # Path refresh failed, continue with current PATH
         
         def _check_node():
             """Node.js'i kontrol et."""
@@ -545,7 +545,7 @@ class StartupHealthChecker:
                 
                 npm_version = npm_result.stdout.strip() if npm_result.returncode == 0 else None
                 return node_version, npm_version
-            except:
+            except (subprocess.SubprocessError, FileNotFoundError, OSError):
                 return None, None
         
         def _auto_install_nodejs():
@@ -568,7 +568,7 @@ class StartupHealthChecker:
                     _refresh_path()
                     return True
                 return False
-            except:
+            except (subprocess.SubprocessError, FileNotFoundError, OSError):
                 return False
         
         def _find_nodejs_in_known_paths():
@@ -623,8 +623,8 @@ class StartupHealthChecker:
                     return False, f"Node.js {node_version} too old (need v16+)", details
                 elif major < 18:
                     details["warning"] = "Node.js v18+ recommended"
-            except:
-                pass
+            except (ValueError, IndexError, AttributeError):
+                pass  # Version parsing failed, skip version check
             
             if not npm_version:
                 return False, "npm not found", details

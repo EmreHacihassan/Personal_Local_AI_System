@@ -1306,6 +1306,31 @@ objShell.Run strCmd, 0, False
         return False
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BACKEND CONTROL SIGNALS
+# ══════════════════════════════════════════════════════════════════════════════
+SIGNAL_FILE = ROOT_DIR / ".backend_state"
+
+def check_backend_signal():
+    """Backend kontrol sinyallerini kontrol et."""
+    if not SIGNAL_FILE.exists():
+        return "running"
+    
+    try:
+        with open(SIGNAL_FILE, "r", encoding="utf-8") as f:
+            signal = f.read().strip()
+        return signal
+    except:
+        return "running"
+
+def clear_signal(new_state="running"):
+    """Sinyal dosyasını güncelle."""
+    try:
+        with open(SIGNAL_FILE, "w", encoding="utf-8") as f:
+            f.write(new_state)
+    except:
+        pass
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CLEANUP
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1389,6 +1414,41 @@ def monitor_services(services: List[str]):
         
         # Grace period kontrolü
         elapsed = (datetime.now() - startup_time).total_seconds()
+        
+        # Sinyal Kontrolü (Grace period'dan bağımsız)
+        signal = check_backend_signal()
+        
+        # STOP SIGNAL - Backend'i durdur
+        if signal == "stopped":
+            proc_info = state.processes.get("api")
+            if proc_info and proc_info.status != ServiceStatus.STOPPED:
+                log("Kullanıcı isteğiyle Backend durduruluyor...", "warning", "api")
+                if proc_info.process:
+                    try:
+                        proc_info.process.terminate()
+                        proc_info.process.wait(timeout=2)
+                    except:
+                        pass
+                proc_info.status = ServiceStatus.STOPPED
+                # Next.js'i durdurmaya gerek yok, bağımsız çalışabilir
+            continue
+
+        # RESTART SIGNAL
+        if signal == "restarting":
+            log("Kullanıcı isteğiyle Backend yeniden başlatılıyor...", "warning", "api")
+            proc_info = state.processes.get("api")
+            if proc_info and proc_info.process:
+                try:
+                    proc_info.process.terminate()
+                    proc_info.process.wait(timeout=2)
+                except:
+                    pass
+            # Status'u ERROR yap ki aşağıda restart logic tetiklesin
+            start_api() 
+            clear_signal("running")
+            last_restart["api"] = datetime.now()
+            continue
+
         if elapsed < startup_grace_period:
             continue
         

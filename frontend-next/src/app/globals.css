@@ -259,3 +259,83 @@ code {
     padding: 0.75rem;
   }
 }
+
+/* KaTeX Math Styling */
+.math-content .katex {
+  font-size: 1.1em;
+  line-height: 1.5;
+}
+
+.math-content .katex-display {
+  margin: 1em 0;
+  padding: 1em;
+  background: hsl(var(--muted) / 0.5);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.math-content .katex-display > .katex {
+  white-space: normal;
+  text-align: center;
+}
+
+/* Block equations - centered with background */
+.math-content .katex-display .katex-html {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* Inline math - subtle styling */
+.math-content p .katex {
+  padding: 0 0.15em;
+}
+
+/* Dark mode adjustments for KaTeX */
+.dark .math-content .katex {
+  color: hsl(var(--foreground));
+}
+
+.dark .math-content .katex-display {
+  background: hsl(var(--muted) / 0.3);
+  border: 1px solid hsl(var(--border));
+}
+
+/* Improve fraction readability */
+.math-content .katex .frac-line {
+  border-bottom-color: currentColor;
+}
+
+/* Matrix and array styling */
+.math-content .katex .mord.mtight {
+  font-size: 0.9em;
+}
+
+/* Ensure proper spacing for operators */
+.math-content .katex .mbin,
+.math-content .katex .mrel {
+  margin: 0 0.22em;
+}
+
+/* Scrollbar for long equations */
+.math-content .katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.math-content .katex-display::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 3px;
+}
+
+/* Responsive math */
+@media (max-width: 768px) {
+  .math-content .katex {
+    font-size: 0.95em;
+  }
+  
+  .math-content .katex-display {
+    padding: 0.75em;
+    margin: 0.75em 0;
+  }
+}

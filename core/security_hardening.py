@@ -636,7 +636,7 @@ class SecurityManager:
             try:
                 import pyautogui
                 screen_size = pyautogui.size()
-            except:
+            except (ImportError, Exception):  # pyautogui may not be installed
                 screen_size = (1920, 1080)
             
             valid, reason = self.verifier.verify_coordinates(

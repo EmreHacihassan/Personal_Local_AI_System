@@ -9,17 +9,20 @@ import { HistoryPage } from '@/components/pages/HistoryPage';
 import { DashboardPage } from '@/components/pages/DashboardPage';
 import { SettingsPage } from '@/components/pages/SettingsPage';
 import { NotesPage } from '@/components/pages/NotesPage';
+import MindPage from '@/components/pages/MindPage';
 import { LearningPage } from '@/components/pages/LearningPage';
 import { FavoritesPage } from '@/components/pages/FavoritesPage';
 import { TemplatesPage } from '@/components/pages/TemplatesPage';
 import { SearchPage } from '@/components/pages/SearchPage';
 import { KeyboardShortcutsModal } from '@/components/modals/KeyboardShortcutsModal';
+import { CommandPalette } from '@/components/features/CommandPalette';
 import { useStore } from '@/store/useStore';
 
 export default function Home() {
   const { currentPage, setCurrentPage, theme, setTheme } = useStore();
   const [mounted, setMounted] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -38,8 +41,14 @@ export default function Home() {
       setShowShortcuts(true);
     }
 
-    // Ctrl + K - Quick search (go to search page)
+    // Ctrl + K - Command Palette
     if (e.ctrlKey && e.key === 'k') {
+      e.preventDefault();
+      setShowCommandPalette(true);
+    }
+
+    // Ctrl + P - Quick search (Spotlight)
+    if (e.ctrlKey && e.key === 'p') {
       e.preventDefault();
       setCurrentPage('search');
     }
@@ -119,6 +128,8 @@ export default function Home() {
         return <SettingsPage />;
       case 'notes':
         return <NotesPage />;
+      case 'mind':
+        return <MindPage />;
       case 'learning':
         return <LearningPage />;
       case 'favorites':
@@ -154,9 +165,15 @@ export default function Home() {
       </main>
 
       {/* Keyboard Shortcuts Modal */}
-      <KeyboardShortcutsModal 
-        isOpen={showShortcuts} 
-        onClose={() => setShowShortcuts(false)} 
+      <KeyboardShortcutsModal
+        isOpen={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
+
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={showCommandPalette}
+        onClose={() => setShowCommandPalette(false)}
       />
     </div>
   );

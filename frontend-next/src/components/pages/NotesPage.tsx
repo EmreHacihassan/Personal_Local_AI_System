@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
+import {
   StickyNote,
   Plus,
   Search,
@@ -34,11 +34,58 @@ import {
   Code,
   Link2,
   FileText,
-  Sparkles
+  Sparkles,
+  // Premium feature icons
+  Star,
+  Archive,
+  Upload,
+  History,
+  Filter,
+  Layout,
+  LayoutTemplate,
+  Image as ImageIcon
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import { useStore, Note } from '@/store/useStore';
+import { useStore, Note, NoteFolder } from '@/store/useStore';
 import { cn, generateId, formatDate } from '@/lib/utils';
+import { NoteAIToolbar } from '@/components/features/NoteAIToolbar';
+
+// Premium Features
+import { AdvancedSearchPanel } from '@/components/features/AdvancedSearchPanel';
+import { BacklinksPanel } from '@/components/features/BacklinksPanel';
+import { findBacklinks, extractWikiLinks, WikiContentRenderer } from '@/components/features/WikiLinkParser';
+import { FavoritesPanel } from '@/components/features/FavoritesPanel';
+import { ArchiveView } from '@/components/features/ArchiveView';
+import { TemplateSelector } from '@/components/features/TemplateSelector';
+import { BulkActionToolbar } from '@/components/features/BulkActionToolbar';
+import { ExportModal } from '@/components/features/ExportModal';
+import { VersionHistoryPanel } from '@/components/features/VersionHistoryPanel';
+import { ImportWizard } from '@/components/features/ImportWizard';
+import { useMultiSelect } from '@/hooks/useMultiSelect';
+import { ImageSettingsModal, ImageSettings } from '@/components/modals/ImageSettingsModal';
+import { compressImage } from '@/lib/imageUtils';
+
+// Backend - Frontend Data Mappers
+const mapNoteFromApi = (note: any): Note => ({
+  id: note.id,
+  title: note.title,
+  content: note.content,
+  folder: note.folder_id, // Backend folder_id -> Frontend folder
+  color: note.color,
+  isPinned: note.pinned,
+  tags: note.tags || [],
+  createdAt: new Date(note.created_at),
+  updatedAt: new Date(note.updated_at)
+});
+
+const mapFolderFromApi = (folder: any): NoteFolder => ({
+  id: folder.id,
+  name: folder.name,
+  icon: folder.icon,
+  parentId: folder.parent_id,
+  color: folder.color,
+  createdAt: new Date(folder.created_at)
+});
 
 // Note colors matching Streamlit frontend
 const NOTE_COLORS = [
@@ -66,19 +113,21 @@ const FOLDER_ICONS = [
   { id: 'archive', icon: '🗂️', name: 'Arşiv' },
 ];
 
-// Folder interface
-interface NoteFolder {
-  id: string;
-  name: string;
-  icon: string;
-  parentId: string | null;
-  color: string;
-  createdAt: Date;
-}
+// NoteFolder interface is imported from useStore
 
 export function NotesPage() {
-  const { notes, addNote, updateNote, deleteNote, language, addNoteTag, removeNoteTag } = useStore();
-  
+  const {
+    notes, addNote, updateNote, deleteNote,
+    noteFolders, addFolder, updateFolder, deleteFolder,
+    setNotes, setFolders,
+    language, addNoteTag, removeNoteTag
+  } = useStore();
+
+  // API Sync logic moved to AppInitializer (Global sync)
+
+  // Use store folders
+  const folders = noteFolders;
+
   // State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -89,19 +138,42 @@ export function NotesPage() {
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [filterByTag, setFilterByTag] = useState<string | null>(null);
-  
+
   // New features state
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [folders, setFolders] = useState<NoteFolder[]>([]);
+  // const [folders, setFolders] = useState<NoteFolder[]>([]); // REMOVED: Using store folders
   const [showNewFolderForm, setShowNewFolderForm] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderIcon, setNewFolderIcon] = useState('📁');
   const [showFolderIconPicker, setShowFolderIconPicker] = useState(false);
+
+  // Image Upload & Settings
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [uploadedImageInfo, setUploadedImageInfo] = useState<{ url: string, name: string } | null>(null);
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [showFolderMenu, setShowFolderMenu] = useState<string | null>(null);
+
+  // Premium Features State
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  const [showBacklinks, setShowBacklinks] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
+  const [archivedNotes, setArchivedNotes] = useState<Note[]>([]);
+
+  // Multi-select hook
+  const multiSelect = useMultiSelect({
+    items: notes,
+    getItemId: (note) => note.id,
+  });
 
   // Get current folder and its path (breadcrumb)
   const currentFolder = useMemo(() => {
@@ -125,7 +197,7 @@ export function NotesPage() {
 
   // Get all unique folder names from notes (for backward compatibility)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const noteFolders = useMemo(() => {
+  const uniqueNoteFolderNames = useMemo(() => {
     return Array.from(new Set(notes.map(n => n.folder).filter(Boolean))) as string[];
   }, [notes]);
 
@@ -138,22 +210,22 @@ export function NotesPage() {
   const filteredNotes = useMemo(() => {
     return notes
       .filter(note => {
-        const matchesSearch = 
+        const matchesSearch =
           note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
           note.content.toLowerCase().includes(searchQuery.toLowerCase());
-        
+
         // Match folder - either by folder ID or folder name
-        const matchesFolder = !currentFolderId 
+        const matchesFolder = !currentFolderId
           ? !note.folder // Root level - notes without folder
           : note.folder === currentFolderId || note.folder === currentFolder?.name;
-        
+
         const matchesTag = !filterByTag || (note.tags || []).includes(filterByTag);
-        
+
         // If searching, show all notes that match
         if (searchQuery) {
           return matchesSearch && matchesTag;
         }
-        
+
         return matchesSearch && matchesFolder && matchesTag;
       })
       .sort((a, b) => {
@@ -166,44 +238,89 @@ export function NotesPage() {
   // Folder operations
   const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
-    
+
+    const tempId = generateId();
+
+    // Optimistic update
     const newFolder: NoteFolder = {
-      id: generateId(),
+      id: tempId,
       name: newFolderName.trim(),
       icon: newFolderIcon,
       parentId: currentFolderId,
       color: 'blue',
       createdAt: new Date()
     };
-    
-    setFolders(prev => [...prev, newFolder]);
+    addFolder(newFolder);
+
+    // Backend call
+    fetch('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newFolderName.trim(),
+        icon: newFolderIcon,
+        parent_id: currentFolderId,
+        color: 'blue'
+      })
+    })
+      .then(async res => {
+        if (res.ok) {
+          const data = await res.json();
+          // Replace optimistic folder with real one (remove temp, add real)
+          deleteFolder(tempId);
+          addFolder(mapFolderFromApi(data));
+        }
+      })
+      .catch(console.error);
+
+
     setNewFolderName('');
     setNewFolderIcon('📁');
     setShowNewFolderForm(false);
   };
 
-  const handleDeleteFolder = (folderId: string) => {
+  const handleDeleteFolder = async (folderId: string) => {
     // Delete folder and move notes to parent
     const folder = folders.find(f => f.id === folderId);
     if (!folder) return;
-    
+
+    // Confirm deletion
+    const confirmMessage = language === 'tr'
+      ? `"${folder.name}" klasörünü silmek istediğinizden emin misiniz?`
+      : language === 'de'
+        ? `Möchten Sie den Ordner "${folder.name}" wirklich löschen?`
+        : `Are you sure you want to delete the folder "${folder.name}"?`;
+
+    if (!confirm(confirmMessage)) return;
+
     // Move notes in this folder to parent
     notes.forEach(note => {
       if (note.folder === folderId || note.folder === folder.name) {
         updateNote(note.id, { folder: folder.parentId || undefined });
       }
     });
-    
-    // Delete subfolders recursively
+
     const deleteRecursive = (id: string) => {
       folders.filter(f => f.parentId === id).forEach(sub => deleteRecursive(sub.id));
-      setFolders(prev => prev.filter(f => f.id !== id));
+      deleteFolder(id);
     };
-    
+
     deleteRecursive(folderId);
-    
+
     if (currentFolderId === folderId) {
       setCurrentFolderId(folder.parentId);
+    }
+
+    // Backend API call to delete folder
+    try {
+      const response = await fetch(`/api/folders/${folderId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        console.error('Failed to delete folder from backend');
+      }
+    } catch (error) {
+      console.error('Delete folder error:', error);
     }
   };
 
@@ -220,39 +337,39 @@ export function NotesPage() {
       unit: 'mm',
       format: 'a4',
     });
-    
+
     // Page dimensions
     const pageWidth = pdf.internal.pageSize.getWidth();
     const _pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 20;
-    
+
     // Header gradient effect (simulated with rectangles)
     pdf.setFillColor(139, 92, 246); // Violet
     pdf.rect(0, 0, pageWidth, 35, 'F');
     pdf.setFillColor(124, 58, 237); // Darker violet
     pdf.rect(0, 30, pageWidth, 5, 'F');
-    
+
     // App logo/branding
     pdf.setTextColor(255, 255, 255);
     pdf.setFontSize(10);
     pdf.text('Enterprise AI Assistant', margin, 12);
-    
+
     // Main title
     pdf.setFontSize(18);
     pdf.setFont('helvetica', 'bold');
     pdf.text(title, margin, 24);
-    
+
     // Reset for content
     pdf.setTextColor(0, 0, 0);
     pdf.setFont('helvetica', 'normal');
-    
+
     return pdf;
   }, []);
 
   // Add text with word wrap and page breaks
-  const addTextToPDF = useCallback((pdf: jsPDF, text: string, startY: number, options?: { 
-    fontSize?: number; 
-    fontStyle?: string; 
+  const addTextToPDF = useCallback((pdf: jsPDF, text: string, startY: number, options?: {
+    fontSize?: number;
+    fontStyle?: string;
     color?: [number, number, number];
     indent?: number;
   }): number => {
@@ -260,7 +377,7 @@ export function NotesPage() {
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 20;
     const maxWidth = pageWidth - margin * 2 - (options?.indent || 0);
-    
+
     pdf.setFontSize(options?.fontSize || 11);
     pdf.setFont('helvetica', options?.fontStyle || 'normal');
     if (options?.color) {
@@ -268,10 +385,10 @@ export function NotesPage() {
     } else {
       pdf.setTextColor(60, 60, 60);
     }
-    
+
     const lines = pdf.splitTextToSize(text, maxWidth);
     let y = startY;
-    
+
     for (const line of lines) {
       if (y > pageHeight - 25) {
         pdf.addPage();
@@ -280,7 +397,7 @@ export function NotesPage() {
       pdf.text(line, margin + (options?.indent || 0), y);
       y += (options?.fontSize || 11) * 0.4 + 2;
     }
-    
+
     return y;
   }, []);
 
@@ -288,33 +405,33 @@ export function NotesPage() {
   const handleDownloadNote = useCallback((note: Note) => {
     const pdf = createPremiumPDF(note.title);
     let y = 50;
-    
+
     // Note metadata box
     pdf.setFillColor(248, 250, 252);
     pdf.roundedRect(20, y - 5, 170, 20, 3, 3, 'F');
     pdf.setFontSize(9);
     pdf.setTextColor(100, 100, 100);
     pdf.text(`Olusturulma: ${formatDate(note.createdAt)}  |  Guncelleme: ${formatDate(note.updatedAt)}`, 25, y + 5);
-    
+
     if (note.tags && note.tags.length > 0) {
       pdf.text(`Etiketler: ${note.tags.join(', ')}`, 25, y + 12);
     }
-    
+
     y += 30;
-    
+
     // Divider line
     pdf.setDrawColor(200, 200, 200);
     pdf.setLineWidth(0.5);
     pdf.line(20, y, 190, y);
     y += 10;
-    
+
     // Note content
     if (note.content) {
       y = addTextToPDF(pdf, note.content, y, { fontSize: 11 });
     } else {
       y = addTextToPDF(pdf, '(Bu not bos)', y, { fontSize: 11, fontStyle: 'italic', color: [150, 150, 150] });
     }
-    
+
     // Footer
     const pageCount = pdf.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
@@ -324,7 +441,7 @@ export function NotesPage() {
       pdf.text(`Sayfa ${i} / ${pageCount}`, 105, 290, { align: 'center' });
       pdf.text('Enterprise AI Assistant ile olusturuldu', 105, 295, { align: 'center' });
     }
-    
+
     // Save with sanitized filename
     const filename = note.title.replace(/[^a-zA-Z0-9\s]/g, '').trim() || 'not';
     pdf.save(`${filename}.pdf`);
@@ -336,18 +453,18 @@ export function NotesPage() {
     if (!folder) return;
 
     const folderNotes = notes.filter(n => n.folder === folderId || n.folder === folder.name);
-    
+
     const getAllSubfolderNotes = (parentId: string, path: string = ''): { path: string; note: Note }[] => {
       const result: { path: string; note: Note }[] = [];
       const subFolders = folders.filter(f => f.parentId === parentId);
-      
+
       for (const subFolder of subFolders) {
         const subNotes = notes.filter(n => n.folder === subFolder.id || n.folder === subFolder.name);
         const subPath = path ? `${path} / ${subFolder.name}` : subFolder.name;
         subNotes.forEach(note => result.push({ path: subPath, note }));
         result.push(...getAllSubfolderNotes(subFolder.id, subPath));
       }
-      
+
       return result;
     };
 
@@ -365,7 +482,7 @@ export function NotesPage() {
 
     const pdf = createPremiumPDF(`${folder.name} Klasoru`);
     let y = 50;
-    
+
     // Summary box
     pdf.setFillColor(248, 250, 252);
     pdf.roundedRect(20, y - 5, 170, 15, 3, 3, 'F');
@@ -380,12 +497,12 @@ export function NotesPage() {
         pdf.addPage();
         y = 25;
       }
-      
+
       // Note card background
       pdf.setFillColor(252, 252, 254);
       pdf.setDrawColor(230, 230, 235);
       pdf.roundedRect(20, y - 5, 170, 8, 2, 2, 'FD');
-      
+
       // Note title
       pdf.setFontSize(12);
       pdf.setFont('helvetica', 'bold');
@@ -393,13 +510,13 @@ export function NotesPage() {
       const titleText = path ? `${path} / ${note.title}` : note.title;
       pdf.text(titleText, 25, y + 2);
       y += 12;
-      
+
       // Note content
       if (note.content) {
         const contentPreview = note.content.length > 500 ? note.content.substring(0, 500) + '...' : note.content;
         y = addTextToPDF(pdf, contentPreview, y, { fontSize: 10 });
       }
-      
+
       // Tags and date
       pdf.setFontSize(8);
       pdf.setTextColor(130, 130, 130);
@@ -409,7 +526,7 @@ export function NotesPage() {
       }
       pdf.text(metaText, 25, y + 2);
       y += 15;
-      
+
       // Separator
       if (index < allNotes.length - 1) {
         pdf.setDrawColor(230, 230, 230);
@@ -437,7 +554,7 @@ export function NotesPage() {
 
     const pdf = createPremiumPDF('Tum Notlarim');
     let y = 50;
-    
+
     // Summary box
     pdf.setFillColor(248, 250, 252);
     pdf.roundedRect(20, y - 5, 170, 15, 3, 3, 'F');
@@ -456,7 +573,7 @@ export function NotesPage() {
     // Root level notes
     if (notesWithoutFolder.length > 0) {
       if (y > 250) { pdf.addPage(); y = 25; }
-      
+
       // Section header
       pdf.setFillColor(139, 92, 246);
       pdf.roundedRect(20, y - 3, 170, 10, 2, 2, 'F');
@@ -465,34 +582,34 @@ export function NotesPage() {
       pdf.setTextColor(255, 255, 255);
       pdf.text(`Ana Dizin (${notesWithoutFolder.length} not)`, 25, y + 4);
       y += 18;
-      
+
       notesWithoutFolder.forEach((note) => {
         if (y > 260) { pdf.addPage(); y = 25; }
-        
+
         pdf.setFontSize(11);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(60, 60, 60);
         pdf.text(note.title, 25, y);
         y += 6;
-        
+
         if (note.content) {
           const preview = note.content.length > 200 ? note.content.substring(0, 200) + '...' : note.content;
           y = addTextToPDF(pdf, preview, y, { fontSize: 9, indent: 5 });
         }
-        
+
         pdf.setFontSize(8);
         pdf.setTextColor(130, 130, 130);
         pdf.text(formatDate(note.updatedAt), 30, y);
         y += 10;
       });
-      
+
       y += 5;
     }
 
     // Folder notes
     foldersWithNotes.forEach(({ folder, notes: folderNotes }) => {
       if (y > 250) { pdf.addPage(); y = 25; }
-      
+
       // Section header
       pdf.setFillColor(99, 102, 241);
       pdf.roundedRect(20, y - 3, 170, 10, 2, 2, 'F');
@@ -501,27 +618,27 @@ export function NotesPage() {
       pdf.setTextColor(255, 255, 255);
       pdf.text(`${folder.name} (${folderNotes.length} not)`, 25, y + 4);
       y += 18;
-      
+
       folderNotes.forEach((note) => {
         if (y > 260) { pdf.addPage(); y = 25; }
-        
+
         pdf.setFontSize(11);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(60, 60, 60);
         pdf.text(note.title, 25, y);
         y += 6;
-        
+
         if (note.content) {
           const preview = note.content.length > 200 ? note.content.substring(0, 200) + '...' : note.content;
           y = addTextToPDF(pdf, preview, y, { fontSize: 9, indent: 5 });
         }
-        
+
         pdf.setFontSize(8);
         pdf.setTextColor(130, 130, 130);
         pdf.text(formatDate(note.updatedAt), 30, y);
         y += 10;
       });
-      
+
       y += 5;
     });
 
@@ -555,9 +672,10 @@ export function NotesPage() {
   };
 
   // Yeni not
-  const handleNewNote = () => {
+  const handleNewNote = async () => {
+    const tempId = generateId();
     const newNote: Note = {
-      id: generateId(),
+      id: tempId,
       title: language === 'tr' ? 'Yeni Not' : language === 'de' ? 'Neue Notiz' : 'New Note',
       content: '',
       folder: currentFolderId || undefined,
@@ -566,11 +684,38 @@ export function NotesPage() {
       createdAt: new Date(),
       updatedAt: new Date()
     };
+
     addNote(newNote);
     setSelectedNote(newNote);
     setEditTitle(newNote.title);
     setEditContent(newNote.content);
     setIsEditing(true);
+
+    // Backend call
+    try {
+      const res = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newNote.title,
+          content: '',
+          folder_id: currentFolderId || null,
+          color: 'default',
+          pinned: false,
+          tags: []
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const realNote = mapNoteFromApi(data);
+        deleteNote(tempId); // Remove temp
+        addNote(realNote);  // Add real
+        setSelectedNote(realNote); // Update selection to real note
+      }
+    } catch (e) {
+      console.error('Create note failed:', e);
+    }
   };
 
   // Not düzenlemeye başla
@@ -582,14 +727,35 @@ export function NotesPage() {
   };
 
   // Kaydet
-  const handleSave = () => {
+  const handleSave = async () => {
     if (selectedNote) {
+      // Optimistic update
+      const updatedNote = {
+        ...selectedNote,
+        title: editTitle,
+        content: editContent,
+        updatedAt: new Date()
+      };
       updateNote(selectedNote.id, {
         title: editTitle,
         content: editContent
       });
-      setSelectedNote({ ...selectedNote, title: editTitle, content: editContent });
+      setSelectedNote(updatedNote);
       setIsEditing(false);
+
+      // Backend call
+      try {
+        await fetch(`/api/notes/${selectedNote.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: editTitle,
+            content: editContent
+          })
+        });
+      } catch (e) {
+        console.error('Save note failed:', e);
+      }
     }
   };
 
@@ -599,6 +765,35 @@ export function NotesPage() {
     if (selectedNote) {
       setEditTitle(selectedNote.title);
       setEditContent(selectedNote.content);
+    }
+  };
+
+  // Not silme - backend API ile senkronize
+  const handleDeleteNote = async (note: Note) => {
+    const confirmMessage = language === 'tr'
+      ? `"${note.title}" notunu silmek istediğinizden emin misiniz?`
+      : language === 'de'
+        ? `Möchten Sie die Notiz "${note.title}" wirklich löschen?`
+        : `Are you sure you want to delete the note "${note.title}"?`;
+
+    if (!confirm(confirmMessage)) return;
+
+    // Optimistic delete
+    deleteNote(note.id);
+    if (selectedNote?.id === note.id) {
+      setSelectedNote(null);
+    }
+
+    // Backend API call
+    try {
+      const response = await fetch(`/api/notes/${note.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        console.error('Failed to delete note from backend');
+      }
+    } catch (error) {
+      console.error('Delete note error:', error);
     }
   };
 
@@ -623,6 +818,34 @@ export function NotesPage() {
   const getNoteColorClasses = (colorId?: string) => {
     const noteColor = NOTE_COLORS.find(c => c.id === colorId) || NOTE_COLORS[0];
     return { bg: noteColor.color, border: noteColor.border };
+  };
+
+  // Handle Image Settings Confirm
+  const handleImageConfirm = (settings: ImageSettings) => {
+    if (!uploadedImageInfo) return;
+
+    const options = [
+      `size:${settings.size}`,
+      `align:${settings.align}`,
+      `shape:${settings.shape}`
+    ].join('|');
+
+    // ![Caption|size:medium|align:center|shape:rounded](url)
+    const caption = settings.caption || uploadedImageInfo.name;
+    const imageMarkdown = `\n![${caption}|${options}](${uploadedImageInfo.url})\n`;
+
+    const textarea = document.querySelector('textarea');
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = editContent;
+      setEditContent(text.substring(0, start) + imageMarkdown + text.substring(end));
+    } else {
+      setEditContent(editContent + imageMarkdown);
+    }
+
+    setShowImageModal(false);
+    setUploadedImageInfo(null);
   };
 
   const t = {
@@ -676,7 +899,7 @@ export function NotesPage() {
             </p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* View Mode Toggle */}
           <div className="flex items-center bg-muted rounded-lg p-1">
@@ -684,8 +907,8 @@ export function NotesPage() {
               onClick={() => setViewMode('list')}
               className={cn(
                 "p-2 rounded-md transition-colors",
-                viewMode === 'list' 
-                  ? "bg-background shadow-sm text-primary-500" 
+                viewMode === 'list'
+                  ? "bg-background shadow-sm text-primary-500"
                   : "text-muted-foreground hover:text-foreground"
               )}
               title={t.listView[language]}
@@ -696,8 +919,8 @@ export function NotesPage() {
               onClick={() => setViewMode('grid')}
               className={cn(
                 "p-2 rounded-md transition-colors",
-                viewMode === 'grid' 
-                  ? "bg-background shadow-sm text-primary-500" 
+                viewMode === 'grid'
+                  ? "bg-background shadow-sm text-primary-500"
                   : "text-muted-foreground hover:text-foreground"
               )}
               title={t.gridView[language]}
@@ -705,7 +928,7 @@ export function NotesPage() {
               <Grid3X3 className="w-4 h-4" />
             </button>
           </div>
-          
+
           {/* New Folder Button */}
           <button
             onClick={() => setShowNewFolderForm(true)}
@@ -714,7 +937,7 @@ export function NotesPage() {
             <FolderPlus className="w-4 h-4" />
             <span className="hidden sm:inline">{t.newFolder[language]}</span>
           </button>
-          
+
           {/* New Note Button */}
           <button
             onClick={handleNewNote}
@@ -735,6 +958,69 @@ export function NotesPage() {
               <span className="hidden sm:inline">{t.downloadAll[language]}</span>
             </button>
           )}
+
+          {/* Premium Feature Buttons */}
+          <div className="flex items-center gap-1 pl-2 border-l border-border">
+            {/* Favorites */}
+            <button
+              onClick={() => setShowFavorites(!showFavorites)}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                showFavorites ? "bg-amber-500/20 text-amber-500" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+              title={language === 'tr' ? 'Favoriler' : 'Favorites'}
+            >
+              <Star className="w-4 h-4" />
+            </button>
+
+            {/* Archive */}
+            <button
+              onClick={() => setShowArchive(true)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={language === 'tr' ? 'Arşiv' : 'Archive'}
+            >
+              <Archive className="w-4 h-4" />
+            </button>
+
+            {/* Templates */}
+            <button
+              onClick={() => setShowTemplates(true)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={language === 'tr' ? 'Şablonlar' : 'Templates'}
+            >
+              <LayoutTemplate className="w-4 h-4" />
+            </button>
+
+            {/* Import */}
+            <button
+              onClick={() => setShowImport(true)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={language === 'tr' ? 'İçe Aktar' : 'Import'}
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+
+            {/* Export */}
+            <button
+              onClick={() => setShowExport(true)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={language === 'tr' ? 'Dışa Aktar' : 'Export'}
+            >
+              <Download className="w-4 h-4" />
+            </button>
+
+            {/* Advanced Search */}
+            <button
+              onClick={() => setShowAdvancedSearch(!showAdvancedSearch)}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                showAdvancedSearch ? "bg-primary-500/20 text-primary-500" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+              title={language === 'tr' ? 'Gelişmiş Arama' : 'Advanced Search'}
+            >
+              <Filter className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -744,15 +1030,15 @@ export function NotesPage() {
           onClick={() => setCurrentFolderId(null)}
           className={cn(
             "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all",
-            !currentFolderId 
-              ? "bg-primary-500 text-white" 
+            !currentFolderId
+              ? "bg-primary-500 text-white"
               : "bg-background hover:bg-accent text-foreground"
           )}
         >
           <Home className="w-4 h-4" />
           {t.home[language]}
         </button>
-        
+
         {folderPath.map((folder, index) => (
           <div key={folder.id} className="flex items-center gap-2">
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -770,7 +1056,7 @@ export function NotesPage() {
             </button>
           </div>
         ))}
-        
+
         {/* Go Up Button */}
         {currentFolderId && (
           <button
@@ -807,7 +1093,7 @@ export function NotesPage() {
                   >
                     {newFolderIcon}
                   </button>
-                  
+
                   {showFolderIconPicker && (
                     <div className="absolute left-0 top-full mt-2 p-2 bg-card border border-border rounded-xl shadow-lg z-50 grid grid-cols-5 gap-1">
                       {FOLDER_ICONS.map((item) => (
@@ -829,7 +1115,7 @@ export function NotesPage() {
                     </div>
                   )}
                 </div>
-                
+
                 {/* Folder Name Input */}
                 <input
                   type="text"
@@ -843,7 +1129,7 @@ export function NotesPage() {
                   }}
                   autoFocus
                 />
-                
+
                 {/* Action Buttons */}
                 <button
                   onClick={handleCreateFolder}
@@ -894,8 +1180,8 @@ export function NotesPage() {
                   onClick={() => setFilterByTag(null)}
                   className={cn(
                     "flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all",
-                    !filterByTag 
-                      ? "bg-green-500 text-white" 
+                    !filterByTag
+                      ? "bg-green-500 text-white"
                       : "bg-muted hover:bg-accent text-muted-foreground"
                   )}
                 >
@@ -908,8 +1194,8 @@ export function NotesPage() {
                     onClick={() => setFilterByTag(tag)}
                     className={cn(
                       "flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all",
-                      filterByTag === tag 
-                        ? "bg-green-500 text-white" 
+                      filterByTag === tag
+                        ? "bg-green-500 text-white"
                         : "bg-muted hover:bg-accent text-muted-foreground"
                     )}
                   >
@@ -991,8 +1277,8 @@ export function NotesPage() {
                       className={cn(
                         "w-full text-left p-3 rounded-xl transition-all group border",
                         colorClasses.bg,
-                        selectedNote?.id === note.id 
-                          ? "ring-2 ring-primary-500" 
+                        selectedNote?.id === note.id
+                          ? "ring-2 ring-primary-500"
                           : colorClasses.border
                       )}
                     >
@@ -1027,8 +1313,8 @@ export function NotesPage() {
                             }}
                             className={cn(
                               "p-1.5 rounded-lg transition-colors",
-                              note.isPinned 
-                                ? "text-primary-500 bg-primary-100 dark:bg-primary-900/30" 
+                              note.isPinned
+                                ? "text-primary-500 bg-primary-100 dark:bg-primary-900/30"
                                 : "text-muted-foreground hover:bg-accent"
                             )}
                             title={note.isPinned ? t.unpin[language] : t.pin[language]}
@@ -1038,10 +1324,7 @@ export function NotesPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              deleteNote(note.id);
-                              if (selectedNote?.id === note.id) {
-                                setSelectedNote(null);
-                              }
+                              handleDeleteNote(note);
                             }}
                             className="p-1.5 text-muted-foreground hover:text-destructive rounded-lg hover:bg-destructive/10 transition-all"
                           >
@@ -1071,8 +1354,8 @@ export function NotesPage() {
                         className={cn(
                           "text-left p-3 rounded-xl transition-all group border aspect-square flex flex-col",
                           colorClasses.bg,
-                          selectedNote?.id === note.id 
-                            ? "ring-2 ring-primary-500" 
+                          selectedNote?.id === note.id
+                            ? "ring-2 ring-primary-500"
                             : colorClasses.border
                         )}
                       >
@@ -1081,10 +1364,7 @@ export function NotesPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              deleteNote(note.id);
-                              if (selectedNote?.id === note.id) {
-                                setSelectedNote(null);
-                              }
+                              handleDeleteNote(note);
                             }}
                             className="p-1 text-muted-foreground hover:text-destructive rounded opacity-0 group-hover:opacity-100 transition-all ml-auto"
                           >
@@ -1107,7 +1387,7 @@ export function NotesPage() {
 
             {/* Empty State */}
             {subFolders.length === 0 && filteredNotes.length === 0 && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="flex flex-col items-center justify-center py-12 text-center"
@@ -1161,7 +1441,7 @@ export function NotesPage() {
                     <h2 className="text-xl font-semibold">{selectedNote.title}</h2>
                   </div>
                 )}
-                
+
                 <div className="flex items-center gap-2">
                   {/* Color Picker */}
                   <div className="relative">
@@ -1198,8 +1478,8 @@ export function NotesPage() {
                     onClick={() => handleTogglePin(selectedNote)}
                     className={cn(
                       "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
-                      selectedNote.isPinned 
-                        ? "bg-primary-500 text-white" 
+                      selectedNote.isPinned
+                        ? "bg-primary-500 text-white"
                         : "bg-muted hover:bg-accent"
                     )}
                     title={selectedNote.isPinned ? t.unpin[language] : t.pin[language]}
@@ -1313,7 +1593,7 @@ export function NotesPage() {
                           <Underline className="w-4 h-4" />
                         </button>
                       </div>
-                      
+
                       <div className="flex items-center gap-0.5 px-2 border-r border-border/50">
                         <button
                           onClick={() => setEditContent(editContent + '\n# ')}
@@ -1330,7 +1610,7 @@ export function NotesPage() {
                           <Heading2 className="w-4 h-4" />
                         </button>
                       </div>
-                      
+
                       <div className="flex items-center gap-0.5 px-2 border-r border-border/50">
                         <button
                           onClick={() => setEditContent(editContent + '\n- ')}
@@ -1347,7 +1627,7 @@ export function NotesPage() {
                           <ListTodo className="w-4 h-4" />
                         </button>
                       </div>
-                      
+
                       <div className="flex items-center gap-0.5 px-2 border-r border-border/50">
                         <button
                           onClick={() => setEditContent(editContent + '\n> ')}
@@ -1373,7 +1653,7 @@ export function NotesPage() {
                           <Code className="w-4 h-4" />
                         </button>
                       </div>
-                      
+
                       <div className="flex items-center gap-0.5 pl-2">
                         <button
                           onClick={() => {
@@ -1394,16 +1674,93 @@ export function NotesPage() {
                         >
                           <Link2 className="w-4 h-4" />
                         </button>
+
+                        {/* Image Upload Button */}
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            id="image-upload"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+
+                              // Base64 Upload (Compressed & Optimized)
+                              try {
+                                const base64String = await compressImage(file);
+
+                                const formData = new FormData();
+                                formData.append('file', file);
+
+                                let res;
+                                try {
+                                  // 1. Deneme: Proxy üzerinden (Standart)
+                                  res = await fetch('/api/v1/upload/image', {
+                                    method: 'POST',
+                                    body: formData,
+                                  });
+
+                                  if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
+                                } catch (proxyError) {
+                                  console.warn('Proxy upload failed, trying direct...', proxyError);
+                                  // 2. Deneme: Doğrudan Backend'e (Fallback)
+                                  try {
+                                    res = await fetch('http://localhost:8001/api/v1/upload/image', {
+                                      method: 'POST',
+                                      body: formData,
+                                    });
+                                  } catch (directError) {
+                                    throw new Error(`CONNECTION_REFUSED: Backend sunucusuna ulaşılamıyor. (Port 8001 açık mı?)`);
+                                  }
+                                }
+
+                                if (res.ok) {
+                                  const data = await res.json();
+                                  setUploadedImageInfo({ url: data.url, name: data.original_name });
+                                  setShowImageModal(true);
+                                } else {
+                                  const status = res.status;
+                                  const rawText = await res.text();
+                                  let errorMessage = rawText;
+                                  try {
+                                    const parsed = JSON.parse(rawText);
+                                    errorMessage = parsed.detail || parsed.message || JSON.stringify(parsed);
+                                  } catch (e) {
+                                    if (rawText.length > 200) errorMessage = rawText.substring(0, 200) + '...';
+                                  }
+
+                                  alert(language === 'tr'
+                                    ? `Görsel yüklenemedi: ${errorMessage} (Kod: ${status})`
+                                    : `Image upload failed: ${errorMessage} (Code: ${status})`);
+                                }
+                              } catch (error) {
+                                console.error('Image upload error:', error);
+                                alert(language === 'tr' ? `Bir hata oluştu: ${error}` : `An error occurred: ${error}`);
+                              }
+
+                              e.target.value = '';
+                            }}
+
+                          />
+                          <button
+                            onClick={() => document.getElementById('image-upload')?.click()}
+                            className="p-2 hover:bg-accent rounded-lg transition-colors"
+                            title={language === 'tr' ? 'Görsel Ekle' : 'Add Image'}
+                          >
+                            <ImageIcon className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                      
+
                       <div className="flex-1" />
-                      
+
                       <div className="flex items-center gap-1 px-2 py-1 bg-primary-500/10 rounded-lg">
                         <Sparkles className="w-3.5 h-3.5 text-primary-500" />
                         <span className="text-xs font-medium text-primary-600">Premium Editor</span>
                       </div>
                     </div>
-                    
+
                     {/* Editor Area */}
                     <div className="flex-1 p-6">
                       <textarea
@@ -1414,7 +1771,7 @@ export function NotesPage() {
                         style={{ minHeight: '300px' }}
                       />
                     </div>
-                    
+
                     {/* Editor Footer */}
                     <div className="px-4 py-2 border-t border-border/50 bg-muted/30 flex items-center justify-between">
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -1431,7 +1788,16 @@ export function NotesPage() {
                 ) : (
                   <div className="prose prose-sm max-w-none dark:prose-invert p-6">
                     {selectedNote.content ? (
-                      <p className="whitespace-pre-wrap">{selectedNote.content}</p>
+                      <WikiContentRenderer
+                        content={selectedNote.content}
+                        notes={notes}
+                        onNavigate={(noteId) => {
+                          const note = notes.find(n => n.id === noteId);
+                          if (note) {
+                            setSelectedNote(note);
+                          }
+                        }}
+                      />
                     ) : (
                       <p className="text-muted-foreground italic">
                         {t.emptyNoteHint[language]}
@@ -1441,12 +1807,30 @@ export function NotesPage() {
                 )}
               </div>
 
+              {/* AI Toolbar - Premium AI özellikleri */}
+              {selectedNote && !isEditing && (
+                <NoteAIToolbar
+                  noteId={selectedNote.id}
+                  noteTitle={selectedNote.title}
+                  noteContent={selectedNote.content}
+                  language={language}
+                  onApplyTags={(tags) => {
+                    tags.forEach(tag => addNoteTag(selectedNote.id, tag));
+                    setSelectedNote(prev => prev ? { ...prev, tags: [...(prev.tags || []), ...tags] } : null);
+                  }}
+                  onApplySuggestion={(content) => {
+                    updateNote(selectedNote.id, { content });
+                    setSelectedNote(prev => prev ? { ...prev, content } : null);
+                  }}
+                />
+              )}
+
               {/* Not Metadata */}
               <div className="px-6 py-3 border-t border-border bg-muted/30">
                 {/* Tags */}
                 <div className="flex flex-wrap gap-2 mb-2">
                   {(selectedNote.tags || []).map(tag => (
-                    <span 
+                    <span
                       key={tag}
                       className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-600 text-xs rounded-lg"
                     >
@@ -1505,6 +1889,198 @@ export function NotesPage() {
           )}
         </div>
       </div>
-    </div>
+
+      {/* Premium Features - Modals & Panels */}
+
+      {/* Advanced Search Panel */}
+      <AnimatePresence>
+        {showAdvancedSearch && (
+          <AdvancedSearchPanel
+            notes={notes}
+            folders={folders}
+            allTags={allTags}
+            onSelectNote={(note) => {
+              setSelectedNote(note);
+              setShowAdvancedSearch(false);
+            }}
+            onClose={() => setShowAdvancedSearch(false)}
+            language={language}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Archive View */}
+      <AnimatePresence>
+        {showArchive && (
+          <ArchiveView
+            archivedNotes={archivedNotes}
+            onRestore={(noteId) => {
+              const note = archivedNotes.find(n => n.id === noteId);
+              if (note) {
+                addNote(note);
+                setArchivedNotes(prev => prev.filter(n => n.id !== noteId));
+              }
+            }}
+            onPermanentDelete={(noteId) => {
+              setArchivedNotes(prev => prev.filter(n => n.id !== noteId));
+            }}
+            onClose={() => setShowArchive(false)}
+            language={language}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Template Selector */}
+      <AnimatePresence>
+        {showTemplates && (
+          <TemplateSelector
+            onSelect={(content, title) => {
+              const newNote: Note = {
+                id: generateId(),
+                title,
+                content,
+                folder: currentFolderId || undefined,
+                color: 'default',
+                isPinned: false,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              };
+              addNote(newNote);
+              setSelectedNote(newNote);
+              setEditTitle(title);
+              setEditContent(content);
+              setIsEditing(true);
+            }}
+            onClose={() => setShowTemplates(false)}
+            language={language}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Export Modal */}
+      <AnimatePresence>
+        {showExport && (
+          <ExportModal
+            notes={notes}
+            folders={folders}
+            selectedNotes={multiSelect.selectedItems}
+            onClose={() => setShowExport(false)}
+            language={language}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Import Wizard */}
+      <AnimatePresence>
+        {showImport && (
+          <ImportWizard
+            onImport={(importedNotes, importedFolders) => {
+              // Add imported folders
+              importedFolders.forEach(folder => {
+                addFolder({
+                  id: generateId(),
+                  name: folder.name,
+                  icon: '📁',
+                  parentId: null,
+                  color: 'blue',
+                  createdAt: new Date()
+                });
+              });
+              // Add imported notes
+              importedNotes.forEach(note => {
+                addNote({
+                  id: generateId(),
+                  title: note.title,
+                  content: note.content,
+                  folder: undefined,
+                  color: 'default',
+                  isPinned: false,
+                  tags: note.tags || [],
+                  createdAt: note.createdAt || new Date(),
+                  updatedAt: new Date()
+                });
+              });
+            }}
+            onClose={() => setShowImport(false)}
+            language={language}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Backlinks Panel */}
+      <AnimatePresence>
+        {showBacklinks && selectedNote && (
+          <BacklinksPanel
+            note={selectedNote}
+            notes={notes}
+            onNavigate={(noteId) => {
+              const note = notes.find(n => n.id === noteId);
+              if (note) {
+                setSelectedNote(note);
+                // Add to recent
+                setRecentNoteIds(prev => [noteId, ...prev.filter(id => id !== noteId)].slice(0, 20));
+              }
+            }}
+            onClose={() => setShowBacklinks(false)}
+            language={language}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Bulk Action Toolbar */}
+      {
+        multiSelect.hasSelection && (
+          <BulkActionToolbar
+            selectedCount={multiSelect.selectionCount}
+            onDelete={() => {
+              multiSelect.selectedItems.forEach(note => deleteNote(note.id));
+              multiSelect.clearSelection();
+            }}
+            onMove={() => {
+              // TODO: Implement move modal
+              console.log('Move selected notes');
+            }}
+            onArchive={() => {
+              multiSelect.selectedItems.forEach(note => {
+                setArchivedNotes(prev => [...prev, note]);
+                deleteNote(note.id);
+              });
+              multiSelect.clearSelection();
+            }}
+            onChangeColor={(color) => {
+              multiSelect.selectedItems.forEach(note => updateNote(note.id, { color }));
+              multiSelect.clearSelection();
+            }}
+            onAddTag={(tag) => {
+              multiSelect.selectedItems.forEach(note => addNoteTag(note.id, tag));
+              multiSelect.clearSelection();
+            }}
+            onTogglePin={() => {
+              multiSelect.selectedItems.forEach(note => updateNote(note.id, { isPinned: !note.isPinned }));
+              multiSelect.clearSelection();
+            }}
+            onExport={() => {
+              setShowExport(true);
+            }}
+            onClear={() => multiSelect.clearSelection()}
+            language={language}
+          />
+        )
+      }
+
+      {/* Image Settings Modal */}
+      {uploadedImageInfo && (
+        <ImageSettingsModal
+          isOpen={showImageModal}
+          onClose={() => {
+            setShowImageModal(false);
+            setUploadedImageInfo(null);
+          }}
+          onConfirm={handleImageConfirm}
+          imageUrl={uploadedImageInfo.url}
+          imageName={uploadedImageInfo.name}
+        />
+      )}
+    </div >
   );
 }

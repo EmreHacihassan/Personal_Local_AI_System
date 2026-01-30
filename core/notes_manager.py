@@ -463,5 +463,9 @@ class NotesManager:
         return ""
 
 
+
+from core.config import settings
+
 # Singleton instance
-notes_manager = NotesManager()
+# Use external data directory from settings
+notes_manager = NotesManager(data_dir=str(settings.DATA_DIR / "notes"))

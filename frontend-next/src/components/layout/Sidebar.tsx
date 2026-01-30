@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  MessageSquare, 
-  FileText, 
-  History, 
-  LayoutDashboard, 
-  Settings, 
+import {
+  MessageSquare,
+  FileText,
+  History,
+  LayoutDashboard,
+  Settings,
   StickyNote,
   GraduationCap,
   ChevronLeft,
@@ -37,8 +37,10 @@ import {
   Zap,
   Shield,
   Play,
-  RotateCcw
+  RotateCcw,
+  Square
 } from 'lucide-react';
+import { useToast } from '@/components/ui/Toaster';
 import { useStore, Page } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { checkHealth, HealthStatus, startOllamaService, startChromaDBService } from '@/lib/api';
@@ -54,16 +56,18 @@ const menuItems: { id: Page; icon: React.ElementType; label: string; labelEn: st
   { id: 'documents', icon: FileText, label: 'Dökümanlar', labelEn: 'Documents', labelDe: 'Dokumente' },
   { id: 'history', icon: History, label: 'Geçmiş', labelEn: 'History', labelDe: 'Verlauf' },
   { id: 'notes', icon: StickyNote, label: 'Notlar', labelEn: 'Notes', labelDe: 'Notizen' },
+  { id: 'mind', icon: Brain, label: 'Mind', labelEn: 'Mind', labelDe: 'Mind' },
   { id: 'learning', icon: GraduationCap, label: 'AI ile Öğren', labelEn: 'Learn with AI', labelDe: 'Mit KI lernen' },
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', labelEn: 'Dashboard', labelDe: 'Dashboard' },
   { id: 'settings', icon: Settings, label: 'Ayarlar', labelEn: 'Settings', labelDe: 'Einstellungen' },
 ];
 
 export function Sidebar() {
-  const { 
-    currentPage, 
-    setCurrentPage, 
-    sidebarCollapsed, 
+  const { toast } = useToast();
+  const {
+    currentPage,
+    setCurrentPage,
+    sidebarCollapsed,
     toggleSidebar,
     language,
     messages,
@@ -86,7 +90,7 @@ export function Sidebar() {
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [startingService, setStartingService] = useState<string | null>(null);
-  const [serviceMessage, setServiceMessage] = useState<{type: 'success' | 'error' | 'info', text: string} | null>(null);
+  const [serviceMessage, setServiceMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
 
   // Get all unique categories and tags from sessions
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -97,7 +101,7 @@ export function Sidebar() {
       if (s.category) cats.add(s.category);
       s.tags?.forEach(t => tags.add(t));
     });
-    
+
     const currentSession = sessions.find(s => s.id === currentSessionId);
     return {
       categories: Array.from(cats),
@@ -156,6 +160,52 @@ export function Sidebar() {
   }, []);
 
   // Service start handlers - Uses local Next.js API when backend is offline
+  const handleBackendControl = async (action: 'stop' | 'restart') => {
+    try {
+      setStartingService('backend');
+
+      const res = await fetch('/api/system/backend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+
+      if (!res.ok) throw new Error('Action failed');
+
+      const data = await res.json();
+
+      toast({
+        title: language === 'tr' ? 'İşlem Başlatıldı' : 'Action Started',
+        message: language === 'tr'
+          ? `Backend ${action === 'stop' ? 'durduruluyor' : 'yeniden başlatılıyor'}...`
+          : `Backend is ${action === 'stop' ? 'stopping' : 'restarting'}...`,
+        type: 'info'
+      });
+
+      // Optimistic UI updates
+      if (action === 'stop') {
+        // Stop der demez UI'ı offline moda çek
+        setHealth(null);
+      } else if (action === 'restart') {
+        // Restart sırasında geçici olarak offline/loading gösterebiliriz veya mevcut durumu koruyabiliriz
+        // Ancak kullanıcı 'yeniden başlatılıyor' mesajını gördü, health check sonucunu bekleyelim
+        // setHealth(null); // Bunu yaparsak Play butonu çıkar, restart işlemindeyken Play butonuna gerek yok
+      }
+
+      // Status update check after delay
+      setTimeout(() => fetchHealth(true), 2000);
+    } catch (error) {
+      console.error('Backend control error:', error);
+      toast({
+        title: language === 'tr' ? 'Hata' : 'Error',
+        message: language === 'tr' ? 'İşlem gerçekleştirilemedi.' : 'Action failed.',
+        type: 'error'
+      });
+    } finally {
+      setTimeout(() => setStartingService(null), 3000);
+    }
+  };
+
   const handleStartOllama = async () => {
     setStartingService('ollama');
     setServiceMessage(null);
@@ -166,7 +216,7 @@ export function Sidebar() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start-ollama' }),
       });
-      
+
       if (localResponse.ok) {
         const data = await localResponse.json();
         setServiceMessage({
@@ -230,21 +280,21 @@ export function Sidebar() {
       type: 'info',
       text: language === 'tr' ? 'Backend başlatılıyor...' : 'Starting backend...'
     });
-    
+
     try {
       const response = await fetch('/api/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start-backend' }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setServiceMessage({
           type: data.success ? 'success' : 'error',
           text: data.message
         });
-        
+
         if (data.success) {
           // Poll for backend to be ready
           let attempts = 0;
@@ -268,12 +318,12 @@ export function Sidebar() {
     } catch {
       setServiceMessage({
         type: 'info',
-        text: language === 'tr' 
-          ? "Terminal'de şu komutu çalıştırın: python run.py" 
+        text: language === 'tr'
+          ? "Terminal'de şu komutu çalıştırın: python run.py"
           : "Run in terminal: python run.py"
       });
     }
-    
+
     setStartingService(null);
     setTimeout(() => setServiceMessage(null), 10000);
   };
@@ -284,7 +334,7 @@ export function Sidebar() {
   // Derive system issues from health data
   const systemIssues = useMemo(() => {
     const issues: { severity: 'error' | 'warning' | 'info'; message: string; detail?: string }[] = [];
-    
+
     if (!health) {
       issues.push({
         severity: 'error',
@@ -293,7 +343,7 @@ export function Sidebar() {
       });
       return issues;
     }
-    
+
     // Check LLM status
     if (health.components?.llm !== 'healthy') {
       issues.push({
@@ -302,7 +352,7 @@ export function Sidebar() {
         detail: language === 'tr' ? 'Ollama servisi çalışmıyor olabilir. Chat yanıtları alınamaz.' : 'Ollama service may not be running. Chat responses unavailable.'
       });
     }
-    
+
     // Check Vector Store
     if (health.components?.vector_store !== 'healthy') {
       issues.push({
@@ -311,7 +361,7 @@ export function Sidebar() {
         detail: language === 'tr' ? 'Belge araması çalışmayabilir' : 'Document search may not work'
       });
     }
-    
+
     // Check document count
     const docCount = health.components?.document_count;
     if (typeof docCount === 'number' && docCount === 0) {
@@ -321,7 +371,7 @@ export function Sidebar() {
         detail: language === 'tr' ? 'RAG için belge yükleyin' : 'Upload documents for RAG'
       });
     }
-    
+
     // Check RAG sync status
     const ragSynced = health.components?.rag_synced;
     const unindexedFiles = health.components?.unindexed_files;
@@ -332,7 +382,7 @@ export function Sidebar() {
         detail: language === 'tr' ? `${unindexedFiles} belge indekslenmemiş` : `${unindexedFiles} documents not indexed`
       });
     }
-    
+
     // Connection retry warning
     if (connectionAttempts > 2) {
       issues.push({
@@ -341,7 +391,7 @@ export function Sidebar() {
         detail: language === 'tr' ? `${connectionAttempts} başarısız deneme` : `${connectionAttempts} failed attempts`
       });
     }
-    
+
     return issues;
   }, [health, language, connectionAttempts]);
 
@@ -383,7 +433,7 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className="flex items-center h-16 px-4 border-b border-border">
-        <motion.div 
+        <motion.div
           className="flex items-center gap-3"
           animate={{ justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}
         >
@@ -416,7 +466,7 @@ export function Sidebar() {
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentPage === item.id;
-          
+
           return (
             <motion.button
               key={item.id}
@@ -437,12 +487,12 @@ export function Sidebar() {
                   transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                 />
               )}
-              
+
               <Icon className={cn(
                 "w-5 h-5 flex-shrink-0 transition-colors",
                 isActive ? "text-primary-500" : "text-muted-foreground group-hover:text-foreground"
               )} />
-              
+
               <AnimatePresence>
                 {!sidebarCollapsed && (
                   <motion.span
@@ -477,11 +527,11 @@ export function Sidebar() {
         {!sidebarCollapsed && (
           <div className={cn(
             "mb-3 rounded-lg overflow-hidden transition-all duration-300",
-            systemIssues.length > 0 && systemIssues[0].severity === 'error' 
-              ? "bg-red-500/10 border border-red-500/30" 
+            systemIssues.length > 0 && systemIssues[0].severity === 'error'
+              ? "bg-red-500/10 border border-red-500/30"
               : systemIssues.length > 0 && systemIssues[0].severity === 'warning'
-              ? "bg-yellow-500/10 border border-yellow-500/30"
-              : "bg-green-500/10 border border-green-500/30"
+                ? "bg-yellow-500/10 border border-yellow-500/30"
+                : "bg-green-500/10 border border-green-500/30"
           )}>
             {/* Header - Clickable */}
             <button
@@ -517,8 +567,8 @@ export function Sidebar() {
                 {systemIssues.length > 0 && (
                   <span className={cn(
                     "px-1.5 py-0.5 rounded-full text-[10px] font-bold",
-                    systemIssues[0].severity === 'error' 
-                      ? "bg-red-500 text-white" 
+                    systemIssues[0].severity === 'error'
+                      ? "bg-red-500 text-white"
                       : "bg-yellow-500 text-black"
                   )}>
                     {systemIssues.length}
@@ -587,27 +637,47 @@ export function Sidebar() {
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                         {language === 'tr' ? 'Servisler' : 'Services'}
                       </p>
-                      
+
                       {/* API Status */}
                       <div className="flex items-center justify-between p-1.5 rounded bg-black/5 dark:bg-white/5">
                         <div className="flex items-center gap-2">
                           <Server className="w-3 h-3" />
                           <span className="text-xs">API Backend</span>
                         </div>
+
                         <div className="flex items-center gap-1">
                           {health ? (
-                            <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
-                              <Zap className="w-2.5 h-2.5" />
-                              {language === 'tr' ? 'Aktif' : 'Active'}
-                            </span>
+                            <>
+                              <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400 mr-1">
+                                <Zap className="w-2.5 h-2.5" />
+                                {language === 'tr' ? 'Aktif' : 'Active'}
+                              </span>
+                              {/* Control Buttons when Active */}
+                              <button
+                                onClick={() => handleBackendControl('restart')}
+                                disabled={startingService === 'backend'}
+                                className="p-1 rounded hover:bg-orange-500/10 text-orange-500 transition-colors"
+                                title={language === 'tr' ? 'Yeniden Başlat' : 'Restart'}
+                              >
+                                <RotateCcw className={cn("w-3 h-3", startingService === 'backend' && "animate-spin")} />
+                              </button>
+                              <button
+                                onClick={() => handleBackendControl('stop')}
+                                disabled={startingService === 'backend'}
+                                className="p-1 rounded hover:bg-red-500/10 text-red-500 transition-colors"
+                                title={language === 'tr' ? 'Durdur' : 'Stop'}
+                              >
+                                <Square className="w-3 h-3fill-current" />
+                              </button>
+                            </>
                           ) : (
                             <>
                               <span className="text-[10px] text-red-500">Offline</span>
                               <button
-                                onClick={handleBackendInfo}
+                                onClick={() => handleBackendControl('restart')} // Offline ise restart = start
                                 disabled={startingService === 'backend'}
                                 className="ml-1 p-0.5 rounded hover:bg-primary-500/20 transition-colors"
-                                title={language === 'tr' ? 'Nasıl başlatılır?' : 'How to start?'}
+                                title={language === 'tr' ? 'Başlat' : 'Start'}
                               >
                                 {startingService === 'backend' ? (
                                   <Loader2 className="w-3 h-3 animate-spin text-primary-500" />
@@ -694,8 +764,8 @@ export function Sidebar() {
                       <div className={cn(
                         "p-1.5 rounded text-[10px]",
                         serviceMessage.type === 'success' ? "bg-green-500/20 text-green-700 dark:text-green-300" :
-                        serviceMessage.type === 'error' ? "bg-red-500/20 text-red-700 dark:text-red-300" :
-                        "bg-blue-500/20 text-blue-700 dark:text-blue-300"
+                          serviceMessage.type === 'error' ? "bg-red-500/20 text-red-700 dark:text-red-300" :
+                            "bg-blue-500/20 text-blue-700 dark:text-blue-300"
                       )}>
                         {serviceMessage.text}
                       </div>
@@ -713,8 +783,8 @@ export function Sidebar() {
                             className={cn(
                               "p-1.5 rounded text-xs",
                               issue.severity === 'error' ? "bg-red-500/20 text-red-700 dark:text-red-300" :
-                              issue.severity === 'warning' ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300" :
-                              "bg-blue-500/20 text-blue-700 dark:text-blue-300"
+                                issue.severity === 'warning' ? "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300" :
+                                  "bg-blue-500/20 text-blue-700 dark:text-blue-300"
                             )}
                           >
                             <div className="font-medium flex items-center gap-1">
@@ -775,14 +845,14 @@ export function Sidebar() {
         {/* Collapsed sidebar - mini status indicator */}
         {sidebarCollapsed && (
           <div className="mb-3 flex justify-center">
-            <div 
+            <div
               className={cn(
                 "w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer group relative",
-                health && systemIssues.length === 0 
-                  ? "bg-green-500/20" 
+                health && systemIssues.length === 0
+                  ? "bg-green-500/20"
                   : health && systemIssues[0]?.severity === 'warning'
-                  ? "bg-yellow-500/20"
-                  : "bg-red-500/20"
+                    ? "bg-yellow-500/20"
+                    : "bg-red-500/20"
               )}
               onClick={() => setSystemExpanded(!systemExpanded)}
             >
@@ -800,11 +870,11 @@ export function Sidebar() {
               ) : (
                 <WifiOff className="w-4 h-4 text-red-500" />
               )}
-              
+
               {/* Tooltip */}
               <div className="absolute left-full ml-2 px-2 py-1 bg-popover text-popover-foreground text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
                 {health ? (
-                  systemIssues.length === 0 
+                  systemIssues.length === 0
                     ? (language === 'tr' ? 'Sistem stabil' : 'System stable')
                     : `${systemIssues.length} ${language === 'tr' ? 'sorun' : 'issue(s)'}`
                 ) : (
@@ -814,7 +884,7 @@ export function Sidebar() {
             </div>
           </div>
         )}
-        
+
         {/* Pinned Only Filter */}
         {!sidebarCollapsed && (
           <div className="mb-3">
@@ -822,8 +892,8 @@ export function Sidebar() {
               onClick={toggleShowPinnedOnly}
               className={cn(
                 "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors",
-                showPinnedOnly 
-                  ? "bg-primary-500/10 text-primary-600 dark:text-primary-400" 
+                showPinnedOnly
+                  ? "bg-primary-500/10 text-primary-600 dark:text-primary-400"
                   : "bg-muted/50 hover:bg-accent text-muted-foreground"
               )}
             >
@@ -904,8 +974,8 @@ export function Sidebar() {
             )}
           </div>
         )}
-        
-{/* Session Info */}
+
+        {/* Session Info */}
         {!sidebarCollapsed && (
           <div className="mb-3 text-xs text-muted-foreground">
             <p className="flex items-center gap-1">
@@ -919,7 +989,7 @@ export function Sidebar() {
             )}
           </div>
         )}
-        
+
         <button
           onClick={toggleSidebar}
           className={cn(

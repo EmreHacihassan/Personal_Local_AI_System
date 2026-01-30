@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import { Toaster } from '@/components/ui/Toaster';
 import { WidgetWrapper } from '@/components/widget/WidgetWrapper';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import { AppInitializer } from '@/components/AppInitializer';
 import dynamic from 'next/dynamic';
 
 // Lazy load heavy components for performance
@@ -12,7 +13,7 @@ const VisionPanel = dynamic(() => import('@/components/ui/VisionPanel'), { ssr: 
 const ComputerUsePanel = dynamic(() => import('@/components/ui/ComputerUsePanel'), { ssr: false });
 
 // Inter font with Latin Extended subset for Turkish characters (ğ, ü, ş, ı, ö, ç)
-const inter = Inter({ 
+const inter = Inter({
   subsets: ['latin', 'latin-ext'],
   display: 'swap',
   variable: '--font-inter',
@@ -55,6 +56,7 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider>
+          <AppInitializer />
           <ErrorBoundary>
             {children}
           </ErrorBoundary>

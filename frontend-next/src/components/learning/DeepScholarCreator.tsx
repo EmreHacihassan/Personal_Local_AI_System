@@ -110,6 +110,18 @@ interface DeepScholarEvent {
   checkpoint_id?: string;
   completed_sections?: number;
   pending_sections?: number;
+  // 🚀 Premium V2 Event Fields
+  thought?: string;  // agent_thinking için
+  originality_score?: number;
+  similarity_index?: number;
+  unique_phrases_ratio?: number;
+  citation_count?: number;
+  quality_score?: number;
+  diversity_score?: number;
+  recency_score?: number;
+  topic_clusters?: string[];
+  gaps?: string[];
+  recommendations?: string[];
 }
 
 interface CompletedSection {
@@ -578,6 +590,36 @@ export function DeepScholarCreator({
         message: event.message!,
         timestamp: event.timestamp || new Date().toISOString(),
         type: thoughtType
+      }]);
+    }
+    
+    // 🚀 Handle agent thinking - for live thoughts
+    if (event.type === 'agent_thinking' && event.agent && event.thought) {
+      setAgentThoughts(prev => [...prev, {
+        agent: event.agent!,
+        message: event.thought!,
+        timestamp: event.timestamp || new Date().toISOString(),
+        type: 'thinking'
+      }]);
+    }
+    
+    // 🚀 Handle originality check result
+    if (event.type === 'originality_check') {
+      setAgentThoughts(prev => [...prev, {
+        agent: 'OriginalityChecker',
+        message: `📊 Orijinallik: ${(event.originality_score * 100).toFixed(0)}% | Benzerlik: ${(event.similarity_index * 100).toFixed(0)}%`,
+        timestamp: new Date().toISOString(),
+        type: 'result'
+      }]);
+    }
+    
+    // 🚀 Handle research analytics
+    if (event.type === 'research_analytics') {
+      setAgentThoughts(prev => [...prev, {
+        agent: 'ResearchAnalytics',
+        message: `📊 Kalite: ${event.quality_score}/100 | Çeşitlilik: ${(event.diversity_score * 100).toFixed(0)}% | Güncellik: ${(event.recency_score * 100).toFixed(0)}%`,
+        timestamp: new Date().toISOString(),
+        type: 'result'
       }]);
     }
 

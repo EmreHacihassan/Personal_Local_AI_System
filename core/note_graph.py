@@ -617,8 +617,8 @@ class NoteGraph:
             "tags": note.tags,
             "color": note.color,
             "connections": connections,
-            "created_at": note.created_at.isoformat() if note.created_at else None,
-            "updated_at": note.updated_at.isoformat() if note.updated_at else None,
+            "created_at": note.created_at if isinstance(note.created_at, str) else (note.created_at.isoformat() if note.created_at else None),
+            "updated_at": note.updated_at if isinstance(note.updated_at, str) else (note.updated_at.isoformat() if note.updated_at else None),
             "folder_id": note.folder_id,
             "pinned": note.pinned
         }

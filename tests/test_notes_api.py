@@ -660,6 +660,225 @@ class TestTemplatesAPI:
         assert "templates" in data
 
 
+class TestGraphLinksAPI:
+    """Graph Links ve Backlinks API testleri."""
+    
+    @pytest.fixture
+    def client(self):
+        return httpx.Client(base_url=API_BASE, timeout=30.0)
+    
+    @pytest.fixture
+    def linked_notes(self, client):
+        """Create two linked notes."""
+        # Create note 1
+        resp1 = client.post("/api/notes", json={
+            "title": "Link Source Note",
+            "content": "This links to [[Link Target Note]]"
+        })
+        note1_id = resp1.json()["id"]
+        
+        # Create note 2
+        resp2 = client.post("/api/notes", json={
+            "title": "Link Target Note", 
+            "content": "This is the target"
+        })
+        note2_id = resp2.json()["id"]
+        
+        yield (note1_id, note2_id)
+        
+        # Cleanup
+        try:
+            client.delete(f"/api/notes/{note1_id}")
+            client.delete(f"/api/notes/{note2_id}")
+            client.delete(f"/api/notes/trash/{note1_id}")
+            client.delete(f"/api/notes/trash/{note2_id}")
+        except:
+            pass
+    
+    def test_get_note_links(self, client, linked_notes):
+        """GET /api/notes/{id}/links - Get outgoing links."""
+        note1_id, _ = linked_notes
+        response = client.get(f"/api/notes/{note1_id}/links")
+        assert response.status_code == 200
+    
+    def test_get_note_backlinks(self, client, linked_notes):
+        """GET /api/notes/{id}/backlinks - Get incoming links."""
+        _, note2_id = linked_notes
+        response = client.get(f"/api/notes/{note2_id}/backlinks")
+        assert response.status_code == 200
+    
+    def test_graph_path(self, client):
+        """GET /api/notes/graph/path - Find path between notes."""
+        response = client.get("/api/notes/graph/path", params={
+            "source_id": "nonexistent1",
+            "target_id": "nonexistent2"
+        })
+        # Should return 200 even if no path found, or 404/500 for invalid IDs
+        assert response.status_code in [200, 404, 500]
+    
+    def test_graph_connections(self, client, linked_notes):
+        """GET /api/notes/graph/connections - Get all connections."""
+        response = client.get("/api/notes/graph/connections")
+        assert response.status_code == 200
+
+
+class TestVersionDeleteAPI:
+    """Version Delete API testleri."""
+    
+    @pytest.fixture
+    def client(self):
+        return httpx.Client(base_url=API_BASE, timeout=30.0)
+    
+    @pytest.fixture
+    def note_with_versions(self, client):
+        """Create a note with multiple versions."""
+        # Create
+        resp = client.post("/api/notes", json={
+            "title": "Version Delete Test",
+            "content": "v1"
+        })
+        note_id = resp.json()["id"]
+        
+        # Create versions by updating
+        client.put(f"/api/notes/{note_id}", json={"content": "v2"})
+        client.put(f"/api/notes/{note_id}", json={"content": "v3"})
+        
+        yield note_id
+        
+        # Cleanup
+        try:
+            client.delete(f"/api/notes/{note_id}")
+            client.delete(f"/api/notes/trash/{note_id}")
+        except:
+            pass
+    
+    def test_delete_single_version(self, client, note_with_versions):
+        """DELETE /api/notes/{id}/versions/{vid} - Delete specific version."""
+        note_id = note_with_versions
+        
+        # Get versions
+        versions_resp = client.get(f"/api/notes/{note_id}/versions")
+        versions = versions_resp.json().get("versions", [])
+        
+        if versions:
+            version_id = versions[0]["version_id"]
+            response = client.delete(f"/api/notes/{note_id}/versions/{version_id}")
+            assert response.status_code == 200
+    
+    def test_delete_all_versions(self, client, note_with_versions):
+        """DELETE /api/notes/{id}/versions - Delete all versions."""
+        note_id = note_with_versions
+        response = client.delete(f"/api/notes/{note_id}/versions")
+        assert response.status_code == 200
+        
+        # Verify versions are gone
+        versions_resp = client.get(f"/api/notes/{note_id}/versions")
+        versions = versions_resp.json().get("versions", [])
+        assert len(versions) == 0
+
+
+class TestNoteDetailsAPI:
+    """Note Details API testleri."""
+    
+    @pytest.fixture
+    def client(self):
+        return httpx.Client(base_url=API_BASE, timeout=30.0)
+    
+    @pytest.fixture
+    def test_note_id(self, client):
+        resp = client.post("/api/notes", json={
+            "title": "Details Test Note",
+            "content": "Content for details"
+        })
+        note_id = resp.json()["id"]
+        yield note_id
+        try:
+            client.delete(f"/api/notes/{note_id}")
+            client.delete(f"/api/notes/trash/{note_id}")
+        except:
+            pass
+    
+    def test_get_note_details(self, client, test_note_id):
+        """GET /api/notes/{id}/details - Get detailed note info."""
+        response = client.get(f"/api/notes/{test_note_id}/details")
+        assert response.status_code == 200
+        data = response.json()
+        # Should have note data
+        assert "id" in data or "title" in data
+
+
+class TestAIEndpoints:
+    """AI Endpoint testleri - Ollama bağımlılığı var."""
+    
+    @pytest.fixture
+    def client(self):
+        return httpx.Client(base_url=API_BASE, timeout=60.0)
+    
+    @pytest.fixture
+    def test_note_id(self, client):
+        resp = client.post("/api/notes", json={
+            "title": "AI Test Note",
+            "content": "This is a test note with some content for AI processing."
+        })
+        note_id = resp.json()["id"]
+        yield note_id
+        try:
+            client.delete(f"/api/notes/{note_id}")
+            client.delete(f"/api/notes/trash/{note_id}")
+        except:
+            pass
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_summarize_note(self, client, test_note_id):
+        """POST /api/notes/{id}/summarize - AI summarization."""
+        response = client.post(f"/api/notes/{test_note_id}/summarize")
+        assert response.status_code in [200, 503]  # 503 if Ollama not available
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_suggest_tags(self, client, test_note_id):
+        """POST /api/notes/{id}/suggest-tags - AI tag suggestion."""
+        response = client.post(f"/api/notes/{test_note_id}/suggest-tags")
+        assert response.status_code in [200, 503]
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_get_related_notes(self, client, test_note_id):
+        """GET /api/notes/{id}/related - Find related notes."""
+        response = client.get(f"/api/notes/{test_note_id}/related")
+        assert response.status_code in [200, 503]
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_enrich_note(self, client, test_note_id):
+        """POST /api/notes/{id}/enrich - AI enrichment."""
+        response = client.post(f"/api/notes/{test_note_id}/enrich")
+        assert response.status_code in [200, 503]
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_generate_flashcards(self, client, test_note_id):
+        """POST /api/notes/{id}/flashcards - Generate flashcards."""
+        response = client.post(f"/api/notes/{test_note_id}/flashcards")
+        assert response.status_code in [200, 503]
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_ask_notes(self, client):
+        """POST /api/notes/ask - Ask question about notes."""
+        response = client.post("/api/notes/ask", json={
+            "question": "What are my notes about?"
+        })
+        assert response.status_code in [200, 503]
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_get_suggestions(self, client, test_note_id):
+        """GET /api/notes/{id}/suggestions - Get AI suggestions."""
+        response = client.get(f"/api/notes/{test_note_id}/suggestions")
+        assert response.status_code in [200, 503]
+    
+    @pytest.mark.skipif(True, reason="Requires Ollama/LLM running")
+    def test_get_ai_summary(self, client, test_note_id):
+        """GET /api/notes/{id}/ai-summary - Get AI summary."""
+        response = client.get(f"/api/notes/{test_note_id}/ai-summary")
+        assert response.status_code in [200, 503]
+
+
 # ============== RUN STANDALONE ==============
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

@@ -739,6 +739,8 @@ async def update_note(note_id: str, note: NoteUpdate):
             color=note.color,
             tags=note.tags,
             pinned=note.pinned,
+            locked=note.locked,
+            encrypted=note.encrypted,
         )
         
         if not updated_note:

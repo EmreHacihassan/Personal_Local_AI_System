@@ -80,6 +80,8 @@ class Folder:
     
     @classmethod
     def from_dict(cls, data: Dict) -> "Folder":
+        # Eski klasörler için varsayılan değerler ekle
+        data.setdefault('locked', False)
         return cls(**data)
 
 
@@ -103,6 +105,9 @@ class Note:
     
     @classmethod
     def from_dict(cls, data: Dict) -> "Note":
+        # Eski notlar için varsayılan değerler ekle
+        data.setdefault('locked', False)
+        data.setdefault('encrypted', False)
         return cls(**data)
 
 
@@ -607,6 +612,8 @@ class NotesManager:
         color: str = None,
         tags: List[str] = None,
         pinned: bool = None,
+        locked: bool = None,
+        encrypted: bool = None,
         _skip_version: bool = False,  # Dahili kullanım için
     ) -> Optional[Note]:
         """Notu güncelle. Her güncellemede önceki durum versiyon olarak saklanır."""
@@ -637,6 +644,10 @@ class NotesManager:
                     n["tags"] = tags
                 if pinned is not None:
                     n["pinned"] = pinned
+                if locked is not None:
+                    n["locked"] = locked
+                if encrypted is not None:
+                    n["encrypted"] = encrypted
                 
                 n["updated_at"] = datetime.now().isoformat()
                 notes[i] = n

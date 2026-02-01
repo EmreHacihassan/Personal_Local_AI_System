@@ -203,6 +203,7 @@ async def update_folder(folder_id: str, folder: FolderUpdate):
             color=folder.color,
             icon=folder.icon,
             parent_id=folder.parent_id,
+            locked=folder.locked,  # Kilit durumu güncelleme
         )
         
         if not updated_folder:
@@ -705,6 +706,111 @@ async def get_note_templates():
     return {"templates": NOTE_TEMPLATES}
 
 
+# ============ TRASH ENDPOINTS (MUST BE BEFORE {note_id} ROUTES) ============
+
+@router.get("/notes/trash")
+async def get_trash():
+    """
+    Çöp kutusundaki notları getir.
+    Silinen notlar burada saklanır ve geri yüklenebilir.
+    """
+    try:
+        trash = notes_manager.get_trash()
+        return {
+            "trash": [t.to_dict() for t in trash],
+            "count": len(trash),
+        }
+    except Exception as e:
+        logger.error(f"Get trash error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/trash/count")
+async def get_trash_count():
+    """
+    Çöp kutusundaki not sayısını getir.
+    """
+    try:
+        count = notes_manager.get_trash_count()
+        return {"count": count}
+    except Exception as e:
+        logger.error(f"Get trash count error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/trash/{trash_id}")
+async def get_trash_note(trash_id: str):
+    """
+    Çöp kutusundan belirli bir notu getir.
+    """
+    try:
+        trash_note = notes_manager.get_trash_note(trash_id)
+        if not trash_note:
+            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
+        return trash_note.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get trash note error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notes/trash/{trash_id}/restore")
+async def restore_from_trash(trash_id: str):
+    """
+    Notu çöp kutusundan geri yükle.
+    Not orijinal klasörüne geri döner ve versiyonları da geri yüklenir.
+    """
+    try:
+        restored_note = notes_manager.restore_from_trash(trash_id)
+        if not restored_note:
+            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
+        
+        return {
+            "message": "Not başarıyla geri yüklendi",
+            "note": restored_note.to_dict(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Restore from trash error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notes/trash/{trash_id}")
+async def permanent_delete(trash_id: str):
+    """
+    Notu kalıcı olarak sil (geri alınamaz!).
+    """
+    try:
+        success = notes_manager.permanent_delete(trash_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
+        
+        return {"message": "Not kalıcı olarak silindi", "trash_id": trash_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Permanent delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notes/trash")
+async def empty_trash():
+    """
+    Çöp kutusunu tamamen boşalt (tüm notlar kalıcı olarak silinir!).
+    """
+    try:
+        deleted_count = notes_manager.empty_trash()
+        return {
+            "message": f"Çöp kutusu boşaltıldı, {deleted_count} not kalıcı olarak silindi",
+            "deleted_count": deleted_count,
+        }
+    except Exception as e:
+        logger.error(f"Empty trash error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ NOTE CRUD OPERATIONS (MOVED) ============
 
 @router.get("/notes/{note_id}")
@@ -941,111 +1047,6 @@ async def clear_note_versions(note_id: str):
         raise
     except Exception as e:
         logger.error(f"Clear versions error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============ ÇÖP KUTUSU ENDPOINTS ============
-
-@router.get("/notes/trash")
-async def get_trash():
-    """
-    Çöp kutusundaki notları getir.
-    Silinen notlar burada saklanır ve geri yüklenebilir.
-    """
-    try:
-        trash = notes_manager.get_trash()
-        return {
-            "trash": [t.to_dict() for t in trash],
-            "count": len(trash),
-        }
-    except Exception as e:
-        logger.error(f"Get trash error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/notes/trash/count")
-async def get_trash_count():
-    """
-    Çöp kutusundaki not sayısını getir.
-    """
-    try:
-        count = notes_manager.get_trash_count()
-        return {"count": count}
-    except Exception as e:
-        logger.error(f"Get trash count error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/notes/trash/{trash_id}")
-async def get_trash_note(trash_id: str):
-    """
-    Çöp kutusundan belirli bir notu getir.
-    """
-    try:
-        trash_note = notes_manager.get_trash_note(trash_id)
-        if not trash_note:
-            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
-        return trash_note.to_dict()
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Get trash note error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/notes/trash/{trash_id}/restore")
-async def restore_from_trash(trash_id: str):
-    """
-    Notu çöp kutusundan geri yükle.
-    Not orijinal klasörüne geri döner ve versiyonları da geri yüklenir.
-    """
-    try:
-        restored_note = notes_manager.restore_from_trash(trash_id)
-        if not restored_note:
-            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
-        
-        return {
-            "message": "Not başarıyla geri yüklendi",
-            "note": restored_note.to_dict(),
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Restore from trash error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/notes/trash/{trash_id}")
-async def permanent_delete(trash_id: str):
-    """
-    Notu kalıcı olarak sil (geri alınamaz!).
-    """
-    try:
-        success = notes_manager.permanent_delete(trash_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
-        
-        return {"message": "Not kalıcı olarak silindi", "trash_id": trash_id}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Permanent delete error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/notes/trash")
-async def empty_trash():
-    """
-    Çöp kutusunu tamamen boşalt (tüm notlar kalıcı olarak silinir!).
-    """
-    try:
-        deleted_count = notes_manager.empty_trash()
-        return {
-            "message": f"Çöp kutusu boşaltıldı, {deleted_count} not kalıcı olarak silindi",
-            "deleted_count": deleted_count,
-        }
-    except Exception as e:
-        logger.error(f"Empty trash error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

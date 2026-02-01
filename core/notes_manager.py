@@ -348,21 +348,31 @@ class NotesManager:
         return [TrashNote.from_dict(t) for t in trash]
     
     def get_trash_note(self, trash_id: str) -> Optional[TrashNote]:
-        """Çöp kutusundan tek bir not getir."""
+        """Çöp kutusundan tek bir not getir.
+        
+        Args:
+            trash_id: Trash entry ID veya original note ID ile arama yapılabilir.
+        """
         trash = self._load_trash()
         for t in trash:
-            if t["id"] == trash_id:
+            # Hem trash ID hem de original note ID ile eşleşme kontrolü
+            if t["id"] == trash_id or t.get("original_note", {}).get("id") == trash_id:
                 return TrashNote.from_dict(t)
         return None
     
     def restore_from_trash(self, trash_id: str) -> Optional[Note]:
-        """Çöp kutusundan notu geri yükle."""
+        """Çöp kutusundan notu geri yükle.
+        
+        Args:
+            trash_id: Trash entry ID veya original note ID ile arama yapılabilir.
+        """
         trash = self._load_trash()
         trash_note = None
         trash_index = -1
         
         for i, t in enumerate(trash):
-            if t["id"] == trash_id:
+            # Hem trash ID hem de original note ID ile eşleşme kontrolü
+            if t["id"] == trash_id or t.get("original_note", {}).get("id") == trash_id:
                 trash_note = t
                 trash_index = i
                 break
@@ -392,10 +402,15 @@ class NotesManager:
         return Note.from_dict(original_note)
     
     def permanent_delete(self, trash_id: str) -> bool:
-        """Çöp kutusundan kalıcı olarak sil."""
+        """Çöp kutusundan kalıcı olarak sil.
+        
+        Args:
+            trash_id: Trash entry ID veya original note ID ile arama yapılabilir.
+        """
         trash = self._load_trash()
         original_len = len(trash)
-        trash = [t for t in trash if t["id"] != trash_id]
+        # Hem trash ID hem de original note ID ile eşleşme kontrolü
+        trash = [t for t in trash if t["id"] != trash_id and t.get("original_note", {}).get("id") != trash_id]
         
         if len(trash) < original_len:
             self._save_trash(trash)
@@ -460,6 +475,7 @@ class NotesManager:
         color: str = None,
         icon: str = None,
         parent_id: str = None,
+        locked: bool = None,
     ) -> Optional[Folder]:
         """Klasörü güncelle."""
         folders = self._load_folders()
@@ -476,6 +492,8 @@ class NotesManager:
                     # Kendi içine taşımayı engelle
                     if parent_id != folder_id:
                         f["parent_id"] = parent_id
+                if locked is not None:
+                    f["locked"] = locked
                 
                 f["updated_at"] = datetime.now().isoformat()
                 folders[i] = f

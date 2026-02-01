@@ -50,9 +50,6 @@ import {
   Calculator,
   Lock,
   Unlock,
-  Shield,
-  ShieldCheck,
-  ShieldOff,
   Eye,
   EyeOff
 } from 'lucide-react';
@@ -76,7 +73,6 @@ import { useMultiSelect } from '@/hooks/useMultiSelect';
 import { ImageSettingsModal, ImageSettings } from '@/components/modals/ImageSettingsModal';
 import { compressImage } from '@/lib/imageUtils';
 import { MATH_KEYBOARD_CATEGORIES, NORMAL_KEYBOARD_CATEGORIES } from '@/lib/constants/mathKeyboard';
-import { encryptContent, decryptContent, isEncryptedContent, validatePassword } from '@/lib/crypto';
 
 // Backend - Frontend Data Mappers
 const mapNoteFromApi = (note: any): Note => ({
@@ -87,7 +83,7 @@ const mapNoteFromApi = (note: any): Note => ({
   color: note.color,
   isPinned: note.pinned,
   isLocked: note.locked || false, // Kilit durumu
-  isEncrypted: note.encrypted || isEncryptedContent(note.content || ''), // Şifreleme durumu
+  isEncrypted: note.encrypted || false, // AI'dan gizleme durumu
   tags: note.tags || [],
   createdAt: new Date(note.created_at),
   updatedAt: new Date(note.updated_at)
@@ -195,17 +191,6 @@ export function NotesPage() {
   const [showMathKeyboard, setShowMathKeyboard] = useState(false); // Matematik ekran klavyesi
   const [mathCategory, setMathCategory] = useState('basic'); // Aktif matematik kategori
   const [keyboardType, setKeyboardType] = useState<'math' | 'normal'>('math'); // Klavye tipi seçimi
-
-  // Şifreleme state'leri
-  const [showEncryptDialog, setShowEncryptDialog] = useState(false);
-  const [showDecryptDialog, setShowDecryptDialog] = useState(false);
-  const [encryptPassword, setEncryptPassword] = useState('');
-  const [encryptPasswordConfirm, setEncryptPasswordConfirm] = useState('');
-  const [decryptPassword, setDecryptPassword] = useState('');
-  const [encryptError, setEncryptError] = useState('');
-  const [decryptError, setDecryptError] = useState('');
-  const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
-  const [pendingEncryptNote, setPendingEncryptNote] = useState<Note | null>(null);
 
   // Klavye tipi değiştiğinde varsayılan kategoriyi ayarla
   useEffect(() => {
@@ -940,141 +925,62 @@ export function NotesPage() {
     }
   };
 
-  // ==================== ŞİFRELEME FONKSİYONLARI ====================
+  // ==================== AI'DAN GİZLEME (OBFUSCATION) ====================
   
-  // Şifreleme dialogunu aç
-  const openEncryptDialog = (note: Note) => {
-    setPendingEncryptNote(note);
-    setEncryptPassword('');
-    setEncryptPasswordConfirm('');
-    setEncryptError('');
-    setShowEncryptDialog(true);
-  };
-
-  // Şifreleme işlemi
-  const handleEncryptNote = async () => {
-    if (!pendingEncryptNote) return;
-
-    // Şifre doğrulama
-    const validation = validatePassword(encryptPassword);
-    if (!validation.valid) {
-      setEncryptError(validation.message || 'Geçersiz şifre');
-      return;
-    }
-
-    if (encryptPassword !== encryptPasswordConfirm) {
-      setEncryptError(language === 'tr' ? 'Şifreler eşleşmiyor' : 'Passwords do not match');
-      return;
-    }
-
-    try {
-      // İçeriği şifrele
-      const encryptedContent = await encryptContent(pendingEncryptNote.content, encryptPassword);
-      
-      // Notu güncelle
-      updateNote(pendingEncryptNote.id, { 
-        content: encryptedContent,
-        isEncrypted: true 
-      });
-      
-      if (selectedNote?.id === pendingEncryptNote.id) {
-        setSelectedNote({ 
-          ...pendingEncryptNote, 
-          content: encryptedContent,
-          isEncrypted: true 
-        });
-        setEditContent(encryptedContent);
+  // Not'u AI'dan gizle/göster toggle
+  const handleToggleNoteHidden = async (note: Note) => {
+    const newHiddenState = !note.isEncrypted;
+    
+    // İçeriği obfuscate/deobfuscate et
+    let newContent = note.content;
+    if (newHiddenState) {
+      // Base64 encode et (AI anlayamaz ama UI'da decode edilir)
+      newContent = btoa(unescape(encodeURIComponent(note.content)));
+    } else {
+      // Base64 decode et
+      try {
+        newContent = decodeURIComponent(escape(atob(note.content)));
+      } catch {
+        newContent = note.content;
       }
+    }
+    
+    updateNote(note.id, { 
+      content: newContent,
+      isEncrypted: newHiddenState 
+    });
+    
+    if (selectedNote?.id === note.id) {
+      setSelectedNote({ 
+        ...note, 
+        content: newContent,
+        isEncrypted: newHiddenState 
+      });
+      setEditContent(newHiddenState ? decodeURIComponent(escape(atob(newContent))) : newContent);
+    }
 
-      // Backend'e kaydet
-      await fetch(`/api/notes/${pendingEncryptNote.id}`, {
+    // Backend'e kaydet
+    try {
+      await fetch(`/api/notes/${note.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          content: encryptedContent,
-          encrypted: true 
+          content: newContent,
+          encrypted: newHiddenState 
         }),
       });
-
-      setShowEncryptDialog(false);
-      setPendingEncryptNote(null);
-      
-      // Başarı mesajı
-      alert(language === 'tr' 
-        ? 'Not şifrelendi! Şifrenizi unutmayın, kayıp şifre ile veri kurtarılamaz.' 
-        : 'Note encrypted! Remember your password, data cannot be recovered without it.');
     } catch (error) {
-      console.error('Encryption error:', error);
-      setEncryptError(language === 'tr' ? 'Şifreleme hatası' : 'Encryption error');
+      console.error('Toggle hidden error:', error);
     }
   };
 
-  // Şifre çözme dialogunu aç
-  const openDecryptDialog = (note: Note) => {
-    setPendingEncryptNote(note);
-    setDecryptPassword('');
-    setDecryptError('');
-    setDecryptedContent(null);
-    setShowDecryptDialog(true);
-  };
-
-  // Şifre çözme işlemi (sadece görüntüleme için)
-  const handleDecryptNote = async () => {
-    if (!pendingEncryptNote) return;
-
+  // Gizli not içeriğini decode et (UI görüntüleme için)
+  const getDisplayContent = (note: Note): string => {
+    if (!note.isEncrypted) return note.content;
     try {
-      const content = await decryptContent(pendingEncryptNote.content, decryptPassword);
-      
-      if (content === null) {
-        setDecryptError(language === 'tr' ? 'Yanlış şifre' : 'Wrong password');
-        return;
-      }
-
-      setDecryptedContent(content);
-      setDecryptError('');
-    } catch (error) {
-      console.error('Decryption error:', error);
-      setDecryptError(language === 'tr' ? 'Şifre çözme hatası' : 'Decryption error');
-    }
-  };
-
-  // Şifreyi kalıcı olarak kaldır (not'u decrypt yaparak kaydet)
-  const handleRemoveEncryption = async () => {
-    if (!pendingEncryptNote || !decryptedContent) return;
-
-    try {
-      // Notu güncelle - şifresiz içerik
-      updateNote(pendingEncryptNote.id, { 
-        content: decryptedContent,
-        isEncrypted: false 
-      });
-      
-      if (selectedNote?.id === pendingEncryptNote.id) {
-        setSelectedNote({ 
-          ...pendingEncryptNote, 
-          content: decryptedContent,
-          isEncrypted: false 
-        });
-        setEditContent(decryptedContent);
-      }
-
-      // Backend'e kaydet
-      await fetch(`/api/notes/${pendingEncryptNote.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          content: decryptedContent,
-          encrypted: false 
-        }),
-      });
-
-      setShowDecryptDialog(false);
-      setPendingEncryptNote(null);
-      setDecryptedContent(null);
-      
-      alert(language === 'tr' ? 'Şifreleme kaldırıldı' : 'Encryption removed');
-    } catch (error) {
-      console.error('Remove encryption error:', error);
+      return decodeURIComponent(escape(atob(note.content)));
+    } catch {
+      return note.content;
     }
   };
 
@@ -1710,14 +1616,11 @@ export function NotesPage() {
                           <div className="flex items-center gap-1">
                             {note.isPinned && <Pin className="w-3 h-3 text-primary-500" />}
                             {note.isLocked && <Lock className="w-3 h-3 text-amber-500" />}
-                            {note.isEncrypted && <ShieldCheck className="w-3 h-3 text-green-500" />}
+                            {note.isEncrypted && <EyeOff className="w-3 h-3 text-purple-500" />}
                             <p className="font-medium text-sm truncate">{note.title}</p>
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-1">
-                            {note.isEncrypted 
-                              ? "🔐 [" + (language === 'tr' ? 'Şifrelenmiş İçerik' : 'Encrypted Content') + "]"
-                              : (note.content || t.emptyNote[language])
-                            }
+                            {note.content || t.emptyNote[language]}
                           </p>
                           <p className="text-[10px] text-muted-foreground mt-2">
                             {formatDate(note.updatedAt, language)}
@@ -1770,24 +1673,20 @@ export function NotesPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (note.isEncrypted) {
-                                openDecryptDialog(note);
-                              } else {
-                                openEncryptDialog(note);
-                              }
+                              handleToggleNoteHidden(note);
                             }}
                             className={cn(
                               "p-1.5 rounded-lg transition-colors",
                               note.isEncrypted
-                                ? "text-green-500 bg-green-100 dark:bg-green-900/30"
+                                ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30"
                                 : "text-muted-foreground hover:bg-accent"
                             )}
                             title={note.isEncrypted 
-                              ? (language === 'tr' ? 'Şifreyi Çöz' : 'Decrypt')
-                              : (language === 'tr' ? 'Şifrele' : 'Encrypt')
+                              ? (language === 'tr' ? 'AI Görebilir' : 'AI Can See')
+                              : (language === 'tr' ? 'AI\'dan Gizle' : 'Hide from AI')
                             }
                           >
-                            {note.isEncrypted ? <ShieldCheck className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+                            {note.isEncrypted ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                           </button>
                           <button
                             onClick={(e) => {
@@ -1838,7 +1737,7 @@ export function NotesPage() {
                           <div className="flex items-center gap-1">
                             {note.isPinned && <Pin className="w-3 h-3 text-primary-500" />}
                             {note.isLocked && <Lock className="w-3 h-3 text-amber-500" />}
-                            {note.isEncrypted && <ShieldCheck className="w-3 h-3 text-green-500" />}
+                            {note.isEncrypted && <EyeOff className="w-3 h-3 text-purple-500" />}
                           </div>
                           <button
                             onClick={(e) => {
@@ -1858,10 +1757,7 @@ export function NotesPage() {
                         </div>
                         <p className="font-medium text-xs truncate">{note.title}</p>
                         <p className="text-[10px] text-muted-foreground line-clamp-3 mt-1 flex-1">
-                          {note.isEncrypted 
-                            ? "🔐 " + (language === 'tr' ? 'Şifreli' : 'Encrypted')
-                            : (note.content || t.emptyNote[language])
-                          }
+                          {note.content || t.emptyNote[language]}
                         </p>
                         <p className="text-[9px] text-muted-foreground mt-2">
                           {formatDate(note.updatedAt, language)}
@@ -1929,8 +1825,8 @@ export function NotesPage() {
                     {selectedNote.isPinned && <Pin className="w-5 h-5 text-primary-500" />}
                     {selectedNote.isLocked && <Lock className="w-5 h-5 text-amber-500" />}
                     {selectedNote.isEncrypted && (
-                      <span title={language === 'tr' ? 'Şifreli Not' : 'Encrypted Note'}>
-                        <ShieldCheck className="w-5 h-5 text-green-500" />
+                      <span title={language === 'tr' ? 'AI\'dan Gizli' : 'Hidden from AI'}>
+                        <EyeOff className="w-5 h-5 text-purple-500" />
                       </span>
                     )}
                     <h2 className="text-xl font-semibold">{selectedNote.title}</h2>
@@ -1999,27 +1895,21 @@ export function NotesPage() {
                     {selectedNote.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
                   </button>
 
-                  {/* Encrypt/Decrypt Button */}
+                  {/* AI'dan Gizle/Göster Button */}
                   <button
-                    onClick={() => {
-                      if (selectedNote.isEncrypted) {
-                        openDecryptDialog(selectedNote);
-                      } else {
-                        openEncryptDialog(selectedNote);
-                      }
-                    }}
+                    onClick={() => handleToggleNoteHidden(selectedNote)}
                     className={cn(
                       "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
                       selectedNote.isEncrypted
-                        ? "bg-green-500 text-white"
+                        ? "bg-purple-500 text-white"
                         : "bg-muted hover:bg-accent"
                     )}
                     title={selectedNote.isEncrypted 
-                      ? (language === 'tr' ? 'Şifreli Not - Görüntüle/Kaldır' : 'Encrypted Note - View/Remove')
-                      : (language === 'tr' ? 'Şifrele (AI Okuyamaz)' : 'Encrypt (AI Cannot Read)')
+                      ? (language === 'tr' ? 'AI Görebilir Yap' : 'Make AI Visible')
+                      : (language === 'tr' ? 'AI\'dan Gizle' : 'Hide from AI')
                     }
                   >
-                    {selectedNote.isEncrypted ? <ShieldCheck className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+                    {selectedNote.isEncrypted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
 
                   {/* Tag Button */}
@@ -2457,31 +2347,34 @@ export function NotesPage() {
                     </div>
                   </div>
                 ) : selectedNote.isEncrypted ? (
-                  <div className="flex flex-col items-center justify-center p-12 text-center">
-                    <Shield className="w-16 h-16 text-blue-500 mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">
-                      🔐 {language === 'tr' ? 'Şifrelenmiş Not' : 'Encrypted Note'}
-                    </h3>
-                    <p className="text-muted-foreground mb-6 max-w-md">
-                      {language === 'tr' 
-                        ? 'Bu not şifrelenmiş durumda. İçeriği görüntülemek için şifre çözme işlemi yapmanız gerekiyor.'
-                        : 'This note is encrypted. You need to decrypt it to view the content.'
-                      }
-                    </p>
-                    <button
-                      onClick={() => {
-                        setPendingEncryptNote(selectedNote);
-                        if (selectedNote.isEncrypted) {
-                          setShowDecryptDialog(true);
-                        } else {
-                          setShowEncryptDialog(true);
-                        }
-                      }}
-                      className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-2 transition-colors"
-                    >
-                      <ShieldOff className="w-4 h-4" />
-                      {language === 'tr' ? 'Şifreyi Çöz' : 'Decrypt'}
-                    </button>
+                  <div className="prose prose-sm max-w-none dark:prose-invert p-6">
+                    {/* AI'dan gizli içerik banner'ı */}
+                    <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-3 mb-4 not-prose">
+                      <div className="flex items-center gap-2">
+                        <EyeOff className="w-5 h-5 text-purple-600" />
+                        <span className="text-sm text-purple-700 dark:text-purple-300">
+                          {language === 'tr' ? 'Bu not AI\'dan gizleniyor' : 'This note is hidden from AI'}
+                        </span>
+                      </div>
+                    </div>
+                    {getDisplayContent(selectedNote) ? (
+                      <WikiContentRenderer
+                        content={getDisplayContent(selectedNote)}
+                        notes={notes}
+                        onNavigate={(noteId) => {
+                          const note = notes.find(n => n.id === noteId);
+                          if (note) {
+                            setSelectedNote(note);
+                          }
+                        }}
+                        onImageEdit={handleImageEdit}
+                        onImageUpdate={handleInlineImageUpdate}
+                      />
+                    ) : (
+                      <p className="text-muted-foreground italic">
+                        {t.emptyNoteHint[language]}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="prose prose-sm max-w-none dark:prose-invert p-6">
@@ -2767,176 +2660,6 @@ export function NotesPage() {
           />
         )
       }
-
-      {/* Şifreleme Dialog Modal */}
-      {showEncryptDialog && pendingEncryptNote && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-xl">
-                <ShieldCheck className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">
-                  {language === 'tr' ? 'Notu Şifrele' : 'Encrypt Note'}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {language === 'tr' ? 'AI bu notu okuyamayacak' : 'AI cannot read this note'}
-                </p>
-              </div>
-            </div>
-            
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 mb-4">
-              <p className="text-sm text-amber-700 dark:text-amber-300">
-                ⚠️ {language === 'tr' 
-                  ? 'Şifrenizi unutursanız verilerinizi kurtaramazsınız!' 
-                  : 'If you forget your password, data cannot be recovered!'}
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm font-medium mb-1 block">
-                  {language === 'tr' ? 'Şifre' : 'Password'}
-                </label>
-                <input
-                  type="password"
-                  value={encryptPassword}
-                  onChange={(e) => setEncryptPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-green-500/50 focus:outline-none"
-                  placeholder={language === 'tr' ? 'En az 4 karakter' : 'At least 4 characters'}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block">
-                  {language === 'tr' ? 'Şifre Tekrar' : 'Confirm Password'}
-                </label>
-                <input
-                  type="password"
-                  value={encryptPasswordConfirm}
-                  onChange={(e) => setEncryptPasswordConfirm(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-green-500/50 focus:outline-none"
-                  placeholder={language === 'tr' ? 'Şifreyi tekrar girin' : 'Enter password again'}
-                />
-              </div>
-              
-              {encryptError && (
-                <p className="text-sm text-red-500">{encryptError}</p>
-              )}
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => {
-                  setShowEncryptDialog(false);
-                  setPendingEncryptNote(null);
-                }}
-                className="flex-1 px-4 py-2.5 bg-muted hover:bg-accent rounded-xl transition-colors"
-              >
-                {language === 'tr' ? 'İptal' : 'Cancel'}
-              </button>
-              <button
-                onClick={handleEncryptNote}
-                className="flex-1 px-4 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                {language === 'tr' ? 'Şifrele' : 'Encrypt'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Şifre Çözme Dialog Modal */}
-      {showDecryptDialog && pendingEncryptNote && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-xl">
-                <ShieldCheck className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">
-                  {language === 'tr' ? 'Şifreli Not' : 'Encrypted Note'}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {pendingEncryptNote.title}
-                </p>
-              </div>
-            </div>
-
-            {!decryptedContent ? (
-              <>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">
-                      {language === 'tr' ? 'Şifre Girin' : 'Enter Password'}
-                    </label>
-                    <input
-                      type="password"
-                      value={decryptPassword}
-                      onChange={(e) => setDecryptPassword(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleDecryptNote()}
-                      className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:ring-2 focus:ring-green-500/50 focus:outline-none"
-                      placeholder={language === 'tr' ? 'Şifrenizi girin' : 'Enter your password'}
-                      autoFocus
-                    />
-                  </div>
-                  
-                  {decryptError && (
-                    <p className="text-sm text-red-500">{decryptError}</p>
-                  )}
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => {
-                      setShowDecryptDialog(false);
-                      setPendingEncryptNote(null);
-                    }}
-                    className="flex-1 px-4 py-2.5 bg-muted hover:bg-accent rounded-xl transition-colors"
-                  >
-                    {language === 'tr' ? 'İptal' : 'Cancel'}
-                  </button>
-                  <button
-                    onClick={handleDecryptNote}
-                    className="flex-1 px-4 py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-xl transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Eye className="w-4 h-4" />
-                    {language === 'tr' ? 'Görüntüle' : 'View'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="bg-muted/50 border border-border rounded-xl p-4 max-h-64 overflow-y-auto">
-                  <pre className="whitespace-pre-wrap text-sm font-mono">{decryptedContent}</pre>
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={() => {
-                      setShowDecryptDialog(false);
-                      setPendingEncryptNote(null);
-                      setDecryptedContent(null);
-                    }}
-                    className="flex-1 px-4 py-2.5 bg-muted hover:bg-accent rounded-xl transition-colors"
-                  >
-                    {language === 'tr' ? 'Kapat' : 'Close'}
-                  </button>
-                  <button
-                    onClick={handleRemoveEncryption}
-                    className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-colors flex items-center justify-center gap-2"
-                  >
-                    <ShieldOff className="w-4 h-4" />
-                    {language === 'tr' ? 'Şifrelemeyi Kaldır' : 'Remove Encryption'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Image Settings Modal */}
       {uploadedImageInfo && (

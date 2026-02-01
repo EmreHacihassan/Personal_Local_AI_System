@@ -91,6 +91,11 @@ import QuickActionsPanel from '@/components/premium/QuickActionsPanel';
 import ZenMode from '@/components/premium/ZenMode';
 import AIWritingAssistant from '@/components/premium/AIWritingAssistant';
 import StatsDashboard from '@/components/premium/StatsDashboard';
+import AutoSaveIndicator from '@/components/premium/AutoSaveIndicator';
+import KeyboardShortcutsPanel from '@/components/premium/KeyboardShortcutsPanel';
+import WordCounter from '@/components/premium/WordCounter';
+import FloatingQuickNote from '@/components/premium/FloatingQuickNote';
+import RecentNotesWidget from '@/components/premium/RecentNotesWidget';
 
 // Backend - Frontend Data Mappers
 const mapNoteFromApi = (note: any): Note => ({
@@ -217,6 +222,9 @@ export function NotesPage() {
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [showStatsDashboard, setShowStatsDashboard] = useState(false);
   const [selectedTextForAI, setSelectedTextForAI] = useState('');
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [showRecentNotes, setShowRecentNotes] = useState(false);
 
   // Tam Ekran Modları
   const [isNoteFullscreen, setIsNoteFullscreen] = useState(false);  // Sadece not detayı tam ekran
@@ -1474,6 +1482,29 @@ export function NotesPage() {
               <Brain className="w-4 h-4" />
             </button>
 
+            {/* ⌨️ Keyboard Shortcuts */}
+            <button
+              onClick={() => setShowKeyboardShortcuts(true)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={language === 'tr' ? 'Klavye Kısayolları (?)' : 'Keyboard Shortcuts (?)'}
+            >
+              <Keyboard className="w-4 h-4" />
+            </button>
+
+            {/* 🕐 Recent Notes */}
+            <button
+              onClick={() => setShowRecentNotes(!showRecentNotes)}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                showRecentNotes 
+                  ? "bg-blue-500/20 text-blue-500" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+              title={language === 'tr' ? 'Son Erişilen Notlar' : 'Recent Notes'}
+            >
+              <History className="w-4 h-4" />
+            </button>
+
             {/* Compact Streak Widget */}
             <GamificationWidget compact={true} />
 
@@ -2449,6 +2480,30 @@ export function NotesPage() {
                         style={{ minHeight: showMathKeyboard ? '200px' : '300px' }}
                       />
                       
+                      {/* Editor Footer - Word Counter & Auto Save */}
+                      <div className="flex items-center justify-between px-2 py-1.5 border-t border-border/50 bg-muted/20 rounded-lg">
+                        <WordCounter content={editContent} variant="detailed" />
+                        <AutoSaveIndicator 
+                          content={editContent} 
+                          onSave={async (content) => {
+                            if (selectedNote) {
+                              try {
+                                await fetch(`/api/notes/${selectedNote.id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ title: editTitle, content })
+                                });
+                              } catch (e) {
+                                console.error('Auto-save failed:', e);
+                                throw e;
+                              }
+                            }
+                          }}
+                          delay={3000}
+                          enabled={isEditing && !!selectedNote}
+                        />
+                      </div>
+                      
                       {/* Matematik Ekran Klavyesi */}
                       {showMathKeyboard && (
                         <div className="border border-border rounded-xl bg-card shadow-lg overflow-hidden">
@@ -3179,6 +3234,74 @@ export function NotesPage() {
         noteCount={notes.length}
         folderCount={folders.length}
       />
+
+      {/* Keyboard Shortcuts Panel */}
+      <KeyboardShortcutsPanel
+        isOpen={showKeyboardShortcuts}
+        onClose={() => setShowKeyboardShortcuts(false)}
+      />
+
+      {/* Floating Quick Note (always available) */}
+      <FloatingQuickNote
+        onSave={async (content, title) => {
+          const tempId = generateId();
+          const newNote: Note = {
+            id: tempId,
+            title: title || 'Hızlı Not',
+            content: content,
+            folder: currentFolderId || undefined,
+            color: 'default',
+            isPinned: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          addNote(newNote);
+          
+          try {
+            const res = await fetch('/api/notes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                title: newNote.title,
+                content: content,
+                folder_id: currentFolderId || null,
+                color: 'default'
+              })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              updateNote(tempId, { id: data.id });
+              toast.success('Hızlı not oluşturuldu!');
+            }
+          } catch (e) {
+            console.error('Quick note save failed:', e);
+          }
+        }}
+      />
+
+      {/* Recent Notes Sidebar */}
+      <AnimatePresence>
+        {showRecentNotes && (
+          <motion.div
+            initial={{ x: -320, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -320, opacity: 0 }}
+            className="fixed left-4 top-24 z-40 w-80"
+          >
+            <RecentNotesWidget
+              notes={notes}
+              maxItems={8}
+              onNoteClick={(noteId) => {
+                const note = notes.find(n => n.id === noteId);
+                if (note) {
+                  setSelectedNote(note);
+                  setShowRecentNotes(false);
+                }
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Toast Notifications */}
       <ToastContainer />

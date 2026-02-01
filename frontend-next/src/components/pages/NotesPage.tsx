@@ -56,7 +56,8 @@ import {
   Brain,
   Timer,
   Flame,
-  Trophy
+  Trophy,
+  Calendar
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useStore, Note, NoteFolder } from '@/store/useStore';
@@ -96,6 +97,7 @@ import KeyboardShortcutsPanel from '@/components/premium/KeyboardShortcutsPanel'
 import WordCounter from '@/components/premium/WordCounter';
 import FloatingQuickNote from '@/components/premium/FloatingQuickNote';
 import RecentNotesWidget from '@/components/premium/RecentNotesWidget';
+import TimelinePlanner from '@/components/premium/TimelinePlanner';
 
 // Backend - Frontend Data Mappers
 const mapNoteFromApi = (note: any): Note => ({
@@ -225,6 +227,7 @@ export function NotesPage() {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [showRecentNotes, setShowRecentNotes] = useState(false);
+  const [showTimelinePlanner, setShowTimelinePlanner] = useState(false);
 
   // Tam Ekran Modları
   const [isNoteFullscreen, setIsNoteFullscreen] = useState(false);  // Sadece not detayı tam ekran
@@ -1503,6 +1506,15 @@ export function NotesPage() {
               title={language === 'tr' ? 'Son Erişilen Notlar' : 'Recent Notes'}
             >
               <History className="w-4 h-4" />
+            </button>
+
+            {/* 📅 Timeline Planner */}
+            <button
+              onClick={() => setShowTimelinePlanner(true)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-gradient-to-r hover:from-purple-500/20 hover:to-pink-500/20 transition-all group"
+              title={language === 'tr' ? 'Takvim Planlayıcı' : 'Timeline Planner'}
+            >
+              <Calendar className="w-4 h-4 group-hover:text-purple-500 transition-colors" />
             </button>
 
             {/* Compact Streak Widget */}
@@ -3240,6 +3252,37 @@ export function NotesPage() {
         isOpen={showKeyboardShortcuts}
         onClose={() => setShowKeyboardShortcuts(false)}
       />
+
+      {/* Timeline Planner Modal */}
+      <AnimatePresence>
+        {showTimelinePlanner && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowTimelinePlanner(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 25 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-6xl h-[85vh] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+            >
+              {/* Close button */}
+              <button
+                onClick={() => setShowTimelinePlanner(false)}
+                className="absolute top-4 right-4 z-10 p-2 rounded-lg bg-background/80 hover:bg-muted transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <TimelinePlanner className="h-full" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Floating Quick Note (always available) */}
       <FloatingQuickNote

@@ -87,6 +87,10 @@ import { MATH_KEYBOARD_CATEGORIES, NORMAL_KEYBOARD_CATEGORIES } from '@/lib/cons
 import { SmartInsightsPanel } from '@/components/premium/SmartInsightsPanel';
 import { FocusModePanel } from '@/components/premium/FocusModePanel';
 import { GamificationWidget } from '@/components/premium/GamificationWidget';
+import QuickActionsPanel from '@/components/premium/QuickActionsPanel';
+import ZenMode from '@/components/premium/ZenMode';
+import AIWritingAssistant from '@/components/premium/AIWritingAssistant';
+import StatsDashboard from '@/components/premium/StatsDashboard';
 
 // Backend - Frontend Data Mappers
 const mapNoteFromApi = (note: any): Note => ({
@@ -208,6 +212,11 @@ export function NotesPage() {
   const [showSmartInsights, setShowSmartInsights] = useState(false);
   const [showFocusMode, setShowFocusMode] = useState(false);
   const [showGamification, setShowGamification] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
+  const [showZenMode, setShowZenMode] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showStatsDashboard, setShowStatsDashboard] = useState(false);
+  const [selectedTextForAI, setSelectedTextForAI] = useState('');
 
   // Tam Ekran Modları
   const [isNoteFullscreen, setIsNoteFullscreen] = useState(false);  // Sadece not detayı tam ekran
@@ -1425,6 +1434,44 @@ export function NotesPage() {
               title={language === 'tr' ? 'Başarılarım' : 'Achievements'}
             >
               <Trophy className="w-4 h-4" />
+            </button>
+
+            {/* 📊 Statistics Dashboard */}
+            <button
+              onClick={() => setShowStatsDashboard(true)}
+              className="p-2 rounded-lg bg-gradient-to-r from-blue-100 to-cyan-100 dark:from-blue-900/30 dark:to-cyan-900/30 text-blue-600 dark:text-blue-400 hover:from-blue-200 hover:to-cyan-200 dark:hover:from-blue-800/40 dark:hover:to-cyan-800/40 transition-colors"
+              title={language === 'tr' ? 'İstatistikler' : 'Statistics'}
+            >
+              <Flame className="w-4 h-4" />
+            </button>
+
+            {/* 🧘 Zen Mode */}
+            <button
+              onClick={() => setShowZenMode(true)}
+              disabled={!selectedNote}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                selectedNote
+                  ? "bg-gradient-to-r from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 text-purple-600 dark:text-purple-400 hover:from-purple-200 hover:to-indigo-200"
+                  : "opacity-50 cursor-not-allowed text-muted-foreground"
+              )}
+              title={language === 'tr' ? 'Zen Modu' : 'Zen Mode'}
+            >
+              <Sparkles className="w-4 h-4" />
+            </button>
+
+            {/* 🤖 AI Writing Assistant */}
+            <button
+              onClick={() => setShowAIAssistant(!showAIAssistant)}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                showAIAssistant
+                  ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white"
+                  : "bg-gradient-to-r from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 text-green-600 dark:text-green-400 hover:from-green-200 hover:to-emerald-200"
+              )}
+              title={language === 'tr' ? 'AI Yazma Asistanı' : 'AI Writing Assistant'}
+            >
+              <Brain className="w-4 h-4" />
             </button>
 
             {/* Compact Streak Widget */}
@@ -3041,6 +3088,97 @@ export function NotesPage() {
           </div>
         </div>
       )}
+
+      {/* Quick Actions Panel (Cmd+K) */}
+      <QuickActionsPanel
+        isOpen={showQuickActions}
+        onClose={() => setShowQuickActions(false)}
+        currentNote={selectedNote}
+        onAction={(actionId) => {
+          switch (actionId) {
+            case 'open-quick-actions':
+              setShowQuickActions(true);
+              break;
+            case 'new-note':
+              handleNewNote();
+              break;
+            case 'save-note':
+              if (selectedNote) handleSave();
+              break;
+            case 'delete-note':
+              if (selectedNote) handleDeleteNote(selectedNote);
+              break;
+            case 'pin-note':
+              if (selectedNote) handleTogglePin(selectedNote);
+              break;
+            case 'zen-mode':
+              if (selectedNote) setShowZenMode(true);
+              break;
+            case 'focus-mode':
+              setShowFocusMode(true);
+              break;
+            case 'smart-insights':
+              setShowSmartInsights(true);
+              break;
+            case 'pomodoro':
+              setShowFocusMode(true);
+              break;
+            case 'toggle-sidebar':
+              // Toggle sidebar visibility
+              break;
+            default:
+              console.log('Action:', actionId);
+          }
+          setShowQuickActions(false);
+        }}
+      />
+
+      {/* Zen Mode - Distraction Free Writing */}
+      <ZenMode
+        isOpen={showZenMode}
+        onClose={() => setShowZenMode(false)}
+        initialContent={selectedNote?.content || ''}
+        initialTitle={selectedNote?.title || ''}
+        onSave={async (content, title) => {
+          if (selectedNote) {
+            updateNote(selectedNote.id, { content, title });
+            setSelectedNote({ ...selectedNote, content, title });
+            setEditContent(content);
+            setEditTitle(title);
+            try {
+              await fetch(`/api/notes/${selectedNote.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content, title })
+              });
+              toast.success('Not kaydedildi!');
+            } catch (e) {
+              console.error('Zen save failed:', e);
+            }
+          }
+        }}
+      />
+
+      {/* AI Writing Assistant */}
+      <AIWritingAssistant
+        isOpen={showAIAssistant}
+        onClose={() => setShowAIAssistant(false)}
+        currentText={editContent}
+        selectedText={selectedTextForAI}
+        noteId={selectedNote?.id}
+        onApplySuggestion={(text) => {
+          setEditContent(text);
+          toast.success('Öneri uygulandı!');
+        }}
+      />
+
+      {/* Statistics Dashboard */}
+      <StatsDashboard
+        isOpen={showStatsDashboard}
+        onClose={() => setShowStatsDashboard(false)}
+        noteCount={notes.length}
+        folderCount={folders.length}
+      />
 
       {/* Toast Notifications */}
       <ToastContainer />

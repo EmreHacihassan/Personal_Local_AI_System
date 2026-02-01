@@ -1102,3 +1102,192 @@ async def describe_image(request: ImageDescriptionRequest):
         logger.error(f"Image description error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============ PREMIUM FEATURES ============
+
+@router.get("/notes/premium/insights/{note_id}")
+async def get_note_insights(note_id: str):
+    """
+    🧠 Smart Insights - Not analizi (kelime sayısı, okunabilirlik, sentiment, öneriler).
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        
+        note = notes_manager.get_note(note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        
+        pm = get_premium_manager()
+        insights = pm.analyze_note(note.content, note_id)
+        
+        return {
+            "success": True,
+            "note_id": note_id,
+            "title": note.title,
+            "insights": {
+                "word_count": insights.word_count,
+                "character_count": insights.character_count,
+                "sentence_count": insights.sentence_count,
+                "paragraph_count": insights.paragraph_count,
+                "reading_time_minutes": insights.reading_time_minutes,
+                "readability_score": insights.readability_score,
+                "sentiment": insights.sentiment,
+                "suggestions": insights.suggestions,
+                "has_links": insights.has_links,
+                "has_images": insights.has_images,
+                "has_code": insights.has_code,
+                "has_latex": insights.has_latex,
+                "markdown_elements": insights.markdown_elements,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Note insights error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/premium/stats")
+async def get_user_stats():
+    """
+    🏆 Gamification Stats - Kullanıcı istatistikleri, rozetler, level.
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        pm = get_premium_manager()
+        return {
+            "success": True,
+            **pm.get_user_stats()
+        }
+    except Exception as e:
+        logger.error(f"User stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/premium/streak")
+async def get_writing_streak():
+    """
+    🔥 Writing Streak - Yazma serisi bilgisi.
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        pm = get_premium_manager()
+        return {
+            "success": True,
+            **pm.get_streak_info()
+        }
+    except Exception as e:
+        logger.error(f"Streak error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notes/premium/activity")
+async def record_activity(activity_type: str = "note_edit"):
+    """
+    📊 Activity Recording - Aktivite kaydet (streak için).
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        pm = get_premium_manager()
+        streak = pm.record_activity(activity_type)
+        return {
+            "success": True,
+            "current_streak": streak.current_streak,
+            "longest_streak": streak.longest_streak,
+        }
+    except Exception as e:
+        logger.error(f"Activity error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FocusSessionRequest(BaseModel):
+    """Focus session istek modeli."""
+    duration_minutes: int = 25
+    break_minutes: int = 5
+    note_id: Optional[str] = None
+
+
+@router.post("/notes/premium/focus/start")
+async def start_focus_session(request: FocusSessionRequest):
+    """
+    ⏱️ Pomodoro Focus - Odaklanma oturumu başlat.
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        pm = get_premium_manager()
+        session = pm.start_focus_session(
+            duration_minutes=request.duration_minutes,
+            break_minutes=request.break_minutes,
+            note_id=request.note_id
+        )
+        return {
+            "success": True,
+            "session_id": session.session_id,
+            "duration_minutes": session.duration_minutes,
+            "break_minutes": session.break_minutes,
+            "start_time": session.start_time,
+        }
+    except Exception as e:
+        logger.error(f"Focus start error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/premium/focus/active")
+async def get_active_focus_session():
+    """
+    Aktif focus oturumunu getir.
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        pm = get_premium_manager()
+        session = pm.get_active_session()
+        return {
+            "success": True,
+            "active": session is not None,
+            "session": session,
+        }
+    except Exception as e:
+        logger.error(f"Active session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FocusCompleteRequest(BaseModel):
+    """Focus tamamlama modeli."""
+    session_id: str
+    words_written: int = 0
+
+
+@router.post("/notes/premium/focus/complete")
+async def complete_focus_session(request: FocusCompleteRequest):
+    """
+    ✅ Focus oturumu tamamla.
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        pm = get_premium_manager()
+        result = pm.complete_focus_session(request.session_id, request.words_written)
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        logger.error(f"Focus complete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/premium/digest")
+async def get_daily_digest():
+    """
+    📊 Daily Digest - Günlük özet ve öneriler.
+    """
+    try:
+        from core.notes_premium import get_premium_manager
+        pm = get_premium_manager()
+        return {
+            "success": True,
+            **pm.get_daily_digest()
+        }
+    except Exception as e:
+        logger.error(f"Daily digest error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

@@ -51,7 +51,12 @@ import {
   Lock,
   Unlock,
   Eye,
-  EyeOff
+  EyeOff,
+  // Premium WOW icons
+  Brain,
+  Timer,
+  Flame,
+  Trophy
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useStore, Note, NoteFolder } from '@/store/useStore';
@@ -77,6 +82,11 @@ import { useMultiSelect } from '@/hooks/useMultiSelect';
 import { ImageSettingsModal, ImageSettings } from '@/components/modals/ImageSettingsModal';
 import { compressImage } from '@/lib/imageUtils';
 import { MATH_KEYBOARD_CATEGORIES, NORMAL_KEYBOARD_CATEGORIES } from '@/lib/constants/mathKeyboard';
+
+// Premium WOW Features
+import { SmartInsightsPanel } from '@/components/premium/SmartInsightsPanel';
+import { FocusModePanel } from '@/components/premium/FocusModePanel';
+import { GamificationWidget } from '@/components/premium/GamificationWidget';
 
 // Backend - Frontend Data Mappers
 const mapNoteFromApi = (note: any): Note => ({
@@ -193,6 +203,11 @@ export function NotesPage() {
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [archivedNotes, setArchivedNotes] = useState<Note[]>([]);
+
+  // Premium WOW Features State
+  const [showSmartInsights, setShowSmartInsights] = useState(false);
+  const [showFocusMode, setShowFocusMode] = useState(false);
+  const [showGamification, setShowGamification] = useState(false);
 
   // Tam Ekran Modları
   const [isNoteFullscreen, setIsNoteFullscreen] = useState(false);  // Sadece not detayı tam ekran
@@ -899,6 +914,13 @@ export function NotesPage() {
             content: contentToSave
           })
         });
+        
+        // Record writing activity for gamification
+        const wordCount = editContent.split(/\s+/).filter(w => w.length > 0).length;
+        await fetch(`/api/notes/premium/activity?activity_type=note_edit&words=${wordCount}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
       } catch (e) {
         console.error('Save note failed:', e);
       }
@@ -1395,6 +1417,18 @@ export function NotesPage() {
             >
               <Download className="w-4 h-4" />
             </button>
+
+            {/* 🏆 Gamification / Achievements */}
+            <button
+              onClick={() => setShowGamification(true)}
+              className="p-2 rounded-lg bg-gradient-to-r from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 text-amber-600 dark:text-amber-400 hover:from-amber-200 hover:to-orange-200 dark:hover:from-amber-800/40 dark:hover:to-orange-800/40 transition-colors"
+              title={language === 'tr' ? 'Başarılarım' : 'Achievements'}
+            >
+              <Trophy className="w-4 h-4" />
+            </button>
+
+            {/* Compact Streak Widget */}
+            <GamificationWidget compact={true} />
 
             {/* Advanced Search */}
             <button
@@ -2032,6 +2066,24 @@ export function NotesPage() {
                     <Link2 className="w-4 h-4" />
                   </button>
 
+                  {/* 🧠 Smart Insights Button */}
+                  <button
+                    onClick={() => setShowSmartInsights(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white rounded-lg transition-colors shadow-sm"
+                    title={language === 'tr' ? 'Akıllı Analiz' : 'Smart Insights'}
+                  >
+                    <Brain className="w-4 h-4" />
+                  </button>
+
+                  {/* ⏱️ Focus Mode Button */}
+                  <button
+                    onClick={() => setShowFocusMode(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600 text-white rounded-lg transition-colors shadow-sm"
+                    title={language === 'tr' ? 'Odaklanma Modu' : 'Focus Mode'}
+                  >
+                    <Timer className="w-4 h-4" />
+                  </button>
+
                   {/* Tag Button */}
                   <button
                     onClick={() => setShowTagInput(!showTagInput)}
@@ -2607,6 +2659,64 @@ export function NotesPage() {
       </div>
 
       {/* Premium Features - Modals & Panels */}
+
+      {/* ==================== PREMIUM WOW FEATURES ==================== */}
+      
+      {/* Smart Insights Panel */}
+      <SmartInsightsPanel
+        noteId={selectedNote?.id || ''}
+        noteTitle={selectedNote?.title}
+        isOpen={showSmartInsights}
+        onClose={() => setShowSmartInsights(false)}
+      />
+
+      {/* Focus Mode / Pomodoro Panel */}
+      <FocusModePanel
+        isOpen={showFocusMode}
+        onClose={() => setShowFocusMode(false)}
+        noteId={selectedNote?.id}
+        noteName={selectedNote?.title}
+        onSessionComplete={(words) => {
+          toast.success('🎉 Pomodoro tamamlandı!');
+        }}
+      />
+
+      {/* Gamification Sidebar */}
+      <AnimatePresence>
+        {showGamification && (
+          <motion.div
+            initial={{ x: 400, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 400, opacity: 0 }}
+            className="fixed inset-y-0 right-0 w-96 bg-white dark:bg-gray-900 shadow-2xl z-50 flex flex-col border-l border-gray-200 dark:border-gray-700 overflow-y-auto"
+          >
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-amber-500 to-orange-600">
+              <div className="flex items-center gap-2 text-white">
+                <Trophy className="w-6 h-6" />
+                <span className="font-semibold">Başarılarım</span>
+              </div>
+              <button
+                onClick={() => setShowGamification(false)}
+                className="p-1.5 hover:bg-white/20 rounded-lg text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <GamificationWidget 
+                showDigest={true} 
+                onNoteClick={(noteId) => {
+                  const note = notes.find(n => n.id === noteId);
+                  if (note) {
+                    setSelectedNote(note);
+                    setShowGamification(false);
+                  }
+                }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Advanced Search Panel */}
       <AnimatePresence>

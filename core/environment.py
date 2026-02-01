@@ -54,8 +54,31 @@ class BaseConfig(BaseSettings):
     def LOGS_DIR(self) -> Path:
         return self.BASE_DIR / "logs"
     
+    # ==================== SERVICE URLs ====================
     # Ollama settings
+    OLLAMA_HOST: str = "localhost"
+    OLLAMA_PORT: int = 11434
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+    
+    # Frontend settings
+    FRONTEND_HOST: str = "localhost"
+    FRONTEND_PORT: int = 3000
+    FRONTEND_URL: str = "http://localhost:3000"
+    
+    # Backend settings
+    BACKEND_HOST: str = "localhost"
+    BACKEND_PORT: int = 8001
+    BACKEND_URL: str = "http://localhost:8001"
+    
+    @property
+    def OLLAMA_API_TAGS_URL(self) -> str:
+        """Ollama API tags endpoint."""
+        return f"{self.OLLAMA_BASE_URL}/api/tags"
+    
+    @property
+    def OLLAMA_API_GENERATE_URL(self) -> str:
+        """Ollama API generate endpoint."""
+        return f"{self.OLLAMA_BASE_URL}/api/generate"
     OLLAMA_PRIMARY_MODEL: str = "qwen2.5:7b"
     OLLAMA_BACKUP_MODEL: str = "qwen2.5:3b"
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"

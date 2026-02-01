@@ -79,6 +79,25 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
+    # ==================== URL PROPERTIES ====================
+    # Frontend URL
+    FRONTEND_PORT: int = 3000
+    
+    @property
+    def FRONTEND_URL(self) -> str:
+        """Frontend URL."""
+        return f"http://localhost:{self.FRONTEND_PORT}"
+    
+    @property
+    def OLLAMA_API_TAGS_URL(self) -> str:
+        """Ollama API tags endpoint."""
+        return f"{self.OLLAMA_BASE_URL}/api/tags"
+    
+    @property
+    def OLLAMA_API_GENERATE_URL(self) -> str:
+        """Ollama API generate endpoint."""
+        return f"{self.OLLAMA_BASE_URL}/api/generate"
+    
     def ensure_directories(self) -> None:
         """Gerekli klasörleri oluştur."""
         directories = [

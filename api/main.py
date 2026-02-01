@@ -477,7 +477,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     # 2. Logger (Patlama ihtimaline karşı try-except içinde)
     try:
         logger.error(f"Unhandled exception on {request.url}: {type(exc).__name__}: {str(exc)}")
-    except:
+    except Exception:
         pass
 
     # 3. HTTPException ise kendi formatını koru
@@ -1279,7 +1279,7 @@ async def start_ollama_service():
         # First check if already running
         async with httpx.AsyncClient(timeout=5.0) as client:
             try:
-                response = await client.get("http://localhost:11434/api/tags")
+                response = await client.get(settings.OLLAMA_API_TAGS_URL)
                 if response.status_code == 200:
                     models = response.json().get("models", [])
                     return {
@@ -1289,7 +1289,7 @@ async def start_ollama_service():
                         "models": [m.get("name") for m in models],
                         "timestamp": datetime.now().isoformat()
                     }
-            except:
+            except Exception:
                 pass  # Not running, continue to start
         
         # Try to start Ollama on Windows
@@ -1323,7 +1323,7 @@ async def start_ollama_service():
                 
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     try:
-                        response = await client.get("http://localhost:11434/api/tags")
+                        response = await client.get(settings.OLLAMA_API_TAGS_URL)
                         if response.status_code == 200:
                             return {
                                 "success": True,
@@ -1331,7 +1331,7 @@ async def start_ollama_service():
                                 "message": "Ollama başarıyla başlatıldı",
                                 "timestamp": datetime.now().isoformat()
                             }
-                    except:
+                    except Exception:
                         pass
             
             return {
@@ -1462,9 +1462,9 @@ async def restart_backend_hint():
         # Process uptime
         current_process = psutil.Process(os.getpid())
         uptime_seconds = int((datetime.now() - datetime.fromtimestamp(current_process.create_time())).total_seconds())
-    except:
+    except Exception:
         pass
-    
+
     return {
         "success": True,
         "status": "info",
@@ -1493,18 +1493,18 @@ async def start_nextjs_service():
     # First check if already running
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get("http://localhost:3000")
+            response = await client.get(settings.FRONTEND_URL)
             if response.status_code in [200, 304]:
                 return {
                     "success": True,
                     "status": "already_running",
-                    "message": "Next.js zaten çalışıyor (port 3000)",
-                    "url": "http://localhost:3000",
+                    "message": f"Next.js zaten çalışıyor (port {settings.FRONTEND_PORT})",
+                    "url": settings.FRONTEND_URL,
                     "timestamp": datetime.now().isoformat()
                 }
-    except:
+    except Exception:
         pass
-    
+
     return {
         "success": False,
         "status": "not_running",
@@ -1527,8 +1527,8 @@ async def get_all_services_status():
     import httpx
     
     services = {
-        "backend": {"status": "online", "healthy": True, "port": 8001},
-        "nextjs": {"status": "unknown", "healthy": False, "port": 3000},
+        "backend": {"status": "online", "healthy": True, "port": settings.API_PORT},
+        "nextjs": {"status": "unknown", "healthy": False, "port": settings.FRONTEND_PORT},
         "ollama": {"status": "unknown", "healthy": False, "port": 11434},
         "chromadb": {"status": "unknown", "healthy": False},
         "embedding": {"status": "unknown", "healthy": False}
@@ -1537,20 +1537,20 @@ async def get_all_services_status():
     # Check Next.js
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get("http://localhost:3000")
+            response = await client.get(settings.FRONTEND_URL)
             if response.status_code in [200, 304]:
                 services["nextjs"] = {
                     "status": "online",
                     "healthy": True,
-                    "port": 3000
+                    "port": settings.FRONTEND_PORT
                 }
-    except:
-        services["nextjs"] = {"status": "offline", "healthy": False, "port": 3000}
-    
+    except Exception:
+        services["nextjs"] = {"status": "offline", "healthy": False, "port": settings.FRONTEND_PORT}
+
     # Check Ollama
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get("http://localhost:11434/api/tags")
+            response = await client.get(settings.OLLAMA_API_TAGS_URL)
             if response.status_code == 200:
                 models = response.json().get("models", [])
                 services["ollama"] = {
@@ -1560,7 +1560,7 @@ async def get_all_services_status():
                     "model_names": [m.get("name", "unknown") for m in models[:5]],
                     "port": 11434
                 }
-    except:
+    except Exception:
         services["ollama"] = {"status": "offline", "healthy": False, "port": 11434}
     
     # Check ChromaDB
@@ -1572,7 +1572,7 @@ async def get_all_services_status():
             "healthy": health.get("status") == "healthy",
             "documents": health.get("document_count", 0)
         }
-    except:
+    except Exception:
         services["chromadb"] = {"status": "offline", "healthy": False}
     
     # Check Embedding
@@ -1584,7 +1584,7 @@ async def get_all_services_status():
             "gpu_loaded": embedding_manager._gpu_model_loaded,
             "cache_size": stats.get("size", 0)
         }
-    except:
+    except Exception:
         services["embedding"] = {"status": "error", "healthy": False}
     
     # Core services check (excludes embedding which is optional)
@@ -1840,7 +1840,7 @@ async def chat_stream(request: ChatRequest):
                     notes_text = "\n\n### 📒 Kullanıcının Notları:\n"
                     for note in relevant_notes[:5]:
                         notes_text += f"- [{note.category}] {note.title}: {note.content[:300]}\n"
-            except:
+            except Exception:
                 pass
             
             # Prepare context
@@ -2294,7 +2294,7 @@ async def chat_web_stream(request: ChatRequest):
                     notes_text = "\n\n### 📒 İlgili Notlar:\n"
                     for note in relevant_notes[:3]:
                         notes_text += f"- **{note.title}**: {note.content[:300]}...\n"
-            except:
+            except Exception:
                 pass
             
             # Documents context - yüklenen dökümanların bilgisi
@@ -5008,7 +5008,7 @@ def check_task_scheduler() -> bool:
             creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
         )
         return result.returncode == 0
-    except:
+    except Exception:
         return False
 
 

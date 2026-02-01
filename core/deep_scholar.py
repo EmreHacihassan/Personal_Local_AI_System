@@ -667,7 +667,7 @@ class BaseAgent:
                 return json.loads(json_match.group(0))
             
             return json.loads(text)
-        except:
+        except Exception:
             return None
 
 
@@ -956,7 +956,7 @@ class ResearcherAgent(BaseAgent):
                 try:
                     results = await task
                     all_results.extend(results)
-                except:
+                except Exception:
                     pass
         
         # RAG araması
@@ -1176,7 +1176,7 @@ Sadece konuyla ilgili ve faydalı olacak görselleri seç."""
             if json_match:
                 types_list = json.loads(json_match.group())
                 return [VisualType(t) for t in types_list if t in [v.value for v in VisualType]]
-        except:
+        except Exception:
             pass
         
         # Varsayılan: flowchart ve statistics_box
@@ -1447,7 +1447,7 @@ JSON formatında döndür:
                 data = json.loads(json_match.group())
             else:
                 data = {"stats": [], "highlight": ""}
-        except:
+        except Exception:
             data = {"stats": [], "highlight": ""}
         
         return {

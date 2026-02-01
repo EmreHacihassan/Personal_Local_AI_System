@@ -523,12 +523,62 @@ class RAGContentEnhancer:
         return content, []
 
 
+# ==================== LLM SERVICE WRAPPER ====================
+
+class LLMServiceWrapper:
+    """
+    LLM Manager wrapper for Content Generator.
+    Provides unified interface for LLM operations.
+    """
+    
+    def __init__(self):
+        try:
+            from core.llm_manager import llm_manager
+            self._llm = llm_manager
+            self._available = True
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"LLM service not available: {e}")
+            self._llm = None
+            self._available = False
+    
+    @property
+    def available(self) -> bool:
+        return self._available and self._llm is not None
+    
+    async def generate(self, prompt: str, **kwargs) -> str:
+        """Generate text using LLM."""
+        if not self.available:
+            raise RuntimeError("LLM service not available")
+        
+        try:
+            result = await self._llm.generate_async(prompt, **kwargs)
+            return result
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"LLM generation error: {e}")
+            raise
+
+
+def _get_llm_service() -> Optional[LLMServiceWrapper]:
+    """Get LLM service wrapper if available."""
+    try:
+        wrapper = LLMServiceWrapper()
+        if wrapper.available:
+            return wrapper
+    except:
+        pass
+    return None
+
+
 # ==================== SINGLETON ====================
 
 _content_generator: Optional[ContentGeneratorAgent] = None
 
 def get_content_generator() -> ContentGeneratorAgent:
+    """Get content generator with LLM service injected if available."""
     global _content_generator
     if _content_generator is None:
-        _content_generator = ContentGeneratorAgent()
+        llm_service = _get_llm_service()
+        _content_generator = ContentGeneratorAgent(llm_service=llm_service)
     return _content_generator

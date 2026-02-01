@@ -31,11 +31,15 @@ class NotesVision:
     LLaVA Vision modeli kullanır.
     """
     
-    def __init__(self):
-        self.ollama_url = getattr(settings, 'OLLAMA_URL', 'http://localhost:11434')
-        self.vision_model = "llava"  # veya llama3.2-vision:11b
+    # Configurable vision models (in order of preference)
+    VISION_MODELS = ["llava", "llama3.2-vision:11b", "llava:7b"]
+    
+    def __init__(self, vision_model: str = None):
+        self.ollama_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://localhost:11434')
+        self.vision_model = vision_model or self.VISION_MODELS[0]
         self.timeout = 60.0
-        logger.info("NotesVision initialized")
+        self._model_verified = False
+        logger.info(f"NotesVision initialized with model: {self.vision_model}")
     
     def _image_to_base64(self, image_path: str) -> Optional[str]:
         """Görsel dosyasını base64'e çevir."""
@@ -59,34 +63,43 @@ class NotesVision:
             logger.error(f"Image to base64 error: {e}")
             return None
     
-    async def _call_vision_model(self, prompt: str, image_base64: str) -> Optional[str]:
-        """LLaVA vision modelini çağır."""
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    f"{self.ollama_url}/api/generate",
-                    json={
-                        "model": self.vision_model,
-                        "prompt": prompt,
-                        "images": [image_base64],
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.1,  # Daha deterministik sonuçlar
-                            "num_predict": 2048,
+    async def _call_vision_model(self, prompt: str, image_base64: str, max_retries: int = 2) -> Optional[str]:
+        """LLaVA vision modelini çağır with retry logic."""
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        f"{self.ollama_url}/api/generate",
+                        json={
+                            "model": self.vision_model,
+                            "prompt": prompt,
+                            "images": [image_base64],
+                            "stream": False,
+                            "options": {
+                                "temperature": 0.1,  # Daha deterministik sonuçlar
+                                "num_predict": 2048,
+                            }
                         }
-                    }
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return result.get("response", "")
-                else:
-                    logger.error(f"Vision API error: {response.status_code}")
-                    return None
+                    )
                     
-        except Exception as e:
-            logger.error(f"Vision model call error: {e}")
-            return None
+                    if response.status_code == 200:
+                        result = response.json()
+                        return result.get("response", "")
+                    else:
+                        last_error = f"Vision API error: {response.status_code}"
+                        logger.warning(f"Attempt {attempt + 1}/{max_retries + 1}: {last_error}")
+                        
+            except httpx.TimeoutException:
+                last_error = "Vision model timeout"
+                logger.warning(f"Attempt {attempt + 1}/{max_retries + 1}: {last_error}")
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Attempt {attempt + 1}/{max_retries + 1}: Vision model call error: {e}")
+        
+        logger.error(f"Vision model failed after {max_retries + 1} attempts: {last_error}")
+        return None
     
     async def extract_text_from_image(self, image_path: str) -> Dict:
         """

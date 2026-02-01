@@ -96,6 +96,7 @@ class Note:
     updated_at: str
     tags: List[str]
     locked: bool = False  # Kilitli not silinemez
+    encrypted: bool = False  # Şifreli not - AI okuyamaz
     
     def to_dict(self) -> Dict:
         return asdict(self)

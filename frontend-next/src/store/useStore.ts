@@ -96,6 +96,7 @@ export interface Note {
   color?: string;
   isPinned?: boolean;
   isLocked?: boolean; // Kilitli not silinemez
+  isEncrypted?: boolean; // Şifreli not - AI okuyamaz
   tags?: string[];
   createdAt: Date;
   updatedAt: Date;

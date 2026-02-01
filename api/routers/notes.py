@@ -39,6 +39,7 @@ class NoteUpdate(BaseModel):
     pinned: Optional[bool] = None
     tags: Optional[List[str]] = None
     locked: Optional[bool] = None  # Kilitleme durumu
+    encrypted: Optional[bool] = None  # Şifreleme durumu
 
 
 class FolderCreate(BaseModel):

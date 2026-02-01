@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { API_BASE_URL } from '@/lib/api';
 
 interface NoteVersion {
     id: string;
@@ -45,7 +46,7 @@ export function useNoteVersions(noteId: string | null): UseNoteVersionsReturn {
         setError(null);
         
         try {
-            const response = await fetch(`http://localhost:8001/api/notes/${noteId}/versions`);
+            const response = await fetch(`${API_BASE_URL}/api/notes/${noteId}/versions`);
             if (!response.ok) {
                 throw new Error('Versiyonlar yüklenemedi');
             }
@@ -63,7 +64,7 @@ export function useNoteVersions(noteId: string | null): UseNoteVersionsReturn {
         if (!noteId) return false;
         
         try {
-            const response = await fetch(`http://localhost:8001/api/notes/${noteId}/restore/${versionId}`, {
+            const response = await fetch(`${API_BASE_URL}/api/notes/${noteId}/restore/${versionId}`, {
                 method: 'POST'
             });
             
@@ -85,7 +86,7 @@ export function useNoteVersions(noteId: string | null): UseNoteVersionsReturn {
         if (!noteId) return null;
         
         try {
-            const response = await fetch(`http://localhost:8001/api/notes/${noteId}/diff/${versionId1}/${versionId2}`);
+            const response = await fetch(`${API_BASE_URL}/api/notes/${noteId}/diff/${versionId1}/${versionId2}`);
             
             if (!response.ok) {
                 throw new Error('Diff alınamadı');

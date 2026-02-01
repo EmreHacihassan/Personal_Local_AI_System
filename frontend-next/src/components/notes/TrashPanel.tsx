@@ -15,6 +15,7 @@ import {
     Eraser
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { API_BASE_URL } from '@/lib/api';
 
 interface TrashNote {
     id: string;
@@ -48,7 +49,7 @@ export function TrashPanel({ isOpen, onClose, onNoteRestored }: TrashPanelProps)
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch('http://localhost:8001/api/notes/trash');
+            const response = await fetch(`${API_BASE_URL}/api/notes/trash`);
             if (!response.ok) throw new Error('Çöp kutusu yüklenemedi');
             const data = await response.json();
             setTrashedNotes(data.trash || []);
@@ -79,7 +80,7 @@ export function TrashPanel({ isOpen, onClose, onNoteRestored }: TrashPanelProps)
     const handleRestore = async (noteId: string) => {
         setActionInProgress(noteId);
         try {
-            const response = await fetch(`http://localhost:8001/api/notes/trash/${noteId}/restore`, {
+            const response = await fetch(`${API_BASE_URL}/api/notes/trash/${noteId}/restore`, {
                 method: 'POST'
             });
             if (!response.ok) throw new Error('Geri yükleme başarısız');
@@ -99,7 +100,7 @@ export function TrashPanel({ isOpen, onClose, onNoteRestored }: TrashPanelProps)
     const handlePermanentDelete = async (noteId: string) => {
         setActionInProgress(noteId);
         try {
-            const response = await fetch(`http://localhost:8001/api/notes/trash/${noteId}`, {
+            const response = await fetch(`${API_BASE_URL}/api/notes/trash/${noteId}`, {
                 method: 'DELETE'
             });
             if (!response.ok) throw new Error('Silme başarısız');
@@ -118,7 +119,7 @@ export function TrashPanel({ isOpen, onClose, onNoteRestored }: TrashPanelProps)
     const handleEmptyTrash = async () => {
         setActionInProgress('empty-all');
         try {
-            const response = await fetch('http://localhost:8001/api/notes/trash', {
+            const response = await fetch(`${API_BASE_URL}/api/notes/trash`, {
                 method: 'DELETE'
             });
             if (!response.ok) throw new Error('Çöp kutusu boşaltılamadı');

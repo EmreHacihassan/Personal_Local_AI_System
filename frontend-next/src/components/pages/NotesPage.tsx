@@ -69,6 +69,10 @@ import { BulkActionToolbar } from '@/components/features/BulkActionToolbar';
 import { ExportModal } from '@/components/features/ExportModal';
 import { VersionHistoryPanel } from '@/components/features/VersionHistoryPanel';
 import { ImportWizard } from '@/components/features/ImportWizard';
+import { TrashPanel } from '@/components/notes/TrashPanel';
+import { useNoteVersions, NoteVersion } from '@/hooks/useNoteVersions';
+import { API_BASE_URL } from '@/lib/api';
+import { ToastContainer, useToast } from '@/components/ui/Toast';
 import { useMultiSelect } from '@/hooks/useMultiSelect';
 import { ImageSettingsModal, ImageSettings } from '@/components/modals/ImageSettingsModal';
 import { compressImage } from '@/lib/imageUtils';
@@ -143,6 +147,9 @@ export function NotesPage() {
   // Use store folders
   const folders = noteFolders;
 
+  // Toast notifications
+  const toast = useToast();
+
   // State
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -182,6 +189,8 @@ export function NotesPage() {
   const [showExport, setShowExport] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showTrashPanel, setShowTrashPanel] = useState(false);
+  const [showMoveModal, setShowMoveModal] = useState(false);
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [archivedNotes, setArchivedNotes] = useState<Note[]>([]);
 
@@ -207,17 +216,83 @@ export function NotesPage() {
     getItemId: (note) => note.id,
   });
 
-  // ESC tuşu ile tam ekrandan çık
+  // Version history hook
+  const { versions: noteVersions, fetchVersions, restoreVersion } = useNoteVersions(selectedNote?.id || null);
+
+  // ESC tuşu ile tam ekrandan çık + Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // ESC - Close fullscreen/modals
       if (e.key === 'Escape') {
         if (isNoteFullscreen) setIsNoteFullscreen(false);
         else if (isPageFullscreen) setIsPageFullscreen(false);
+        else if (showAdvancedSearch) setShowAdvancedSearch(false);
+        else if (showVersionHistory) setShowVersionHistory(false);
+        else if (showTrashPanel) setShowTrashPanel(false);
+        else if (showBacklinks) setShowBacklinks(false);
+        return;
+      }
+
+      // Ignore shortcuts when typing in input/textarea
+      const target = e.target as HTMLElement;
+      const isTyping = ['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable;
+
+      // Ctrl/Cmd shortcuts
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key.toLowerCase()) {
+          case 's': // Save
+            e.preventDefault();
+            if (isEditing && selectedNote) {
+              // Trigger save - handleSave is defined later, we'll call it via state
+              document.getElementById('save-note-btn')?.click();
+            }
+            break;
+          case 'n': // New note
+            if (!isTyping) {
+              e.preventDefault();
+              setSelectedNote(null);
+              setIsEditing(true);
+              setEditTitle('');
+              setEditContent('');
+            }
+            break;
+          case 'f': // Focus search
+            if (!isTyping) {
+              e.preventDefault();
+              document.getElementById('notes-search-input')?.focus();
+            }
+            break;
+          case 'b': // Bold (when editing)
+            if (isEditing) {
+              e.preventDefault();
+              document.getElementById('toolbar-bold-btn')?.click();
+            }
+            break;
+          case 'i': // Italic (when editing)
+            if (isEditing) {
+              e.preventDefault();
+              document.getElementById('toolbar-italic-btn')?.click();
+            }
+            break;
+        }
+      }
+
+      // Delete key - delete selected note
+      if (e.key === 'Delete' && selectedNote && !isTyping && !isEditing) {
+        e.preventDefault();
+        if (!selectedNote.isLocked) {
+          handleDeleteNote(selectedNote);
+        }
+      }
+
+      // ? key - show keyboard shortcuts help
+      if (e.key === '?' && !isTyping) {
+        // Could show a modal with all shortcuts
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isNoteFullscreen, isPageFullscreen]);
+  }, [isNoteFullscreen, isPageFullscreen, showAdvancedSearch, showVersionHistory, showTrashPanel, showBacklinks, isEditing, selectedNote]);
 
   // Get current folder and its path (breadcrumb)
   const currentFolder = useMemo(() => {
@@ -337,7 +412,7 @@ export function NotesPage() {
         : language === 'de'
           ? 'Dieser Ordner ist gesperrt. Entsperren Sie ihn zuerst.'
           : 'This folder is locked. Unlock it first to delete.';
-      alert(lockedMessage);
+      toast.warning(lockedMessage);
       return;
     }
 
@@ -849,7 +924,7 @@ export function NotesPage() {
         : language === 'de'
           ? 'Diese Notiz ist gesperrt. Entsperren Sie sie zuerst.'
           : 'This note is locked. Unlock it first to delete.';
-      alert(lockedMessage);
+      toast.warning(lockedMessage);
       return;
     }
 
@@ -1285,6 +1360,15 @@ export function NotesPage() {
               <Archive className="w-4 h-4" />
             </button>
 
+            {/* Trash */}
+            <button
+              onClick={() => setShowTrashPanel(true)}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title={language === 'tr' ? 'Çöp Kutusu' : 'Trash'}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+
             {/* Templates */}
             <button
               onClick={() => setShowTemplates(true)}
@@ -1482,6 +1566,7 @@ export function NotesPage() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
+                id="notes-search-input"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -1929,6 +2014,24 @@ export function NotesPage() {
                     {selectedNote.isEncrypted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
 
+                  {/* Version History Button */}
+                  <button
+                    onClick={() => setShowVersionHistory(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-muted hover:bg-accent rounded-lg transition-colors"
+                    title={language === 'tr' ? 'Versiyon Geçmişi' : 'Version History'}
+                  >
+                    <History className="w-4 h-4" />
+                  </button>
+
+                  {/* Backlinks Button */}
+                  <button
+                    onClick={() => setShowBacklinks(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-muted hover:bg-accent rounded-lg transition-colors"
+                    title={language === 'tr' ? 'Bağlantılar' : 'Backlinks'}
+                  >
+                    <Link2 className="w-4 h-4" />
+                  </button>
+
                   {/* Tag Button */}
                   <button
                     onClick={() => setShowTagInput(!showTagInput)}
@@ -1957,6 +2060,7 @@ export function NotesPage() {
                         {t.cancel[language]}
                       </button>
                       <button
+                        id="save-note-btn"
                         onClick={handleSave}
                         className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
                       >
@@ -2017,6 +2121,7 @@ export function NotesPage() {
                     <div className="flex items-center gap-1 px-4 py-2 border-b border-border/50 bg-background/50 backdrop-blur-sm flex-wrap">
                       <div className="flex items-center gap-0.5 pr-2 border-r border-border/50">
                         <button
+                          id="toolbar-bold-btn"
                           onClick={() => {
                             const textarea = document.querySelector('textarea');
                             if (textarea) {
@@ -2033,6 +2138,7 @@ export function NotesPage() {
                           <Bold className="w-4 h-4" />
                         </button>
                         <button
+                          id="toolbar-italic-btn"
                           onClick={() => {
                             const textarea = document.querySelector('textarea');
                             if (textarea) {
@@ -2178,7 +2284,7 @@ export function NotesPage() {
                                   console.warn('Proxy upload failed, trying direct...', proxyError);
                                   // 2. Deneme: Doğrudan Backend'e (Fallback)
                                   try {
-                                    res = await fetch('http://localhost:8001/api/v1/upload/image', {
+                                    res = await fetch(`${API_BASE_URL}/api/v1/upload/image`, {
                                       method: 'POST',
                                       body: formData,
                                     });
@@ -2202,13 +2308,13 @@ export function NotesPage() {
                                     if (rawText.length > 200) errorMessage = rawText.substring(0, 200) + '...';
                                   }
 
-                                  alert(language === 'tr'
+                                  toast.error(language === 'tr'
                                     ? `Görsel yüklenemedi: ${errorMessage} (Kod: ${status})`
                                     : `Image upload failed: ${errorMessage} (Code: ${status})`);
                                 }
                               } catch (error) {
                                 console.error('Image upload error:', error);
-                                alert(language === 'tr' ? `Bir hata oluştu: ${error}` : `An error occurred: ${error}`);
+                                toast.error(language === 'tr' ? `Bir hata oluştu: ${error}` : `An error occurred: ${error}`);
                               }
 
                               e.target.value = '';
@@ -2647,8 +2753,7 @@ export function NotesPage() {
               multiSelect.clearSelection();
             }}
             onMove={() => {
-              // TODO: Implement move modal
-              console.log('Move selected notes');
+              setShowMoveModal(true);
             }}
             onArchive={() => {
               multiSelect.selectedItems.forEach(note => {
@@ -2678,6 +2783,85 @@ export function NotesPage() {
         )
       }
 
+      {/* Move Modal */}
+      <AnimatePresence>
+        {showMoveModal && multiSelect.hasSelection && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowMoveModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-6 py-4 border-b border-border bg-gradient-to-r from-blue-500/10 to-indigo-500/10">
+                <h3 className="font-semibold text-lg">
+                  {language === 'tr' ? 'Notları Taşı' : 'Move Notes'}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {multiSelect.selectionCount} {language === 'tr' ? 'not seçili' : 'notes selected'}
+                </p>
+              </div>
+              <div className="p-4 max-h-80 overflow-y-auto space-y-2">
+                {/* Root folder option */}
+                <button
+                  onClick={() => {
+                    multiSelect.selectedItems.forEach(note => {
+                      updateNote(note.id, { folder: undefined });
+                    });
+                    multiSelect.clearSelection();
+                    setShowMoveModal(false);
+                  }}
+                  className="w-full p-3 flex items-center gap-3 bg-muted/50 hover:bg-accent rounded-xl transition-colors text-left"
+                >
+                  <Home className="w-5 h-5 text-muted-foreground" />
+                  <span className="font-medium">{language === 'tr' ? 'Ana Dizin' : 'Root'}</span>
+                </button>
+                
+                {/* Folder options */}
+                {folders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    onClick={() => {
+                      multiSelect.selectedItems.forEach(note => {
+                        updateNote(note.id, { folder: folder.id });
+                      });
+                      multiSelect.clearSelection();
+                      setShowMoveModal(false);
+                    }}
+                    className="w-full p-3 flex items-center gap-3 bg-muted/50 hover:bg-accent rounded-xl transition-colors text-left"
+                  >
+                    <FolderOpen className="w-5 h-5 text-amber-500" />
+                    <span className="font-medium">{folder.name}</span>
+                    {folder.isLocked && <Lock className="w-3 h-3 text-amber-500 ml-auto" />}
+                  </button>
+                ))}
+                
+                {folders.length === 0 && (
+                  <p className="text-center text-muted-foreground text-sm py-4">
+                    {language === 'tr' ? 'Henüz klasör yok' : 'No folders yet'}
+                  </p>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-border bg-muted/30">
+                <button
+                  onClick={() => setShowMoveModal(false)}
+                  className="w-full py-2 bg-muted hover:bg-accent rounded-lg transition-colors font-medium"
+                >
+                  {language === 'tr' ? 'İptal' : 'Cancel'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Image Settings Modal */}
       {uploadedImageInfo && (
         <ImageSettingsModal
@@ -2699,6 +2883,57 @@ export function NotesPage() {
           } : undefined}
         />
       )}
+
+      {/* Trash Panel */}
+      <TrashPanel
+        isOpen={showTrashPanel}
+        onClose={() => setShowTrashPanel(false)}
+        onNoteRestored={(noteId) => {
+          // Refresh notes from backend
+          fetch('/api/notes')
+            .then(res => res.json())
+            .then(data => {
+              if (data.notes) {
+                data.notes.forEach((n: any) => {
+                  const mapped = mapNoteFromApi(n);
+                  if (!notes.find(existing => existing.id === mapped.id)) {
+                    addNote(mapped);
+                  }
+                });
+              }
+            });
+        }}
+      />
+
+      {/* Version History Panel */}
+      {showVersionHistory && selectedNote && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl max-h-[80vh] overflow-hidden">
+            <VersionHistoryPanel
+              note={selectedNote}
+              versions={noteVersions.map(v => ({
+                id: v.id,
+                noteId: v.note_id,
+                title: v.title,
+                content: v.content,
+                timestamp: new Date(v.created_at),
+                changeType: 'edit' as const
+              }))}
+              onClose={() => setShowVersionHistory(false)}
+              onRestore={(version) => {
+                updateNote(selectedNote.id, { content: version.content });
+                setSelectedNote(prev => prev ? { ...prev, content: version.content } : null);
+                setEditContent(version.content);
+                setShowVersionHistory(false);
+              }}
+              language={language}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notifications */}
+      <ToastContainer />
     </div >
   );
 }

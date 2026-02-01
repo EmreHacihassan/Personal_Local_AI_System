@@ -12,6 +12,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { API_BASE_URL } from '@/lib/api';
 import { 
     Move, 
     Maximize2, 
@@ -197,7 +198,7 @@ export function InlineImageEditor({
         setIsExtracting(true);
         setOcrError('');
         try {
-            const response = await fetch('http://localhost:8001/api/notes/ocr', {
+            const response = await fetch(`${API_BASE_URL}/api/notes/ocr`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ image_path: src })

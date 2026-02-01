@@ -16,6 +16,7 @@ from .advanced_rag import router as advanced_rag_router
 from .voice_router import voice_router  # Voice & Multimodal (LOCAL)
 from .screen_router import router as screen_router  # Screen Capture (LOCAL)
 from .premium import router as premium_router  # Premium Features (NEW)
+from ..computer_use_endpoints import router as computer_use_router  # Computer Use Agent
 
 __all__ = [
     "health_router",
@@ -28,4 +29,5 @@ __all__ = [
     "voice_router",
     "screen_router",
     "premium_router",  # NEW: Premium Features
+    "computer_use_router",
 ]

@@ -95,6 +95,7 @@ export interface Note {
   folder?: string;
   color?: string;
   isPinned?: boolean;
+  isLocked?: boolean; // Kilitli not silinemez
   tags?: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -106,6 +107,7 @@ export interface NoteFolder {
   icon: string;
   parentId: string | null;
   color: string;
+  isLocked?: boolean; // Kilitli klasör silinemez
   createdAt: Date;
 }
 

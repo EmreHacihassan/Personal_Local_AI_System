@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
+import {
   Monitor, Play, Square, Check, X, AlertTriangle,
   Loader2, ChevronRight, Clock, Shield, Eye,
   Mouse, Keyboard, AppWindow, RotateCcw, History,
@@ -47,11 +47,11 @@ export default function ComputerUsePanel() {
   const [activeTab, setActiveTab] = useState<'task' | 'approvals' | 'history'>('task');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
+
   const wsRef = useRef<WebSocket | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [wsMessages, setWsMessages] = useState<string[]>([]);
-  
+
   // Fetch status
   const fetchStatus = useCallback(async () => {
     try {
@@ -62,7 +62,7 @@ export default function ComputerUsePanel() {
       console.error('Computer Use status error:', e);
     }
   }, []);
-  
+
   // Fetch pending approvals
   const fetchApprovals = useCallback(async () => {
     try {
@@ -90,7 +90,7 @@ export default function ComputerUsePanel() {
       console.error('Approvals error:', err);
     }
   }, []);
-  
+
   // Fetch history
   const fetchHistory = useCallback(async () => {
     try {
@@ -101,31 +101,31 @@ export default function ComputerUsePanel() {
       console.error('History error:', e);
     }
   }, []);
-  
+
   // Poll for updates
   useEffect(() => {
     if (isOpen) {
       fetchStatus();
       fetchApprovals();
       fetchHistory();
-      
+
       const interval = setInterval(() => {
         fetchStatus();
         fetchApprovals();
       }, 3000);
-      
+
       return () => clearInterval(interval);
     }
   }, [isOpen, fetchStatus, fetchApprovals, fetchHistory]);
-  
+
   // Create task
   const createTask = async () => {
     if (!taskInput.trim()) return;
-    
+
     setIsLoading(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
       const res = await fetch(`${API_BASE}/api/computer/task`, {
         method: 'POST',
@@ -134,15 +134,15 @@ export default function ComputerUsePanel() {
           task: taskInput,
         }),
       });
-      
+
       const data = await res.json();
-      
+
       if (data.success) {
         const planId = data.plan?.id || data.plan_id;
         setSuccess(`Task created: ${planId}`);
         setTaskInput('');
         fetchStatus();
-        
+
         // Connect WebSocket for real-time updates
         if (planId) {
           connectWebSocket(planId);
@@ -156,25 +156,25 @@ export default function ComputerUsePanel() {
       setIsLoading(false);
     }
   };
-  
+
   // WebSocket connection
   const connectWebSocket = (planId: string) => {
     if (wsRef.current) {
       wsRef.current.close();
     }
-    
+
     const wsUrl = `${API_BASE.replace('http', 'ws')}/api/computer/ws/execute/${planId}`;
     const ws = new WebSocket(wsUrl);
-    
+
     ws.onopen = () => {
       setWsConnected(true);
       setWsMessages([]);
     };
-    
+
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       setWsMessages(prev => [...prev, msg.message || JSON.stringify(msg)]);
-      
+
       if (msg.type === 'approval_required') {
         fetchApprovals();
       } else if (msg.type === 'completed' || msg.type === 'failed') {
@@ -182,61 +182,71 @@ export default function ComputerUsePanel() {
         fetchHistory();
       }
     };
-    
+
     ws.onclose = () => {
       setWsConnected(false);
     };
-    
+
     ws.onerror = () => {
       setError('WebSocket connection failed');
     };
-    
+
     wsRef.current = ws;
   };
-  
+
   // Approve action
   const approveAction = async (requestId: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/computer/approve/${requestId}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
-      
+
       if (res.ok) {
         fetchApprovals();
         setSuccess('Action approved');
+      } else {
+        const data = await res.json();
+        setError(data.detail || 'Failed to approve action');
       }
     } catch (e) {
-      setError('Failed to approve action');
+      setError('Failed to approve action: Network error');
     }
   };
-  
+
   // Reject action
   const rejectAction = async (requestId: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/computer/reject/${requestId}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
-      
+
       if (res.ok) {
         fetchApprovals();
         setSuccess('Action rejected');
+      } else {
+        const data = await res.json();
+        setError(data.detail || 'Failed to reject action');
       }
     } catch (e) {
-      setError('Failed to reject action');
+      setError('Failed to reject action: Network error');
     }
   };
-  
+
   // Emergency stop
   const emergencyStop = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/computer/emergency-stop`, {
         method: 'POST',
       });
-      
+
       if (res.ok) {
         fetchStatus();
         setSuccess('Emergency stop activated');
-        
+
         if (wsRef.current) {
           wsRef.current.close();
         }
@@ -245,14 +255,14 @@ export default function ComputerUsePanel() {
       setError('Failed to activate emergency stop');
     }
   };
-  
+
   // Reset emergency
   const resetEmergency = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/computer/reset-emergency`, {
         method: 'POST',
       });
-      
+
       if (res.ok) {
         fetchStatus();
         setSuccess('Emergency stop reset');
@@ -261,7 +271,7 @@ export default function ComputerUsePanel() {
       setError('Failed to reset emergency stop');
     }
   };
-  
+
   // Get risk level color
   const getRiskColor = (level: string) => {
     switch (level?.toLowerCase()) {
@@ -272,7 +282,7 @@ export default function ComputerUsePanel() {
       default: return 'text-gray-400 bg-gray-500/10';
     }
   };
-  
+
   // Get action icon
   const getActionIcon = (actionType: string) => {
     switch (actionType) {
@@ -297,13 +307,12 @@ export default function ComputerUsePanel() {
     return (
       <motion.button
         onClick={() => setIsOpen(true)}
-        className={`fixed bottom-40 right-4 z-50 p-3 rounded-full shadow-lg transition-colors ${
-          status?.pending_approvals 
-            ? 'bg-orange-500 hover:bg-orange-600 animate-pulse' 
+        className={`fixed bottom-40 right-4 z-50 p-3 rounded-full shadow-lg transition-colors ${status?.pending_approvals
+            ? 'bg-orange-500 hover:bg-orange-600 animate-pulse'
             : status?.emergency_stopped
-            ? 'bg-red-600 hover:bg-red-700'
-            : 'bg-blue-600 hover:bg-blue-700'
-        } text-white`}
+              ? 'bg-red-600 hover:bg-red-700'
+              : 'bg-blue-600 hover:bg-blue-700'
+          } text-white`}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
         title="Computer Use Agent"
@@ -327,11 +336,10 @@ export default function ComputerUsePanel() {
         className="fixed bottom-4 right-4 z-50 w-[420px] bg-gray-900 rounded-2xl shadow-2xl border border-gray-700 overflow-hidden"
       >
         {/* Header */}
-        <div className={`flex items-center justify-between p-4 border-b border-gray-700 ${
-          status?.emergency_stopped 
+        <div className={`flex items-center justify-between p-4 border-b border-gray-700 ${status?.emergency_stopped
             ? 'bg-gradient-to-r from-red-900/50 to-red-800/50'
             : 'bg-gradient-to-r from-blue-900/50 to-cyan-900/50'
-        }`}>
+          }`}>
           <div className="flex items-center gap-2">
             <Monitor className="w-5 h-5 text-blue-400" />
             <span className="font-semibold text-white">Computer Use Agent</span>
@@ -373,26 +381,24 @@ export default function ComputerUsePanel() {
             </button>
           </div>
         </div>
-        
+
         {/* Tabs */}
         <div className="flex border-b border-gray-700">
           <button
             onClick={() => setActiveTab('task')}
-            className={`flex-1 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'task' 
-                ? 'text-blue-400 border-b-2 border-blue-400' 
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === 'task'
+                ? 'text-blue-400 border-b-2 border-blue-400'
                 : 'text-gray-400 hover:text-gray-300'
-            }`}
+              }`}
           >
             New Task
           </button>
           <button
             onClick={() => { setActiveTab('approvals'); fetchApprovals(); }}
-            className={`flex-1 py-2 text-sm font-medium transition-colors relative ${
-              activeTab === 'approvals' 
-                ? 'text-blue-400 border-b-2 border-blue-400' 
+            className={`flex-1 py-2 text-sm font-medium transition-colors relative ${activeTab === 'approvals'
+                ? 'text-blue-400 border-b-2 border-blue-400'
                 : 'text-gray-400 hover:text-gray-300'
-            }`}
+              }`}
           >
             Approvals
             {approvals.length > 0 && (
@@ -403,16 +409,15 @@ export default function ComputerUsePanel() {
           </button>
           <button
             onClick={() => { setActiveTab('history'); fetchHistory(); }}
-            className={`flex-1 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'history' 
-                ? 'text-blue-400 border-b-2 border-blue-400' 
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${activeTab === 'history'
+                ? 'text-blue-400 border-b-2 border-blue-400'
                 : 'text-gray-400 hover:text-gray-300'
-            }`}
+              }`}
           >
             History
           </button>
         </div>
-        
+
         {/* Content */}
         <div className="p-4 max-h-[50vh] overflow-y-auto">
           {/* Error/Success Messages */}
@@ -431,7 +436,7 @@ export default function ComputerUsePanel() {
                 </button>
               </motion.div>
             )}
-            
+
             {success && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
@@ -447,7 +452,7 @@ export default function ComputerUsePanel() {
               </motion.div>
             )}
           </AnimatePresence>
-          
+
           {/* Task Tab */}
           {activeTab === 'task' && (
             <div className="space-y-4">
@@ -458,7 +463,7 @@ export default function ComputerUsePanel() {
                   Security Mode: <span className="text-green-400 font-medium">{status?.security_mode || 'CONFIRM_ALL'}</span>
                 </span>
               </div>
-              
+
               {/* Task Input */}
               <div className="space-y-2">
                 <label className="text-sm text-gray-400">Describe the task:</label>
@@ -471,7 +476,7 @@ export default function ComputerUsePanel() {
                   disabled={status?.emergency_stopped}
                 />
               </div>
-              
+
               <button
                 onClick={createTask}
                 disabled={isLoading || !taskInput.trim() || status?.emergency_stopped}
@@ -484,7 +489,7 @@ export default function ComputerUsePanel() {
                 )}
                 <span>Create & Execute Task</span>
               </button>
-              
+
               {/* WebSocket Messages */}
               {wsConnected && wsMessages.length > 0 && (
                 <div className="mt-4 p-3 bg-gray-800 rounded-lg">
@@ -503,7 +508,7 @@ export default function ComputerUsePanel() {
               )}
             </div>
           )}
-          
+
           {/* Approvals Tab */}
           {activeTab === 'approvals' && (
             <div className="space-y-4">
@@ -518,7 +523,7 @@ export default function ComputerUsePanel() {
                   <RefreshCw className="w-4 h-4 text-gray-400" />
                 </button>
               </div>
-              
+
               {approvals.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Shield className="w-16 h-16 mx-auto mb-3 opacity-50" />
@@ -544,7 +549,7 @@ export default function ComputerUsePanel() {
                       Reject All
                     </button>
                   </div>
-                  
+
                   {approvals.map((approval, index) => (
                     <motion.div
                       key={approval.request_id}
@@ -569,10 +574,10 @@ export default function ComputerUsePanel() {
                         </div>
                         {getActionIcon(approval.action_type || 'unknown')}
                       </div>
-                      
+
                       {/* Description */}
                       <p className="text-gray-300 mb-4 text-base">{approval.description}</p>
-                      
+
                       {/* Action Details */}
                       <div className="mb-4 p-3 bg-gray-900 rounded-lg">
                         <div className="text-sm text-gray-400 space-y-1">
@@ -602,7 +607,7 @@ export default function ComputerUsePanel() {
                           )}
                         </div>
                       </div>
-                      
+
                       {/* Action Buttons - Large and Clear */}
                       <div className="flex gap-3">
                         <button
@@ -626,7 +631,7 @@ export default function ComputerUsePanel() {
               )}
             </div>
           )}
-          
+
           {/* History Tab */}
           {activeTab === 'history' && (
             <div className="space-y-2">
@@ -641,11 +646,10 @@ export default function ComputerUsePanel() {
                     key={i}
                     className="p-2 bg-gray-800 rounded-lg flex items-center gap-3"
                   >
-                    <div className={`p-1.5 rounded ${
-                      item.status === 'success' ? 'bg-green-500/20' :
-                      item.status === 'failed' ? 'bg-red-500/20' :
-                      'bg-gray-700'
-                    }`}>
+                    <div className={`p-1.5 rounded ${item.status === 'success' ? 'bg-green-500/20' :
+                        item.status === 'failed' ? 'bg-red-500/20' :
+                          'bg-gray-700'
+                      }`}>
                       {getActionIcon(item.action_type || 'unknown')}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -656,11 +660,10 @@ export default function ComputerUsePanel() {
                         {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '-'}
                       </div>
                     </div>
-                    <span className={`text-xs ${
-                      item.status === 'success' ? 'text-green-400' :
-                      item.status === 'failed' ? 'text-red-400' :
-                      'text-gray-400'
-                    }`}>
+                    <span className={`text-xs ${item.status === 'success' ? 'text-green-400' :
+                        item.status === 'failed' ? 'text-red-400' :
+                          'text-gray-400'
+                      }`}>
                       {item.status}
                     </span>
                   </div>
@@ -669,7 +672,7 @@ export default function ComputerUsePanel() {
             </div>
           )}
         </div>
-        
+
         {/* Footer */}
         <div className="p-3 border-t border-gray-700 bg-gray-900/50">
           <div className="flex items-center justify-between text-xs text-gray-500">

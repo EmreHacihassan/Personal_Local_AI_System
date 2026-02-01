@@ -66,8 +66,14 @@ from api.websocket import websocket_endpoint, manager
 from tools.web_search_engine import PremiumWebSearchEngine, get_search_engine, WebSearchTool
 from tools.research_synthesizer import get_synthesizer, ResearchSynthesizer
 
-from api.routers import notes
-from api.routers import upload
+from api.routers import (
+    notes_router,
+    upload, # Keep existing upload module import if used elsewhere, but we prefer router
+    documents_router,
+    voice_router,
+    screen_router,
+    premium_router
+)
 
 # Learning module router
 from api.learning_endpoints import router as learning_router
@@ -388,9 +394,14 @@ app.add_middleware(
 )
 
 # Include Routers
-app.include_router(notes.router)
+app.include_router(notes_router)
 app.include_router(upload.router)
+app.include_router(documents_router)
+app.include_router(voice_router)
+app.include_router(screen_router)
+app.include_router(premium_router)
 app.include_router(learning_router)
+# computer_use_router is added later at line ~5273 after import
 
 # Mount static files
 

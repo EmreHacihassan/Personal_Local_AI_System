@@ -29,6 +29,41 @@ class NoteColor(str, Enum):
 
 
 @dataclass
+class NoteVersion:
+    """Not versiyon modeli - her kayıtta önceki durum saklanır."""
+    version_id: str
+    note_id: str
+    title: str
+    content: str
+    created_at: str  # Versiyonun oluşturulma zamanı
+    diff_summary: str  # AI ile oluşturulmuş değişiklik özeti
+    
+    def to_dict(self) -> Dict:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "NoteVersion":
+        return cls(**data)
+
+
+@dataclass
+class TrashNote:
+    """Çöp kutusundaki not modeli."""
+    id: str
+    original_note: Dict  # Orijinal not verisi
+    deleted_at: str
+    deleted_from_folder: Optional[str]  # Hangi klasörden silindiği
+    versions: List[Dict]  # Silinen notun versiyonları
+    
+    def to_dict(self) -> Dict:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "TrashNote":
+        return cls(**data)
+
+
+@dataclass
 class Folder:
     """Klasör veri modeli."""
     id: str
@@ -38,6 +73,7 @@ class Folder:
     icon: str
     created_at: str
     updated_at: str
+    locked: bool = False  # Kilitli klasör silinemez
     
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -59,6 +95,7 @@ class Note:
     created_at: str
     updated_at: str
     tags: List[str]
+    locked: bool = False  # Kilitli not silinemez
     
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -79,6 +116,9 @@ class NotesManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.notes_file = self.data_dir / "notes.json"
         self.folders_file = self.data_dir / "folders.json"
+        self.versions_file = self.data_dir / "versions.json"
+        self.trash_file = self.data_dir / "trash.json"
+        self.max_versions = 10  # Her not için maksimum 10 versiyon saklanır
         self._init_files()
     
     def _init_files(self):
@@ -88,6 +128,12 @@ class NotesManager:
         
         if not self.folders_file.exists():
             self._save_folders([])
+        
+        if not self.versions_file.exists():
+            self._save_versions([])
+        
+        if not self.trash_file.exists():
+            self._save_trash([])
     
     # ============ FILE OPERATIONS ============
     
@@ -112,6 +158,257 @@ class NotesManager:
     def _save_folders(self, folders: List[Dict]):
         with open(self.folders_file, "w", encoding="utf-8") as f:
             json.dump(folders, f, ensure_ascii=False, indent=2)
+    
+    def _load_versions(self) -> List[Dict]:
+        try:
+            with open(self.versions_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return []
+    
+    def _save_versions(self, versions: List[Dict]):
+        with open(self.versions_file, "w", encoding="utf-8") as f:
+            json.dump(versions, f, ensure_ascii=False, indent=2)
+    
+    def _load_trash(self) -> List[Dict]:
+        try:
+            with open(self.trash_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return []
+    
+    def _save_trash(self, trash: List[Dict]):
+        with open(self.trash_file, "w", encoding="utf-8") as f:
+            json.dump(trash, f, ensure_ascii=False, indent=2)
+    
+    # ============ VERSİYON İŞLEMLERİ ============
+    
+    def _create_version(self, note: Dict, diff_summary: str = "") -> NoteVersion:
+        """Notun mevcut durumunu versiyon olarak kaydet."""
+        version = NoteVersion(
+            version_id=str(uuid.uuid4()),
+            note_id=note["id"],
+            title=note["title"],
+            content=note["content"],
+            created_at=datetime.now().isoformat(),
+            diff_summary=diff_summary,
+        )
+        
+        versions = self._load_versions()
+        
+        # Bu nota ait versiyonları bul
+        note_versions = [v for v in versions if v["note_id"] == note["id"]]
+        other_versions = [v for v in versions if v["note_id"] != note["id"]]
+        
+        # Yeni versiyonu ekle
+        note_versions.append(version.to_dict())
+        
+        # Maksimum versiyon sayısını aş, en eskisini sil
+        if len(note_versions) > self.max_versions:
+            # En eskiye göre sırala ve ilk n tanesini al
+            note_versions.sort(key=lambda x: x["created_at"])
+            note_versions = note_versions[-self.max_versions:]
+        
+        # Tüm versiyonları birleştir ve kaydet
+        all_versions = other_versions + note_versions
+        self._save_versions(all_versions)
+        
+        logger.info(f"Versiyon oluşturuldu: {version.version_id} (not: {note['id']})")
+        return version
+    
+    def get_note_versions(self, note_id: str) -> List[NoteVersion]:
+        """Notun tüm versiyonlarını getir (en yeniden eskiye)."""
+        versions = self._load_versions()
+        note_versions = [v for v in versions if v["note_id"] == note_id]
+        note_versions.sort(key=lambda x: x["created_at"], reverse=True)
+        return [NoteVersion.from_dict(v) for v in note_versions]
+    
+    def get_version(self, version_id: str) -> Optional[NoteVersion]:
+        """Tek bir versiyonu getir."""
+        versions = self._load_versions()
+        for v in versions:
+            if v["version_id"] == version_id:
+                return NoteVersion.from_dict(v)
+        return None
+    
+    def restore_version(self, note_id: str, version_id: str) -> Optional[Note]:
+        """Notu belirli bir versiyona geri döndür."""
+        version = self.get_version(version_id)
+        if not version or version.note_id != note_id:
+            return None
+        
+        # Mevcut durumu önce versiyon olarak kaydet
+        current_note = self.get_note(note_id)
+        if current_note:
+            self._create_version(current_note.to_dict(), diff_summary="Versiyon geri yükleme öncesi otomatik kayıt")
+        
+        # Versiyondaki içeriği geri yükle
+        return self.update_note(
+            note_id,
+            title=version.title,
+            content=version.content,
+            _skip_version=True  # Versiyon oluştururken sonsuz döngüyü önle
+        )
+    
+    def get_version_diff(self, note_id: str, version_id_1: str, version_id_2: str) -> Dict:
+        """İki versiyon arasındaki farkları getir."""
+        v1 = self.get_version(version_id_1)
+        v2 = self.get_version(version_id_2)
+        
+        if not v1 or not v2:
+            return {"error": "Versiyon bulunamadı"}
+        
+        # Basit diff - satır bazlı karşılaştırma
+        lines1 = v1.content.split('\n')
+        lines2 = v2.content.split('\n')
+        
+        diff = {
+            "version_1": {
+                "id": v1.version_id,
+                "title": v1.title,
+                "created_at": v1.created_at,
+            },
+            "version_2": {
+                "id": v2.version_id,
+                "title": v2.title,
+                "created_at": v2.created_at,
+            },
+            "title_changed": v1.title != v2.title,
+            "content_diff": {
+                "lines_added": len(lines2) - len(lines1) if len(lines2) > len(lines1) else 0,
+                "lines_removed": len(lines1) - len(lines2) if len(lines1) > len(lines2) else 0,
+                "old_content": v1.content,
+                "new_content": v2.content,
+            }
+        }
+        
+        return diff
+    
+    def delete_version(self, version_id: str) -> bool:
+        """Belirli bir versiyonu sil."""
+        versions = self._load_versions()
+        original_len = len(versions)
+        versions = [v for v in versions if v["version_id"] != version_id]
+        
+        if len(versions) < original_len:
+            self._save_versions(versions)
+            logger.info(f"Versiyon silindi: {version_id}")
+            return True
+        return False
+    
+    def clear_note_versions(self, note_id: str) -> int:
+        """Notun tüm versiyonlarını sil."""
+        versions = self._load_versions()
+        original_len = len(versions)
+        versions = [v for v in versions if v["note_id"] != note_id]
+        deleted_count = original_len - len(versions)
+        
+        if deleted_count > 0:
+            self._save_versions(versions)
+            logger.info(f"Not versiyonları silindi: {note_id} ({deleted_count} adet)")
+        
+        return deleted_count
+    
+    # ============ ÇÖP KUTUSU İŞLEMLERİ ============
+    
+    def _move_to_trash(self, note: Dict) -> TrashNote:
+        """Notu çöp kutusuna taşı."""
+        # Notun versiyonlarını al
+        versions = self._load_versions()
+        note_versions = [v for v in versions if v["note_id"] == note["id"]]
+        
+        trash_note = TrashNote(
+            id=str(uuid.uuid4()),
+            original_note=note,
+            deleted_at=datetime.now().isoformat(),
+            deleted_from_folder=note.get("folder_id"),
+            versions=note_versions,
+        )
+        
+        trash = self._load_trash()
+        trash.insert(0, trash_note.to_dict())
+        self._save_trash(trash)
+        
+        # Versiyonları ana listeden sil
+        versions = [v for v in versions if v["note_id"] != note["id"]]
+        self._save_versions(versions)
+        
+        logger.info(f"Not çöp kutusuna taşındı: {note['id']}")
+        return trash_note
+    
+    def get_trash(self) -> List[TrashNote]:
+        """Çöp kutusundaki notları getir (en yeni silinen önce)."""
+        trash = self._load_trash()
+        return [TrashNote.from_dict(t) for t in trash]
+    
+    def get_trash_note(self, trash_id: str) -> Optional[TrashNote]:
+        """Çöp kutusundan tek bir not getir."""
+        trash = self._load_trash()
+        for t in trash:
+            if t["id"] == trash_id:
+                return TrashNote.from_dict(t)
+        return None
+    
+    def restore_from_trash(self, trash_id: str) -> Optional[Note]:
+        """Çöp kutusundan notu geri yükle."""
+        trash = self._load_trash()
+        trash_note = None
+        trash_index = -1
+        
+        for i, t in enumerate(trash):
+            if t["id"] == trash_id:
+                trash_note = t
+                trash_index = i
+                break
+        
+        if not trash_note:
+            return None
+        
+        # Orijinal notu geri yükle
+        original_note = trash_note["original_note"]
+        original_note["updated_at"] = datetime.now().isoformat()
+        
+        notes = self._load_notes()
+        notes.insert(0, original_note)
+        self._save_notes(notes)
+        
+        # Versiyonları geri yükle
+        if trash_note.get("versions"):
+            versions = self._load_versions()
+            versions.extend(trash_note["versions"])
+            self._save_versions(versions)
+        
+        # Çöp kutusundan kaldır
+        trash.pop(trash_index)
+        self._save_trash(trash)
+        
+        logger.info(f"Not çöp kutusundan geri yüklendi: {original_note['id']}")
+        return Note.from_dict(original_note)
+    
+    def permanent_delete(self, trash_id: str) -> bool:
+        """Çöp kutusundan kalıcı olarak sil."""
+        trash = self._load_trash()
+        original_len = len(trash)
+        trash = [t for t in trash if t["id"] != trash_id]
+        
+        if len(trash) < original_len:
+            self._save_trash(trash)
+            logger.info(f"Not kalıcı olarak silindi: {trash_id}")
+            return True
+        return False
+    
+    def empty_trash(self) -> int:
+        """Çöp kutusunu tamamen boşalt."""
+        trash = self._load_trash()
+        count = len(trash)
+        self._save_trash([])
+        logger.info(f"Çöp kutusu boşaltıldı: {count} not silindi")
+        return count
+    
+    def get_trash_count(self) -> int:
+        """Çöp kutusundaki not sayısı."""
+        trash = self._load_trash()
+        return len(trash)
     
     # ============ KLASÖR İŞLEMLERİ ============
     
@@ -309,12 +606,24 @@ class NotesManager:
         color: str = None,
         tags: List[str] = None,
         pinned: bool = None,
+        _skip_version: bool = False,  # Dahili kullanım için
     ) -> Optional[Note]:
-        """Notu güncelle."""
+        """Notu güncelle. Her güncellemede önceki durum versiyon olarak saklanır."""
         notes = self._load_notes()
         
         for i, n in enumerate(notes):
             if n["id"] == note_id:
+                # Değişiklik var mı kontrol et
+                has_content_change = (
+                    (title is not None and n["title"] != title) or
+                    (content is not None and n["content"] != content)
+                )
+                
+                # İçerik değişikliği varsa versiyon oluştur
+                if has_content_change and not _skip_version:
+                    diff_summary = self._generate_diff_summary(n, title, content)
+                    self._create_version(n, diff_summary=diff_summary)
+                
                 if title is not None:
                     n["title"] = title
                 if content is not None:
@@ -335,15 +644,51 @@ class NotesManager:
         
         return None
     
-    def delete_note(self, note_id: str) -> bool:
-        """Notu sil."""
-        notes = self._load_notes()
-        original_len = len(notes)
-        notes = [n for n in notes if n["id"] != note_id]
+    def _generate_diff_summary(self, old_note: Dict, new_title: str = None, new_content: str = None) -> str:
+        """Değişiklik özeti oluştur (basit versiyon)."""
+        changes = []
         
-        if len(notes) < original_len:
+        if new_title and old_note["title"] != new_title:
+            changes.append(f"Başlık değişti: '{old_note['title'][:30]}' → '{new_title[:30]}'")
+        
+        if new_content and old_note["content"] != new_content:
+            old_lines = len(old_note["content"].split('\n'))
+            new_lines = len(new_content.split('\n'))
+            old_chars = len(old_note["content"])
+            new_chars = len(new_content)
+            
+            if new_chars > old_chars:
+                changes.append(f"+{new_chars - old_chars} karakter eklendi")
+            elif new_chars < old_chars:
+                changes.append(f"-{old_chars - new_chars} karakter silindi")
+            
+            if new_lines != old_lines:
+                diff = new_lines - old_lines
+                changes.append(f"{'+' if diff > 0 else ''}{diff} satır")
+        
+        return " | ".join(changes) if changes else "Küçük değişiklikler"
+    
+    def delete_note(self, note_id: str) -> bool:
+        """Notu çöp kutusuna taşı (kalıcı silmek için permanent_delete kullan)."""
+        notes = self._load_notes()
+        note_to_delete = None
+        note_index = -1
+        
+        for i, n in enumerate(notes):
+            if n["id"] == note_id:
+                note_to_delete = n
+                note_index = i
+                break
+        
+        if note_to_delete:
+            # Çöp kutusuna taşı
+            self._move_to_trash(note_to_delete)
+            
+            # Ana listeden kaldır
+            notes.pop(note_index)
             self._save_notes(notes)
-            logger.info(f"Not silindi: {note_id}")
+            
+            logger.info(f"Not silindi (çöp kutusuna taşındı): {note_id}")
             return True
         return False
     
@@ -436,6 +781,8 @@ class NotesManager:
         """İstatistikler."""
         notes = self._load_notes()
         folders = self._load_folders()
+        versions = self._load_versions()
+        trash = self._load_trash()
         
         return {
             "total_notes": len(notes),
@@ -443,6 +790,8 @@ class NotesManager:
             "pinned_notes": len([n for n in notes if n.get("pinned")]),
             "root_notes": len([n for n in notes if n.get("folder_id") is None]),
             "root_folders": len([f for f in folders if f.get("parent_id") is None]),
+            "total_versions": len(versions),
+            "trash_count": len(trash),
         }
     
     def export_all(self, format: str = "json") -> str:

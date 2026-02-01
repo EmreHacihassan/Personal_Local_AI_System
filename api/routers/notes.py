@@ -38,6 +38,7 @@ class NoteUpdate(BaseModel):
     color: Optional[str] = None
     pinned: Optional[bool] = None
     tags: Optional[List[str]] = None
+    locked: Optional[bool] = None  # Kilitleme durumu
 
 
 class FolderCreate(BaseModel):
@@ -54,6 +55,7 @@ class FolderUpdate(BaseModel):
     parent_id: Optional[str] = None
     color: Optional[str] = None
     icon: Optional[str] = None
+    locked: Optional[bool] = None  # Kilitleme durumu
 
 
 # ============ NOTES ENDPOINTS ============
@@ -217,9 +219,14 @@ async def update_folder(folder_id: str, folder: FolderUpdate):
 @router.delete("/folders/{folder_id}")
 async def delete_folder(folder_id: str, recursive: bool = True):
     """
-    Klasörü sil. recursive=True ise içindeki notları ve alt klasörleri de siler.
+    Klasörü sil. Kilitli klasörler silinemez. recursive=True ise içindeki notları ve alt klasörleri de siler.
     """
     try:
+        # Kilit kontrolü
+        folder = notes_manager.get_folder(folder_id)
+        if folder and getattr(folder, 'locked', False):
+            raise HTTPException(status_code=403, detail="Kilitli klasör silinemez. Önce kilidi kaldırın.")
+        
         success = notes_manager.delete_folder(folder_id, recursive=recursive)
         if not success:
             raise HTTPException(status_code=404, detail="Klasör bulunamadı veya boş değil")
@@ -748,9 +755,14 @@ async def update_note(note_id: str, note: NoteUpdate):
 @router.delete("/notes/{note_id}")
 async def delete_note(note_id: str):
     """
-    Bir notu sil.
+    Bir notu sil. Kilitli notlar silinemez.
     """
     try:
+        # Kilit kontrolü
+        note = notes_manager.get_note(note_id)
+        if note and getattr(note, 'locked', False):
+            raise HTTPException(status_code=403, detail="Kilitli not silinemez. Önce kilidi kaldırın.")
+        
         success = notes_manager.delete_note(note_id)
         if not success:
             raise HTTPException(status_code=404, detail="Not bulunamadı")
@@ -797,5 +809,292 @@ async def move_note(note_id: str, folder_id: Optional[str] = None):
         raise
     except Exception as e:
         logger.error(f"Note move error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ VERSİYON ENDPOINTS ============
+
+@router.get("/notes/{note_id}/versions")
+async def get_note_versions(note_id: str):
+    """
+    Notun tüm versiyonlarını getir (en yeniden eskiye).
+    Her not için maksimum 10 versiyon saklanır.
+    """
+    try:
+        # Önce notun var olduğunu kontrol et
+        note = notes_manager.get_note(note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        
+        versions = notes_manager.get_note_versions(note_id)
+        return {
+            "note_id": note_id,
+            "versions": [v.to_dict() for v in versions],
+            "count": len(versions),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get versions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/{note_id}/versions/{version_id}")
+async def get_version(note_id: str, version_id: str):
+    """
+    Belirli bir versiyonu getir.
+    """
+    try:
+        version = notes_manager.get_version(version_id)
+        if not version or version.note_id != note_id:
+            raise HTTPException(status_code=404, detail="Versiyon bulunamadı")
+        return version.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get version error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notes/{note_id}/restore/{version_id}")
+async def restore_version(note_id: str, version_id: str):
+    """
+    Notu belirli bir versiyona geri döndür.
+    Mevcut durum otomatik olarak yeni bir versiyon olarak kaydedilir.
+    """
+    try:
+        restored_note = notes_manager.restore_version(note_id, version_id)
+        if not restored_note:
+            raise HTTPException(status_code=404, detail="Not veya versiyon bulunamadı")
+        
+        return {
+            "message": "Versiyon başarıyla geri yüklendi",
+            "note": restored_note.to_dict(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Restore version error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/{note_id}/diff/{version_id_1}/{version_id_2}")
+async def get_version_diff(note_id: str, version_id_1: str, version_id_2: str):
+    """
+    İki versiyon arasındaki farkları getir.
+    Side-by-side diff görünümü için kullanılır.
+    """
+    try:
+        diff = notes_manager.get_version_diff(note_id, version_id_1, version_id_2)
+        if "error" in diff:
+            raise HTTPException(status_code=404, detail=diff["error"])
+        return diff
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get diff error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notes/{note_id}/versions/{version_id}")
+async def delete_version(note_id: str, version_id: str):
+    """
+    Belirli bir versiyonu sil.
+    """
+    try:
+        version = notes_manager.get_version(version_id)
+        if not version or version.note_id != note_id:
+            raise HTTPException(status_code=404, detail="Versiyon bulunamadı")
+        
+        success = notes_manager.delete_version(version_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Versiyon silinemedi")
+        
+        return {"message": "Versiyon silindi", "version_id": version_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete version error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notes/{note_id}/versions")
+async def clear_note_versions(note_id: str):
+    """
+    Notun tüm versiyonlarını sil.
+    """
+    try:
+        note = notes_manager.get_note(note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Not bulunamadı")
+        
+        deleted_count = notes_manager.clear_note_versions(note_id)
+        return {
+            "message": f"{deleted_count} versiyon silindi",
+            "note_id": note_id,
+            "deleted_count": deleted_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Clear versions error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ ÇÖP KUTUSU ENDPOINTS ============
+
+@router.get("/notes/trash")
+async def get_trash():
+    """
+    Çöp kutusundaki notları getir.
+    Silinen notlar burada saklanır ve geri yüklenebilir.
+    """
+    try:
+        trash = notes_manager.get_trash()
+        return {
+            "trash": [t.to_dict() for t in trash],
+            "count": len(trash),
+        }
+    except Exception as e:
+        logger.error(f"Get trash error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/trash/count")
+async def get_trash_count():
+    """
+    Çöp kutusundaki not sayısını getir.
+    """
+    try:
+        count = notes_manager.get_trash_count()
+        return {"count": count}
+    except Exception as e:
+        logger.error(f"Get trash count error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notes/trash/{trash_id}")
+async def get_trash_note(trash_id: str):
+    """
+    Çöp kutusundan belirli bir notu getir.
+    """
+    try:
+        trash_note = notes_manager.get_trash_note(trash_id)
+        if not trash_note:
+            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
+        return trash_note.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get trash note error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notes/trash/{trash_id}/restore")
+async def restore_from_trash(trash_id: str):
+    """
+    Notu çöp kutusundan geri yükle.
+    Not orijinal klasörüne geri döner ve versiyonları da geri yüklenir.
+    """
+    try:
+        restored_note = notes_manager.restore_from_trash(trash_id)
+        if not restored_note:
+            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
+        
+        return {
+            "message": "Not başarıyla geri yüklendi",
+            "note": restored_note.to_dict(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Restore from trash error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notes/trash/{trash_id}")
+async def permanent_delete(trash_id: str):
+    """
+    Notu kalıcı olarak sil (geri alınamaz!).
+    """
+    try:
+        success = notes_manager.permanent_delete(trash_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Not çöp kutusunda bulunamadı")
+        
+        return {"message": "Not kalıcı olarak silindi", "trash_id": trash_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Permanent delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notes/trash")
+async def empty_trash():
+    """
+    Çöp kutusunu tamamen boşalt (tüm notlar kalıcı olarak silinir!).
+    """
+    try:
+        deleted_count = notes_manager.empty_trash()
+        return {
+            "message": f"Çöp kutusu boşaltıldı, {deleted_count} not kalıcı olarak silindi",
+            "deleted_count": deleted_count,
+        }
+    except Exception as e:
+        logger.error(f"Empty trash error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ OCR / VİZYON ENDPOINTS ============
+
+class OCRRequest(BaseModel):
+    """OCR istek modeli."""
+    image_path: str
+    extract_formulas: bool = False
+
+
+@router.post("/notes/ocr")
+async def extract_text_from_image(request: OCRRequest):
+    """
+    Görseldan metin çıkar (OCR).
+    LLaVA Vision modeli kullanılır.
+    """
+    try:
+        from core.notes_vision import get_notes_vision
+        notes_vision = get_notes_vision()
+        
+        if request.extract_formulas:
+            result = await notes_vision.extract_latex_formula(request.image_path)
+        else:
+            result = await notes_vision.extract_text_from_image(request.image_path)
+        
+        return result
+    except Exception as e:
+        logger.error(f"OCR error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ImageDescriptionRequest(BaseModel):
+    """Görsel açıklama istek modeli."""
+    image_path: str
+    language: str = "tr"
+
+
+@router.post("/notes/describe-image")
+async def describe_image(request: ImageDescriptionRequest):
+    """
+    Görsel için AI açıklama oluştur.
+    """
+    try:
+        from core.notes_vision import get_notes_vision
+        notes_vision = get_notes_vision()
+        result = await notes_vision.generate_image_description(
+            request.image_path,
+            language=request.language
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Image description error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

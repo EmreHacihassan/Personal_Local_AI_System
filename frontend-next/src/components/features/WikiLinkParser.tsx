@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link2, ExternalLink, FileText, Clock, Tag } from 'lucide-react';
 import { Note } from '@/store/useStore';
 import { cn, formatDate } from '@/lib/utils';
+import { InlineImageEditor } from '@/components/notes/InlineImageEditor';
 
 // Wiki link regex pattern
 const WIKI_LINK_REGEX = /\[\[([^\]]+)\]\]/g;
@@ -181,6 +182,8 @@ interface ImageOptions {
     align?: string;
     shape?: string;
     caption?: string;
+    offsetX?: number;
+    offsetY?: number;
 }
 
 const parseImageOptions = (altText: string): { caption: string, options: ImageOptions } => {
@@ -197,6 +200,8 @@ const parseImageOptions = (altText: string): { caption: string, options: ImageOp
         if (part.startsWith('size:')) options.size = part.replace('size:', '');
         else if (part.startsWith('align:')) options.align = part.replace('align:', '');
         else if (part.startsWith('shape:')) options.shape = part.replace('shape:', '');
+        else if (part.startsWith('offsetX:')) options.offsetX = parseInt(part.replace('offsetX:', '')) || 0;
+        else if (part.startsWith('offsetY:')) options.offsetY = parseInt(part.replace('offsetY:', '')) || 0;
     }
 
     return { caption, options };
@@ -281,52 +286,148 @@ interface WikiContentRendererProps {
     content: string;
     notes: Note[];
     onNavigate: (noteId: string) => void;
+    onImageEdit?: (imageInfo: { url: string; alt: string; options: Record<string, string> }) => void;
+    onImageUpdate?: (oldUrl: string, newOptions: Record<string, any>) => void;
     className?: string;
 }
 
-export function WikiContentRenderer({ content, notes, onNavigate, className }: WikiContentRendererProps) {
+export function WikiContentRenderer({ content, notes, onNavigate, onImageEdit, onImageUpdate, className }: WikiContentRendererProps) {
     const parts = useMemo(() => parseContent(content), [content]);
+    
+    // Seçili görsel index'i - tek tıkla seçim
+    const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+    
+    // Her görsel için anlık options state'i (real-time güncelleme için)
+    const [imageOptionsState, setImageOptionsState] = useState<Record<number, any>>({});
+
+    // Get initial dimensions from image
+    const getInitialDimensions = useCallback((url: string, opts: any, index: number) => {
+        const currentOpts = imageOptionsState[index] || {};
+        
+        // Size'dan pixel hesapla
+        const sizeMap: Record<string, number> = {
+            'small': 150,
+            'medium': 300,
+            'large': 500,
+            'full': 800
+        };
+        const width = currentOpts.width || opts.width || sizeMap[opts.size || 'medium'] || 300;
+        const height = currentOpts.height || opts.height || width * 0.67; // default aspect ratio
+        
+        return { width, height };
+    }, [imageOptionsState]);
+
+    // Real-time options güncellemesi
+    const handleRealtimeUpdate = useCallback((index: number, newOptions: Partial<any>) => {
+        setImageOptionsState(prev => ({
+            ...prev,
+            [index]: { ...(prev[index] || {}), ...newOptions }
+        }));
+    }, []);
+
+    // Kaydet - markdown'ı güncelle
+    const handleSave = useCallback((index: number, url: string, baseOpts: any, finalOptions: any) => {
+        if (onImageUpdate) {
+            onImageUpdate(url, {
+                ...baseOpts,
+                ...finalOptions
+            });
+        }
+    }, [onImageUpdate]);
+
+    // Görsel seçimi kaldırıldığında
+    const handleDeselect = useCallback(() => {
+        setSelectedImageIndex(null);
+    }, []);
 
     return (
         <div className={cn("whitespace-pre-wrap", className)}>
             {parts.map((part, index) => {
                 if (part.type === 'image') {
                     const opts = part.options || {};
+                    const currentOpts = imageOptionsState[index] || {};
+                    const mergedOpts = { ...opts, ...currentOpts };
+                    const isSelected = selectedImageIndex === index;
+                    const dims = getInitialDimensions(part.url, opts, index);
 
-                    // Size classes
-                    const sizeClass =
-                        opts.size === 'small' ? 'max-w-[150px]' :
-                            opts.size === 'medium' ? 'max-w-[300px]' :
-                                opts.size === 'large' ? 'max-w-[500px]' :
-                                    opts.size === 'full' ? 'max-w-full' : 'max-w-[300px]'; // default medium
-
-                    // Align classes for container
+                    // Align - anlık değişiklikleri yansıt
+                    const alignValue = mergedOpts.align || 'center';
                     const containerClass =
-                        opts.align === 'left' ? 'flex justify-start' :
-                            opts.align === 'right' ? 'flex justify-end' :
-                                'flex justify-center'; // default center
+                        alignValue === 'left' ? 'flex justify-start' :
+                            alignValue === 'right' ? 'flex justify-end' :
+                                'flex justify-center';
 
-                    // Shape classes
+                    // Shape - anlık değişiklikleri yansıt
+                    const shapeValue = mergedOpts.shape || 'rounded';
                     const shapeClass =
-                        opts.shape === 'rounded' ? 'rounded-xl' :
-                            opts.shape === 'circle' ? 'rounded-full aspect-square object-cover' :
-                                opts.shape === 'bordered' ? 'rounded-lg border-4 border-white dark:border-gray-700 shadow-md' :
-                                    'rounded-lg'; // default
+                        shapeValue === 'rounded' ? 'rounded-xl' :
+                            shapeValue === 'circle' ? 'rounded-full aspect-square object-cover' :
+                                shapeValue === 'bordered' ? 'rounded-lg border-4 border-white dark:border-gray-700 shadow-md' :
+                                    'rounded-lg';
+
+                    // Width/Height - anlık değişiklikleri yansıt
+                    const displayWidth = mergedOpts.width || dims.width;
+                    const displayHeight = mergedOpts.height || dims.height;
+                    
+                    // Offset (taşıma pozisyonu) - anlık değişiklikleri yansıt
+                    const offsetX = mergedOpts.offsetX || 0;
+                    const offsetY = mergedOpts.offsetY || 0;
 
                     return (
-                        <div key={index} className={cn("my-4 w-full", containerClass)}>
-                            <div className={cn("flex flex-col gap-2", opts.align === 'center' ? 'items-center' : opts.align === 'right' ? 'items-end' : 'items-start')}>
-                                <img
-                                    src={part.url}
-                                    alt={part.alt}
-                                    className={cn(
-                                        "h-auto transition-all shadow-sm max-h-[600px] object-contain",
-                                        sizeClass,
-                                        shapeClass
-                                    )}
-                                    loading="lazy"
-                                />
-                                {part.alt && <span className="text-xs text-muted-foreground font-medium">{part.alt}</span>}
+                        <div 
+                            key={index} 
+                            className={cn("my-4 w-full", containerClass)}
+                        >
+                            <div 
+                                className={cn(
+                                    "flex flex-col gap-2 relative",
+                                    alignValue === 'center' ? 'items-center' : alignValue === 'right' ? 'items-end' : 'items-start'
+                                )}
+                                style={{
+                                    // Offset her zaman container'a uygulanır (seçili veya değil)
+                                    transform: (offsetX !== 0 || offsetY !== 0) ? `translate(${offsetX}px, ${offsetY}px)` : undefined
+                                }}
+                            >
+                                {/* Seçili görsel - InlineImageEditor ile */}
+                                {isSelected ? (
+                                    <InlineImageEditor
+                                        src={part.url}
+                                        alt={part.alt || ''}
+                                        initialWidth={displayWidth}
+                                        initialHeight={displayHeight}
+                                        options={mergedOpts}
+                                        onRealtimeUpdate={(newOpts) => handleRealtimeUpdate(index, newOpts)}
+                                        onSave={(finalOpts) => handleSave(index, part.url, opts, finalOpts)}
+                                        onDeselect={handleDeselect}
+                                    />
+                                ) : (
+                                    /* Normal görsel - tek tıkla seç */
+                                    <>
+                                        <img
+                                            src={part.url}
+                                            alt={part.alt}
+                                            className={cn(
+                                                "h-auto transition-all shadow-sm max-h-[600px] object-contain cursor-pointer hover:ring-2 hover:ring-primary-500/50",
+                                                shapeClass
+                                            )}
+                                            style={{ 
+                                                width: displayWidth, 
+                                                height: displayHeight
+                                            }}
+                                            loading="lazy"
+                                            onClick={() => setSelectedImageIndex(index)}
+                                        />
+                                        {/* Caption */}
+                                        {(mergedOpts.caption || part.alt) && (
+                                            <span className={cn(
+                                                "text-xs text-muted-foreground font-medium",
+                                                alignValue === 'left' ? 'text-left' : alignValue === 'right' ? 'text-right' : 'text-center'
+                                            )}>
+                                                {mergedOpts.caption || part.alt}
+                                            </span>
+                                        )}
+                                    </>
+                                )}
                             </div>
                         </div>
                     );

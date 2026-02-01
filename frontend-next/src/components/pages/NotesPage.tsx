@@ -43,7 +43,13 @@ import {
   Filter,
   Layout,
   LayoutTemplate,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Maximize2,
+  Minimize2,
+  Keyboard,
+  Calculator,
+  Lock,
+  Unlock
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useStore, Note, NoteFolder } from '@/store/useStore';
@@ -64,6 +70,7 @@ import { ImportWizard } from '@/components/features/ImportWizard';
 import { useMultiSelect } from '@/hooks/useMultiSelect';
 import { ImageSettingsModal, ImageSettings } from '@/components/modals/ImageSettingsModal';
 import { compressImage } from '@/lib/imageUtils';
+import { MATH_KEYBOARD_CATEGORIES, NORMAL_KEYBOARD_CATEGORIES } from '@/lib/constants/mathKeyboard';
 
 // Backend - Frontend Data Mappers
 const mapNoteFromApi = (note: any): Note => ({
@@ -73,6 +80,7 @@ const mapNoteFromApi = (note: any): Note => ({
   folder: note.folder_id, // Backend folder_id -> Frontend folder
   color: note.color,
   isPinned: note.pinned,
+  isLocked: note.locked || false, // Kilit durumu
   tags: note.tags || [],
   createdAt: new Date(note.created_at),
   updatedAt: new Date(note.updated_at)
@@ -84,8 +92,12 @@ const mapFolderFromApi = (folder: any): NoteFolder => ({
   icon: folder.icon,
   parentId: folder.parent_id,
   color: folder.color,
+  isLocked: folder.locked || false, // Kilit durumu
   createdAt: new Date(folder.created_at)
 });
+
+// Math keyboard kategorileri artık '@/lib/constants/mathKeyboard' modülünden import ediliyor
+// MATH_KEYBOARD_CATEGORIES ve NORMAL_KEYBOARD_CATEGORIES dışarıdan geliyor
 
 // Note colors matching Streamlit frontend
 const NOTE_COLORS = [
@@ -151,6 +163,7 @@ export function NotesPage() {
   // Image Upload & Settings
   const [showImageModal, setShowImageModal] = useState(false);
   const [uploadedImageInfo, setUploadedImageInfo] = useState<{ url: string, name: string } | null>(null);
+  const [editingImageInfo, setEditingImageInfo] = useState<{ url: string; alt: string; options: Record<string, string> } | null>(null);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -169,11 +182,39 @@ export function NotesPage() {
   const [recentNoteIds, setRecentNoteIds] = useState<string[]>([]);
   const [archivedNotes, setArchivedNotes] = useState<Note[]>([]);
 
+  // Tam Ekran Modları
+  const [isNoteFullscreen, setIsNoteFullscreen] = useState(false);  // Sadece not detayı tam ekran
+  const [isPageFullscreen, setIsPageFullscreen] = useState(false); // Tüm notlar sayfası tam ekran
+  const [showMathKeyboard, setShowMathKeyboard] = useState(false); // Matematik ekran klavyesi
+  const [mathCategory, setMathCategory] = useState('basic'); // Aktif matematik kategori
+  const [keyboardType, setKeyboardType] = useState<'math' | 'normal'>('math'); // Klavye tipi seçimi
+
+  // Klavye tipi değiştiğinde varsayılan kategoriyi ayarla
+  useEffect(() => {
+    if (keyboardType === 'math') {
+      setMathCategory('basic');
+    } else {
+      setMathCategory('turkish');
+    }
+  }, [keyboardType]);
+
   // Multi-select hook
   const multiSelect = useMultiSelect({
     items: notes,
     getItemId: (note) => note.id,
   });
+
+  // ESC tuşu ile tam ekrandan çık
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isNoteFullscreen) setIsNoteFullscreen(false);
+        else if (isPageFullscreen) setIsPageFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isNoteFullscreen, isPageFullscreen]);
 
   // Get current folder and its path (breadcrumb)
   const currentFolder = useMemo(() => {
@@ -283,6 +324,17 @@ export function NotesPage() {
     // Delete folder and move notes to parent
     const folder = folders.find(f => f.id === folderId);
     if (!folder) return;
+
+    // Kilit kontrolü
+    if (folder.isLocked) {
+      const lockedMessage = language === 'tr'
+        ? 'Bu klasör kilitli. Silmek için önce kilidi kaldırın.'
+        : language === 'de'
+          ? 'Dieser Ordner ist gesperrt. Entsperren Sie ihn zuerst.'
+          : 'This folder is locked. Unlock it first to delete.';
+      alert(lockedMessage);
+      return;
+    }
 
     // Confirm deletion
     const confirmMessage = language === 'tr'
@@ -770,6 +822,17 @@ export function NotesPage() {
 
   // Not silme - backend API ile senkronize
   const handleDeleteNote = async (note: Note) => {
+    // Kilit kontrolü
+    if (note.isLocked) {
+      const lockedMessage = language === 'tr'
+        ? 'Bu not kilitli. Silmek için önce kilidi kaldırın.'
+        : language === 'de'
+          ? 'Diese Notiz ist gesperrt. Entsperren Sie sie zuerst.'
+          : 'This note is locked. Unlock it first to delete.';
+      alert(lockedMessage);
+      return;
+    }
+
     const confirmMessage = language === 'tr'
       ? `"${note.title}" notunu silmek istediğinizden emin misiniz?`
       : language === 'de'
@@ -802,6 +865,60 @@ export function NotesPage() {
     updateNote(note.id, { isPinned: !note.isPinned });
     if (selectedNote?.id === note.id) {
       setSelectedNote({ ...note, isPinned: !note.isPinned });
+    }
+  };
+
+  // Toggle note lock - Kilitli notlar silinemez
+  const handleToggleNoteLock = async (note: Note) => {
+    const newLockState = !note.isLocked;
+    
+    // Optimistic update
+    updateNote(note.id, { isLocked: newLockState });
+    if (selectedNote?.id === note.id) {
+      setSelectedNote({ ...note, isLocked: newLockState });
+    }
+
+    // Backend API call
+    try {
+      const response = await fetch(`/api/notes/${note.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked: newLockState }),
+      });
+      if (!response.ok) {
+        // Revert on failure
+        updateNote(note.id, { isLocked: note.isLocked });
+        if (selectedNote?.id === note.id) {
+          setSelectedNote({ ...note, isLocked: note.isLocked });
+        }
+        console.error('Failed to toggle note lock');
+      }
+    } catch (error) {
+      console.error('Toggle note lock error:', error);
+    }
+  };
+
+  // Toggle folder lock - Kilitli klasörler silinemez
+  const handleToggleFolderLock = async (folder: NoteFolder) => {
+    const newLockState = !folder.isLocked;
+    
+    // Optimistic update
+    updateFolder(folder.id, { isLocked: newLockState });
+
+    // Backend API call
+    try {
+      const response = await fetch(`/api/folders/${folder.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked: newLockState }),
+      });
+      if (!response.ok) {
+        // Revert on failure
+        updateFolder(folder.id, { isLocked: folder.isLocked });
+        console.error('Failed to toggle folder lock');
+      }
+    } catch (error) {
+      console.error('Toggle folder lock error:', error);
     }
   };
 
@@ -846,6 +963,108 @@ export function NotesPage() {
 
     setShowImageModal(false);
     setUploadedImageInfo(null);
+    setEditingImageInfo(null);
+  };
+
+  // Handle existing image edit (when clicking on image in preview mode)
+  const handleImageEdit = (imageInfo: { url: string; alt: string; options: Record<string, string> }) => {
+    setEditingImageInfo(imageInfo);
+    setUploadedImageInfo({ url: imageInfo.url, name: imageInfo.alt || 'image' });
+    setShowImageModal(true);
+  };
+
+  // Handle image update (replacing old image markdown with new settings)
+  const handleImageUpdate = (settings: ImageSettings) => {
+    if (!editingImageInfo || !selectedNote) return;
+
+    const oldOptions = [
+      `size:${editingImageInfo.options.size || 'medium'}`,
+      `align:${editingImageInfo.options.align || 'center'}`,
+      `shape:${editingImageInfo.options.shape || 'rounded'}`
+    ].join('|');
+
+    const newOptions = [
+      `size:${settings.size}`,
+      `align:${settings.align}`,
+      `shape:${settings.shape}`
+    ].join('|');
+
+    // Build old and new markdown patterns
+    const oldAlt = editingImageInfo.alt || '';
+    const newCaption = settings.caption || editingImageInfo.alt || 'image';
+    
+    // Escape special regex characters in URL
+    const escapedUrl = editingImageInfo.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    // Create regex to find the old image markdown
+    const oldMarkdownRegex = new RegExp(
+      `!\\[([^\\]]*\\|)?${oldOptions.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]\\(${escapedUrl}\\)`,
+      'g'
+    );
+    
+    // Also try simpler pattern for backwards compat
+    const simpleRegex = new RegExp(
+      `!\\[${oldAlt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\|[^\\]]*\\]\\(${escapedUrl}\\)`,
+      'g'
+    );
+
+    const newMarkdown = `![${newCaption}|${newOptions}](${editingImageInfo.url})`;
+
+    let updatedContent = selectedNote.content;
+    
+    // Try to replace with the complex regex first, then simple
+    if (oldMarkdownRegex.test(updatedContent)) {
+      updatedContent = updatedContent.replace(oldMarkdownRegex, newMarkdown);
+    } else if (simpleRegex.test(selectedNote.content)) {
+      updatedContent = selectedNote.content.replace(simpleRegex, newMarkdown);
+    } else {
+      // Fallback: find any image with same URL
+      const fallbackRegex = new RegExp(`!\\[[^\\]]*\\]\\(${escapedUrl}\\)`, 'g');
+      updatedContent = selectedNote.content.replace(fallbackRegex, newMarkdown);
+    }
+
+    // Update note
+    updateNote(selectedNote.id, { content: updatedContent });
+    setSelectedNote(prev => prev ? { ...prev, content: updatedContent } : null);
+
+    setShowImageModal(false);
+    setUploadedImageInfo(null);
+    setEditingImageInfo(null);
+  };
+
+  // Handle inline image update (from InlineImageEditor - köşelerden sürükle-boyutlandır)
+  const handleInlineImageUpdate = (imageUrl: string, newOptions: Record<string, any>) => {
+    if (!selectedNote) return;
+
+    // Escape special regex characters in URL
+    const escapedUrl = imageUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    // Build new options string
+    const optionsArr = [];
+    if (newOptions.size) optionsArr.push(`size:${newOptions.size}`);
+    else if (newOptions.width) optionsArr.push(`size:custom`);
+    if (newOptions.align) optionsArr.push(`align:${newOptions.align}`);
+    if (newOptions.shape) optionsArr.push(`shape:${newOptions.shape}`);
+    if (newOptions.width) optionsArr.push(`width:${Math.round(newOptions.width)}`);
+    if (newOptions.height) optionsArr.push(`height:${Math.round(newOptions.height)}`);
+    // Offset (taşıma pozisyonu) - yeni
+    if (newOptions.offsetX !== undefined && newOptions.offsetX !== 0) optionsArr.push(`offsetX:${Math.round(newOptions.offsetX)}`);
+    if (newOptions.offsetY !== undefined && newOptions.offsetY !== 0) optionsArr.push(`offsetY:${Math.round(newOptions.offsetY)}`);
+    
+    const newOptionsStr = optionsArr.join('|');
+    
+    // Find and replace image markdown
+    const imageRegex = new RegExp(`!\\[([^\\]]*)\\]\\(${escapedUrl}\\)`, 'g');
+    
+    const updatedContent = selectedNote.content.replace(imageRegex, (match, altText) => {
+      // Parse existing alt text to get caption (before first |)
+      const caption = altText.split('|')[0] || 'image';
+      return `![${caption}|${newOptionsStr}](${imageUrl})`;
+    });
+
+    // Update note
+    updateNote(selectedNote.id, { content: updatedContent });
+    setSelectedNote(prev => prev ? { ...prev, content: updatedContent } : null);
   };
 
   const t = {
@@ -885,8 +1104,13 @@ export function NotesPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
+    <div className={cn(
+      "flex flex-col h-full",
+      // Sayfa tam ekran modunda fixed overlay olarak göster
+      isPageFullscreen && "fixed inset-0 z-50 bg-background"
+    )}>
+      {/* Header - Not tam ekran modunda gizle */}
+      {!isNoteFullscreen && (
       <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card/50 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-500 text-white">
@@ -1020,11 +1244,25 @@ export function NotesPage() {
             >
               <Filter className="w-4 h-4" />
             </button>
+
+            {/* Sayfa Tam Ekran */}
+            <button
+              onClick={() => setIsPageFullscreen(!isPageFullscreen)}
+              className={cn(
+                "p-2 rounded-lg transition-colors",
+                isPageFullscreen ? "bg-primary-500 text-white" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}
+              title={isPageFullscreen ? "Tam Ekrandan Çık (ESC)" : "Sayfa Tam Ekran"}
+            >
+              {isPageFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
           </div>
         </div>
       </header>
+      )}
 
-      {/* Breadcrumb Navigation */}
+      {/* Breadcrumb Navigation - Not tam ekran modunda gizle */}
+      {!isNoteFullscreen && (
       <div className="px-6 py-3 border-b border-border bg-muted/30 flex items-center gap-2 overflow-x-auto">
         <button
           onClick={() => setCurrentFolderId(null)}
@@ -1068,6 +1306,7 @@ export function NotesPage() {
           </button>
         )}
       </div>
+      )}
 
       {/* New Folder Form */}
       <AnimatePresence>
@@ -1156,7 +1395,8 @@ export function NotesPage() {
       </AnimatePresence>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Sol Panel - Not Listesi */}
+        {/* Sol Panel - Not Listesi (Not tam ekranda gizle) */}
+        {!isNoteFullscreen && (
         <div className="w-80 border-r border-border flex flex-col bg-muted/30">
           {/* Arama */}
           <div className="p-4 border-b border-border">
@@ -1225,7 +1465,10 @@ export function NotesPage() {
                   >
                     <span className="text-2xl">{folder.icon}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-blue-700 dark:text-blue-300 truncate">{folder.name}</p>
+                      <p className="font-medium text-sm text-blue-700 dark:text-blue-300 truncate flex items-center gap-1">
+                        {folder.name}
+                        {folder.isLocked && <Lock className="w-3 h-3 text-amber-500" />}
+                      </p>
                       <p className="text-xs text-blue-500/70 dark:text-blue-400/70">
                         {notes.filter(n => n.folder === folder.id || n.folder === folder.name).length} {t.notes[language]}
                       </p>
@@ -1244,10 +1487,34 @@ export function NotesPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          handleToggleFolderLock(folder);
+                        }}
+                        className={cn(
+                          "p-1.5 rounded-lg transition-colors",
+                          folder.isLocked
+                            ? "text-amber-500 bg-amber-100 dark:bg-amber-900/30"
+                            : "text-muted-foreground hover:bg-accent"
+                        )}
+                        title={folder.isLocked 
+                          ? (language === 'tr' ? 'Kilidi Kaldır' : language === 'de' ? 'Entsperren' : 'Unlock')
+                          : (language === 'tr' ? 'Kilitle' : language === 'de' ? 'Sperren' : 'Lock')
+                        }
+                      >
+                        {folder.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           handleDeleteFolder(folder.id);
                         }}
-                        className="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                        title={t.delete[language]}
+                        className={cn(
+                          "p-1.5 rounded-lg transition-colors",
+                          folder.isLocked
+                            ? "text-muted-foreground/50 cursor-not-allowed"
+                            : "text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30"
+                        )}
+                        disabled={folder.isLocked}
+                        title={folder.isLocked ? (language === 'tr' ? 'Kilitli klasör silinemez' : 'Locked folder cannot be deleted') : t.delete[language]}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1286,6 +1553,7 @@ export function NotesPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1">
                             {note.isPinned && <Pin className="w-3 h-3 text-primary-500" />}
+                            {note.isLocked && <Lock className="w-3 h-3 text-amber-500" />}
                             <p className="font-medium text-sm truncate">{note.title}</p>
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-1">
@@ -1324,9 +1592,34 @@ export function NotesPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              handleToggleNoteLock(note);
+                            }}
+                            className={cn(
+                              "p-1.5 rounded-lg transition-colors",
+                              note.isLocked
+                                ? "text-amber-500 bg-amber-100 dark:bg-amber-900/30"
+                                : "text-muted-foreground hover:bg-accent"
+                            )}
+                            title={note.isLocked 
+                              ? (language === 'tr' ? 'Kilidi Kaldır' : language === 'de' ? 'Entsperren' : 'Unlock')
+                              : (language === 'tr' ? 'Kilitle' : language === 'de' ? 'Sperren' : 'Lock')
+                            }
+                          >
+                            {note.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               handleDeleteNote(note);
                             }}
-                            className="p-1.5 text-muted-foreground hover:text-destructive rounded-lg hover:bg-destructive/10 transition-all"
+                            className={cn(
+                              "p-1.5 rounded-lg transition-all",
+                              note.isLocked
+                                ? "text-muted-foreground/50 cursor-not-allowed"
+                                : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            )}
+                            disabled={note.isLocked}
+                            title={note.isLocked ? (language === 'tr' ? 'Kilitli not silinemez' : 'Locked note cannot be deleted') : undefined}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1421,6 +1714,7 @@ export function NotesPage() {
             )}
           </div>
         </div>
+        )}
 
         {/* Sağ Panel - Not İçeriği */}
         <div className="flex-1 flex flex-col overflow-hidden bg-background">
@@ -1438,6 +1732,7 @@ export function NotesPage() {
                 ) : (
                   <div className="flex items-center gap-2">
                     {selectedNote.isPinned && <Pin className="w-5 h-5 text-primary-500" />}
+                    {selectedNote.isLocked && <Lock className="w-5 h-5 text-amber-500" />}
                     <h2 className="text-xl font-semibold">{selectedNote.title}</h2>
                   </div>
                 )}
@@ -1487,6 +1782,23 @@ export function NotesPage() {
                     <Pin className="w-4 h-4" />
                   </button>
 
+                  {/* Lock Button */}
+                  <button
+                    onClick={() => handleToggleNoteLock(selectedNote)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
+                      selectedNote.isLocked
+                        ? "bg-amber-500 text-white"
+                        : "bg-muted hover:bg-accent"
+                    )}
+                    title={selectedNote.isLocked 
+                      ? (language === 'tr' ? 'Kilidi Kaldır' : language === 'de' ? 'Entsperren' : 'Unlock')
+                      : (language === 'tr' ? 'Kilitle' : language === 'de' ? 'Sperren' : 'Lock')
+                    }
+                  >
+                    {selectedNote.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                  </button>
+
                   {/* Tag Button */}
                   <button
                     onClick={() => setShowTagInput(!showTagInput)}
@@ -1531,6 +1843,36 @@ export function NotesPage() {
                       {t.edit[language]}
                     </button>
                   )}
+
+                  {/* Matematik Ekran Klavyesi */}
+                  {isEditing && (
+                    <button
+                      onClick={() => setShowMathKeyboard(!showMathKeyboard)}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
+                        showMathKeyboard 
+                          ? "bg-indigo-500 text-white" 
+                          : "bg-muted hover:bg-accent"
+                      )}
+                      title="Matematik Klavyesi"
+                    >
+                      <Keyboard className="w-4 h-4" />
+                    </button>
+                  )}
+
+                  {/* Not Detayı Tam Ekran */}
+                  <button
+                    onClick={() => setIsNoteFullscreen(!isNoteFullscreen)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
+                      isNoteFullscreen 
+                        ? "bg-primary-500 text-white" 
+                        : "bg-muted hover:bg-accent"
+                    )}
+                    title={isNoteFullscreen ? "Tam Ekrandan Çık (ESC)" : "Not Tam Ekran"}
+                  >
+                    {isNoteFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -1762,14 +2104,120 @@ export function NotesPage() {
                     </div>
 
                     {/* Editor Area */}
-                    <div className="flex-1 p-6">
+                    <div className="flex-1 p-6 flex flex-col gap-4">
                       <textarea
+                        id="note-editor-textarea"
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
                         placeholder={t.writePlaceholder[language]}
-                        className="w-full h-full resize-none bg-transparent focus:outline-none text-foreground placeholder:text-muted-foreground leading-relaxed font-mono text-sm"
-                        style={{ minHeight: '300px' }}
+                        className="w-full flex-1 resize-none bg-transparent focus:outline-none text-foreground placeholder:text-muted-foreground leading-relaxed font-mono text-sm"
+                        style={{ minHeight: showMathKeyboard ? '200px' : '300px' }}
                       />
+                      
+                      {/* Matematik Ekran Klavyesi */}
+                      {showMathKeyboard && (
+                        <div className="border border-border rounded-xl bg-card shadow-lg overflow-hidden">
+                          {/* Klavye Tipi Seçici (Math / Normal) */}
+                          <div className="flex items-center gap-2 p-2 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 border-b border-border">
+                            <div className="flex bg-background rounded-lg p-0.5 shadow-inner">
+                              <button
+                                onClick={() => setKeyboardType('math')}
+                                className={cn(
+                                  "px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5",
+                                  keyboardType === 'math' 
+                                    ? "bg-indigo-500 text-white shadow-sm" 
+                                    : "text-muted-foreground hover:text-foreground"
+                                )}
+                              >
+                                <Calculator className="w-3.5 h-3.5" />
+                                Matematik
+                              </button>
+                              <button
+                                onClick={() => setKeyboardType('normal')}
+                                className={cn(
+                                  "px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5",
+                                  keyboardType === 'normal' 
+                                    ? "bg-purple-500 text-white shadow-sm" 
+                                    : "text-muted-foreground hover:text-foreground"
+                                )}
+                              >
+                                <Keyboard className="w-3.5 h-3.5" />
+                                Normal
+                              </button>
+                            </div>
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              {keyboardType === 'math' ? '600+ sembol' : '200+ karakter'}
+                            </span>
+                          </div>
+                          
+                          {/* Kategori Seçicileri */}
+                          <div className="flex flex-wrap gap-1 p-2 bg-muted/50 border-b border-border overflow-x-auto">
+                            {(keyboardType === 'math' ? MATH_KEYBOARD_CATEGORIES : NORMAL_KEYBOARD_CATEGORIES).map((cat) => (
+                              <button
+                                key={cat.id}
+                                onClick={() => setMathCategory(cat.id)}
+                                className={cn(
+                                  "px-3 py-1.5 text-xs font-medium rounded-lg transition-all whitespace-nowrap flex items-center gap-1",
+                                  mathCategory === cat.id 
+                                    ? keyboardType === 'math' 
+                                      ? "bg-indigo-500 text-white shadow-sm" 
+                                      : "bg-purple-500 text-white shadow-sm"
+                                    : "bg-background hover:bg-accent text-foreground"
+                                )}
+                              >
+                                <span>{cat.icon}</span>
+                                {cat.name}
+                              </button>
+                            ))}
+                          </div>
+                          
+                          {/* Semboller */}
+                          <div className="p-3 max-h-48 overflow-y-auto">
+                            <div className="flex flex-wrap gap-1.5">
+                              {(keyboardType === 'math' ? MATH_KEYBOARD_CATEGORIES : NORMAL_KEYBOARD_CATEGORIES)
+                                .find(c => c.id === mathCategory)?.symbols.map((sym, idx) => (
+                                <button
+                                  key={idx}
+                                  onClick={() => {
+                                    const textarea = document.getElementById('note-editor-textarea') as HTMLTextAreaElement;
+                                    if (textarea) {
+                                      const start = textarea.selectionStart;
+                                      const end = textarea.selectionEnd;
+                                      const text = editContent;
+                                      const newContent = text.substring(0, start) + sym.s + text.substring(end);
+                                      setEditContent(newContent);
+                                      // Cursor'ı sembolün sonrasına taşı
+                                      setTimeout(() => {
+                                        textarea.focus();
+                                        textarea.setSelectionRange(start + sym.s.length, start + sym.s.length);
+                                      }, 0);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "min-w-[40px] h-10 px-2 flex items-center justify-center border border-border rounded-lg text-base font-mono transition-all hover:scale-105 hover:shadow-sm",
+                                    keyboardType === 'math' 
+                                      ? "bg-background hover:bg-indigo-100 dark:hover:bg-indigo-900/30" 
+                                      : "bg-background hover:bg-purple-100 dark:hover:bg-purple-900/30"
+                                  )}
+                                  title={sym.d}
+                                >
+                                  {sym.s}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          {/* Footer */}
+                          <div className="px-3 py-2 bg-muted/30 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1.5">
+                              {keyboardType === 'math' ? <Calculator className="w-3.5 h-3.5" /> : <Keyboard className="w-3.5 h-3.5" />}
+                              {(keyboardType === 'math' ? MATH_KEYBOARD_CATEGORIES : NORMAL_KEYBOARD_CATEGORIES)
+                                .find(c => c.id === mathCategory)?.symbols.length || 0} sembol
+                            </span>
+                            <span>Tıklayarak ekleyin</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Editor Footer */}
@@ -1797,6 +2245,8 @@ export function NotesPage() {
                             setSelectedNote(note);
                           }
                         }}
+                        onImageEdit={handleImageEdit}
+                        onImageUpdate={handleInlineImageUpdate}
                       />
                     ) : (
                       <p className="text-muted-foreground italic">
@@ -2075,10 +2525,18 @@ export function NotesPage() {
           onClose={() => {
             setShowImageModal(false);
             setUploadedImageInfo(null);
+            setEditingImageInfo(null);
           }}
-          onConfirm={handleImageConfirm}
+          onConfirm={editingImageInfo ? handleImageUpdate : handleImageConfirm}
           imageUrl={uploadedImageInfo.url}
           imageName={uploadedImageInfo.name}
+          isEditMode={!!editingImageInfo}
+          initialSettings={editingImageInfo ? {
+            size: (editingImageInfo.options.size as ImageSettings['size']) || 'medium',
+            align: (editingImageInfo.options.align as ImageSettings['align']) || 'center',
+            shape: (editingImageInfo.options.shape as ImageSettings['shape']) || 'rounded',
+            caption: editingImageInfo.alt
+          } : undefined}
         />
       )}
     </div >

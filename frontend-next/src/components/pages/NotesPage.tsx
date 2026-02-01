@@ -254,9 +254,11 @@ export function NotesPage() {
   const filteredNotes = useMemo(() => {
     return notes
       .filter(note => {
+        // Şifreli notlar için decode edilmiş içerikte ara
+        const searchableContent = note.isEncrypted ? getDisplayContent(note) : note.content;
         const matchesSearch =
           note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          note.content.toLowerCase().includes(searchQuery.toLowerCase());
+          searchableContent.toLowerCase().includes(searchQuery.toLowerCase());
 
         // Match folder - either by folder ID or folder name
         const matchesFolder = !currentFolderId
@@ -480,9 +482,10 @@ export function NotesPage() {
     pdf.line(20, y, 190, y);
     y += 10;
 
-    // Note content
-    if (note.content) {
-      y = addTextToPDF(pdf, note.content, y, { fontSize: 11 });
+    // Note content - şifreli notları decode et
+    const displayContent = getDisplayContent(note);
+    if (displayContent) {
+      y = addTextToPDF(pdf, displayContent, y, { fontSize: 11 });
     } else {
       y = addTextToPDF(pdf, '(Bu not bos)', y, { fontSize: 11, fontStyle: 'italic', color: [150, 150, 150] });
     }
@@ -566,9 +569,10 @@ export function NotesPage() {
       pdf.text(titleText, 25, y + 2);
       y += 12;
 
-      // Note content
-      if (note.content) {
-        const contentPreview = note.content.length > 500 ? note.content.substring(0, 500) + '...' : note.content;
+      // Note content - şifreli notları decode et
+      const displayContent = getDisplayContent(note);
+      if (displayContent) {
+        const contentPreview = displayContent.length > 500 ? displayContent.substring(0, 500) + '...' : displayContent;
         y = addTextToPDF(pdf, contentPreview, y, { fontSize: 10 });
       }
 
@@ -647,8 +651,9 @@ export function NotesPage() {
         pdf.text(note.title, 25, y);
         y += 6;
 
-        if (note.content) {
-          const preview = note.content.length > 200 ? note.content.substring(0, 200) + '...' : note.content;
+        const displayContent = getDisplayContent(note);
+        if (displayContent) {
+          const preview = displayContent.length > 200 ? displayContent.substring(0, 200) + '...' : displayContent;
           y = addTextToPDF(pdf, preview, y, { fontSize: 9, indent: 5 });
         }
 
@@ -683,7 +688,12 @@ export function NotesPage() {
         pdf.text(note.title, 25, y);
         y += 6;
 
-        if (note.content) {
+        // Şifreli notları decode et
+        if (note.isEncrypted) {
+          const decoded = getDisplayContent(note);
+          const preview = decoded.length > 200 ? decoded.substring(0, 200) + '...' : decoded;
+          y = addTextToPDF(pdf, preview, y, { fontSize: 9, indent: 5 });
+        } else if (note.content) {
           const preview = note.content.length > 200 ? note.content.substring(0, 200) + '...' : note.content;
           y = addTextToPDF(pdf, preview, y, { fontSize: 9, indent: 5 });
         }
@@ -777,23 +787,29 @@ export function NotesPage() {
   const handleEdit = (note: Note) => {
     setSelectedNote(note);
     setEditTitle(note.title);
-    setEditContent(note.content);
+    // Şifreli notlar için decode edilmiş içerik göster
+    setEditContent(note.isEncrypted ? getDisplayContent(note) : note.content);
     setIsEditing(true);
   };
 
   // Kaydet
   const handleSave = async () => {
     if (selectedNote) {
+      // Şifreli not ise içeriği tekrar encode et
+      const contentToSave = selectedNote.isEncrypted 
+        ? btoa(unescape(encodeURIComponent(editContent)))
+        : editContent;
+      
       // Optimistic update
       const updatedNote = {
         ...selectedNote,
         title: editTitle,
-        content: editContent,
+        content: contentToSave,
         updatedAt: new Date()
       };
       updateNote(selectedNote.id, {
         title: editTitle,
-        content: editContent
+        content: contentToSave
       });
       setSelectedNote(updatedNote);
       setIsEditing(false);
@@ -805,7 +821,7 @@ export function NotesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: editTitle,
-            content: editContent
+            content: contentToSave
           })
         });
       } catch (e) {
@@ -819,7 +835,8 @@ export function NotesPage() {
     setIsEditing(false);
     if (selectedNote) {
       setEditTitle(selectedNote.title);
-      setEditContent(selectedNote.content);
+      // Şifreli notlar için decode edilmiş içerik göster
+      setEditContent(selectedNote.isEncrypted ? getDisplayContent(selectedNote) : selectedNote.content);
     }
   };
 
@@ -2400,8 +2417,8 @@ export function NotesPage() {
                 )}
               </div>
 
-              {/* AI Toolbar - Premium AI özellikleri */}
-              {selectedNote && !isEditing && (
+              {/* AI Toolbar - Premium AI özellikleri (şifreli notlarda gizle) */}
+              {selectedNote && !isEditing && !selectedNote.isEncrypted && (
                 <NoteAIToolbar
                   noteId={selectedNote.id}
                   noteTitle={selectedNote.title}

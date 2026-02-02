@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FiZap, FiRefreshCw, FiCheck, FiX, FiEdit3, FiType,
-  FiAlignLeft, FiBookOpen, FiMessageSquare, FiList,
-  FiChevronRight, FiSparkles, FiPenTool, FiFileText
-} from 'react-icons/fi';
+  Zap, RefreshCw, Check, X, Edit3, Type,
+  AlignLeft, BookOpen, MessageSquare, List,
+  ChevronRight, Sparkles, PenTool, FileText
+} from 'lucide-react';
 
 interface AIWritingAssistantProps {
   isOpen: boolean;
@@ -19,7 +19,7 @@ interface AIWritingAssistantProps {
 
 interface Suggestion {
   id: string;
-  type: 'improve' | 'expand' | 'summarize' | 'rewrite' | 'continue' | 'fix';
+  type: 'improve' | 'expand' | 'summarize' | 'rewrite' | 'continue' | 'X';
   label: string;
   preview: string;
   fullText: string;
@@ -40,12 +40,12 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
 
   // Quick Actions
   const quickActions = [
-    { id: 'improve', icon: <FiEdit3 />, label: 'İyileştir', description: 'Yazımı daha akıcı yap' },
-    { id: 'expand', icon: <FiAlignLeft />, label: 'Genişlet', description: 'Daha detaylı hale getir' },
-    { id: 'summarize', icon: <FiFileText />, label: 'Özetle', description: 'Kısa ve öz hale getir' },
-    { id: 'rewrite', icon: <FiRefreshCw />, label: 'Yeniden Yaz', description: 'Farklı bir tarzda yaz' },
-    { id: 'continue', icon: <FiChevronRight />, label: 'Devam Et', description: 'Metni devam ettir' },
-    { id: 'fix', icon: <FiCheck />, label: 'Düzelt', description: 'Yazım hatalarını düzelt' },
+    { id: 'improve', icon: <Edit3 />, label: 'İyileştir', description: 'Yazımı daha akıcı yap' },
+    { id: 'expand', icon: <AlignLeft />, label: 'Genişlet', description: 'Daha detaylı hale getir' },
+    { id: 'summarize', icon: <FileText />, label: 'Özetle', description: 'Kısa ve öz hale getir' },
+    { id: 'rewrite', icon: <RefreshCw />, label: 'Yeniden Yaz', description: 'Farklı bir tarzda yaz' },
+    { id: 'continue', icon: <ChevronRight />, label: 'Devam Et', description: 'Metni devam ettir' },
+    { id: 'X', icon: <Check />, label: 'Düzelt', description: 'Yazım hatalarını düzelt' },
   ];
 
   // Writing Style Options
@@ -60,11 +60,11 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
 
   // Content Generation Templates
   const generateTemplates = [
-    { id: 'outline', icon: <FiList />, label: 'Taslak Oluştur', prompt: 'Bu konu için bir taslak oluştur' },
-    { id: 'brainstorm', icon: <FiSparkles />, label: 'Beyin Fırtınası', prompt: 'Bu konuyla ilgili fikirler üret' },
-    { id: 'intro', icon: <FiBookOpen />, label: 'Giriş Yaz', prompt: 'Etkileyici bir giriş paragrafı yaz' },
-    { id: 'conclusion', icon: <FiPenTool />, label: 'Sonuç Yaz', prompt: 'Güçlü bir sonuç paragrafı yaz' },
-    { id: 'questions', icon: <FiMessageSquare />, label: 'Sorular Üret', prompt: 'Bu konuyla ilgili sorular oluştur' },
+    { id: 'outline', icon: <List />, label: 'Taslak Oluştur', prompt: 'Bu konu için bir taslak oluştur' },
+    { id: 'brainstorm', icon: <Sparkles />, label: 'Beyin Fırtınası', prompt: 'Bu konuyla ilgili fikirler üret' },
+    { id: 'intro', icon: <BookOpen />, label: 'Giriş Yaz', prompt: 'Etkileyici bir giriş paragrafı yaz' },
+    { id: 'conclusion', icon: <PenTool />, label: 'Sonuç Yaz', prompt: 'Güçlü bir sonuç paragrafı yaz' },
+    { id: 'questions', icon: <MessageSquare />, label: 'Sorular Üret', prompt: 'Bu konuyla ilgili sorular oluştur' },
   ];
 
   // Handle quick action
@@ -112,10 +112,10 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
           preview: 'Metin devam ettirildi...',
           fullText: `${textToProcess}\n\n[AI tarafından eklenen devam metni...]`
         });
-      } else if (actionId === 'fix') {
+      } else if (actionId === 'X') {
         mockSuggestions.push({
           id: '1',
-          type: 'fix',
+          type: 'X',
           label: 'Düzeltilmiş Versiyon',
           preview: 'Yazım hataları düzeltildi...',
           fullText: textToProcess.replace(/\s+/g, ' ').trim()
@@ -173,7 +173,7 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
           <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-500/10 to-indigo-500/10">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl text-white">
-                <FiZap className="w-5 h-5" />
+                <Zap className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="font-bold text-gray-900 dark:text-white">AI Yazma Asistanı</h3>
@@ -184,7 +184,7 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
               onClick={onClose}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
             >
-              <FiX className="w-5 h-5 text-gray-500" />
+              <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
 
@@ -312,7 +312,7 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
-                      <FiZap />
+                      <Zap />
                     </motion.button>
                   </div>
                 </div>
@@ -355,7 +355,7 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                       >
-                        <FiCheck className="w-3 h-3" />
+                        <Check className="w-3 h-3" />
                         Uygula
                       </motion.button>
                     </div>
@@ -373,7 +373,7 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
             <div className="flex items-center justify-between text-xs text-gray-500">
               <span>💡 Metin seçerek daha spesifik öneriler alın</span>
               <span className="flex items-center gap-1">
-                <FiZap className="w-3 h-3 text-purple-500" />
+                <Zap className="w-3 h-3 text-purple-500" />
                 Powered by AI
               </span>
             </div>

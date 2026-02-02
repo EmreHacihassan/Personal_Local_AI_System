@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiX, FiCommand, FiInfo } from 'react-icons/fi';
+import { X, Command, Info } from 'lucide-react';
 
 interface ShortcutCategory {
   name: string;
@@ -128,7 +128,7 @@ const KeyboardShortcutsPanel: React.FC<KeyboardShortcutsPanelProps> = ({
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-indigo-500/10 to-purple-500/10">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl text-white">
-                <FiCommand className="w-5 h-5" />
+                <Command className="w-5 h-5" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">
@@ -141,7 +141,7 @@ const KeyboardShortcutsPanel: React.FC<KeyboardShortcutsPanelProps> = ({
               onClick={onClose}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
             >
-              <FiX className="w-5 h-5 text-gray-500" />
+              <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
 
@@ -196,7 +196,7 @@ const KeyboardShortcutsPanel: React.FC<KeyboardShortcutsPanelProps> = ({
               className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800"
             >
               <div className="flex items-start gap-3">
-                <FiInfo className="w-5 h-5 text-blue-500 mt-0.5" />
+                <Info className="w-5 h-5 text-blue-500 mt-0.5" />
                 <div className="text-sm text-gray-600 dark:text-gray-400">
                   <strong className="text-gray-900 dark:text-white">İpucu:</strong>{' '}
                   Bu paneli herhangi bir zamanda <kbd className="px-1.5 py-0.5 bg-white dark:bg-gray-700 rounded text-xs mx-1">?</kbd> tuşuna basarak açabilirsiniz.

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiCheck, FiCloud, FiCloudOff, FiLoader } from 'react-icons/fi';
+import { Check, Cloud, CloudOff, Loader } from 'lucide-react';
 
 interface AutoSaveIndicatorProps {
   content: string;
@@ -73,7 +73,7 @@ const AutoSaveIndicator: React.FC<AutoSaveIndicatorProps> = ({
       >
         {status === 'idle' && lastSaved && (
           <span className="flex items-center gap-1.5 text-gray-400">
-            <FiCloud className="w-3.5 h-3.5" />
+            <Cloud className="w-3.5 h-3.5" />
             <span>Kaydedildi {formatLastSaved()}</span>
           </span>
         )}
@@ -84,7 +84,7 @@ const AutoSaveIndicator: React.FC<AutoSaveIndicatorProps> = ({
               animate={{ scale: [1, 1.2, 1] }}
               transition={{ duration: 0.5, repeat: Infinity }}
             >
-              <FiCloud className="w-3.5 h-3.5" />
+              <Cloud className="w-3.5 h-3.5" />
             </motion.div>
             <span>Değişiklikler algılandı...</span>
           </span>
@@ -96,7 +96,7 @@ const AutoSaveIndicator: React.FC<AutoSaveIndicatorProps> = ({
               animate={{ rotate: 360 }}
               transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
             >
-              <FiLoader className="w-3.5 h-3.5" />
+              <Loader className="w-3.5 h-3.5" />
             </motion.div>
             <span>Kaydediliyor...</span>
           </span>
@@ -109,7 +109,7 @@ const AutoSaveIndicator: React.FC<AutoSaveIndicatorProps> = ({
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 500 }}
             >
-              <FiCheck className="w-3.5 h-3.5" />
+              <Check className="w-3.5 h-3.5" />
             </motion.div>
             <span>Kaydedildi!</span>
           </span>
@@ -117,7 +117,7 @@ const AutoSaveIndicator: React.FC<AutoSaveIndicatorProps> = ({
         
         {status === 'error' && (
           <span className="flex items-center gap-1.5 text-red-500">
-            <FiCloudOff className="w-3.5 h-3.5" />
+            <CloudOff className="w-3.5 h-3.5" />
             <span>Kaydetme başarısız</span>
           </span>
         )}

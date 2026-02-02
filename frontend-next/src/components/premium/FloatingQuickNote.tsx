@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useDragControls } from 'framer-motion';
-import { FiPlus, FiX, FiCheck, FiMinimize2, FiMaximize2, FiMove } from 'react-icons/fi';
+import { Plus, X, Check, Minimize2, Maximize2, Move } from 'lucide-react';
 
 interface FloatingQuickNoteProps {
   onSave: (content: string, title?: string) => Promise<void>;
@@ -87,7 +87,7 @@ const FloatingQuickNote: React.FC<FloatingQuickNoteProps> = ({
             className="fixed bottom-6 right-6 z-50 p-4 bg-gradient-to-r from-purple-500 to-indigo-500 text-white rounded-full shadow-lg hover:shadow-xl transition-shadow"
             title="Hızlı Not (Alt+N)"
           >
-            <FiPlus className="w-6 h-6" />
+            <Plus className="w-6 h-6" />
           </motion.button>
         )}
       </AnimatePresence>
@@ -123,7 +123,7 @@ const FloatingQuickNote: React.FC<FloatingQuickNoteProps> = ({
               onPointerDown={(e) => dragControls.start(e)}
             >
               <div className="flex items-center gap-2 text-white">
-                <FiMove className="w-4 h-4 opacity-60" />
+                <Move className="w-4 h-4 opacity-60" />
                 <span className="font-medium text-sm">Hızlı Not</span>
                 {content.length > 0 && (
                   <span className="text-xs opacity-70">
@@ -136,13 +136,13 @@ const FloatingQuickNote: React.FC<FloatingQuickNoteProps> = ({
                   onClick={() => setIsMinimized(!isMinimized)}
                   className="p-1.5 hover:bg-white/20 rounded transition-colors text-white"
                 >
-                  {isMinimized ? <FiMaximize2 className="w-3.5 h-3.5" /> : <FiMinimize2 className="w-3.5 h-3.5" />}
+                  {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
                 </button>
                 <button
                   onClick={handleClose}
                   className="p-1.5 hover:bg-white/20 rounded transition-colors text-white"
                 >
-                  <FiX className="w-3.5 h-3.5" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
@@ -182,7 +182,7 @@ const FloatingQuickNote: React.FC<FloatingQuickNoteProps> = ({
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    <FiCheck className="w-4 h-4" />
+                    <Check className="w-4 h-4" />
                     {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
                   </motion.button>
                 </div>

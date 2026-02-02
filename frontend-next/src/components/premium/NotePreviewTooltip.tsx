@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiFileText, FiClock, FiTag, FiFolder } from 'react-icons/fi';
+import { FileText, Clock, Tag, Folder } from 'lucide-react';
 
 interface Note {
   id: string;
@@ -142,7 +142,7 @@ const NotePreviewTooltip: React.FC<NotePreviewTooltipProps> = ({
               {/* Header */}
               <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-700/50">
                 <div className="flex items-center gap-2">
-                  <FiFileText className="w-4 h-4 text-gray-500" />
+                  <FileText className="w-4 h-4 text-gray-500" />
                   <h4 className="font-medium text-gray-900 dark:text-white truncate">
                     {note.title || 'Başlıksız Not'}
                   </h4>
@@ -160,19 +160,19 @@ const NotePreviewTooltip: React.FC<NotePreviewTooltipProps> = ({
               <div className="px-4 py-2 bg-black/5 dark:bg-white/5 flex flex-wrap items-center gap-3 text-xs text-gray-500">
                 {note.updatedAt && (
                   <span className="flex items-center gap-1">
-                    <FiClock className="w-3 h-3" />
+                    <Clock className="w-3 h-3" />
                     {formatDate(note.updatedAt)}
                   </span>
                 )}
                 {note.folder && (
                   <span className="flex items-center gap-1">
-                    <FiFolder className="w-3 h-3" />
+                    <Folder className="w-3 h-3" />
                     {note.folder}
                   </span>
                 )}
                 {note.tags && note.tags.length > 0 && (
                   <span className="flex items-center gap-1">
-                    <FiTag className="w-3 h-3" />
+                    <Tag className="w-3 h-3" />
                     {note.tags.slice(0, 2).join(', ')}
                     {note.tags.length > 2 && ` +${note.tags.length - 2}`}
                   </span>

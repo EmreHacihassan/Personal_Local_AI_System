@@ -3,11 +3,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FiSearch, FiCommand, FiFileText, FiFolder, FiPlus, FiTrash2,
-  FiArchive, FiStar, FiLock, FiUnlock, FiCopy, FiDownload,
-  FiUpload, FiTag, FiSettings, FiMoon, FiSun, FiZap,
-  FiBookOpen, FiClock, FiTrendingUp, FiGrid, FiList
-} from 'react-icons/fi';
+  Search, Command, FileText, Folder, Plus, Trash2,
+  Archive, Star, Lock, Unlock, Copy, Download,
+  Upload, Tag, Settings, Moon, Sun, Zap,
+  BookOpen, Clock, TrendingUp, Grid, List
+} from 'lucide-react';
 
 interface QuickAction {
   id: string;
@@ -40,34 +40,34 @@ const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
   // Define all available actions
   const actions: QuickAction[] = [
     // Note Actions
-    { id: 'new-note', label: 'Yeni Not', description: 'Hızlıca yeni not oluştur', icon: <FiPlus />, shortcut: 'Ctrl+N', category: 'note', action: () => onAction('new-note') },
-    { id: 'save-note', label: 'Notu Kaydet', description: 'Aktif notu kaydet', icon: <FiDownload />, shortcut: 'Ctrl+S', category: 'note', action: () => onAction('save-note') },
-    { id: 'duplicate-note', label: 'Notu Kopyala', description: 'Aktif notun kopyasını oluştur', icon: <FiCopy />, category: 'note', action: () => onAction('duplicate-note') },
-    { id: 'delete-note', label: 'Notu Sil', description: 'Aktif notu çöpe taşı', icon: <FiTrash2 />, category: 'note', action: () => onAction('delete-note') },
-    { id: 'archive-note', label: 'Arşivle', description: 'Notu arşive taşı', icon: <FiArchive />, category: 'note', action: () => onAction('archive-note') },
-    { id: 'pin-note', label: 'Sabitle/Kaldır', description: 'Notu en üste sabitle', icon: <FiStar />, shortcut: 'Ctrl+P', category: 'note', action: () => onAction('pin-note') },
-    { id: 'lock-note', label: 'Kilitle/Aç', description: 'Notu kilitle veya aç', icon: <FiLock />, category: 'note', action: () => onAction('lock-note') },
-    { id: 'add-tags', label: 'Etiket Ekle', description: 'Nota etiket ekle', icon: <FiTag />, shortcut: 'Ctrl+T', category: 'note', action: () => onAction('add-tags') },
+    { id: 'new-note', label: 'Yeni Not', description: 'Hızlıca yeni not oluştur', icon: <Plus />, shortcut: 'Ctrl+N', category: 'note', action: () => onAction('new-note') },
+    { id: 'save-note', label: 'Notu Kaydet', description: 'Aktif notu kaydet', icon: <Download />, shortcut: 'Ctrl+S', category: 'note', action: () => onAction('save-note') },
+    { id: 'duplicate-note', label: 'Notu Kopyala', description: 'Aktif notun kopyasını oluştur', icon: <Copy />, category: 'note', action: () => onAction('duplicate-note') },
+    { id: 'delete-note', label: 'Notu Sil', description: 'Aktif notu çöpe taşı', icon: <Trash2 />, category: 'note', action: () => onAction('delete-note') },
+    { id: 'archive-note', label: 'Arşivle', description: 'Notu arşive taşı', icon: <Archive />, category: 'note', action: () => onAction('archive-note') },
+    { id: 'pin-note', label: 'Sabitle/Kaldır', description: 'Notu en üste sabitle', icon: <Star />, shortcut: 'Ctrl+P', category: 'note', action: () => onAction('pin-note') },
+    { id: 'lock-note', label: 'Kilitle/Aç', description: 'Notu kilitle veya aç', icon: <Lock />, category: 'note', action: () => onAction('lock-note') },
+    { id: 'add-tags', label: 'Etiket Ekle', description: 'Nota etiket ekle', icon: <Tag />, shortcut: 'Ctrl+T', category: 'note', action: () => onAction('add-tags') },
     
     // Folder Actions
-    { id: 'new-folder', label: 'Yeni Klasör', description: 'Yeni klasör oluştur', icon: <FiFolder />, category: 'folder', action: () => onAction('new-folder') },
+    { id: 'new-folder', label: 'Yeni Klasör', description: 'Yeni klasör oluştur', icon: <Folder />, category: 'folder', action: () => onAction('new-folder') },
     
     // View Actions
-    { id: 'toggle-sidebar', label: 'Kenar Çubuğu', description: 'Kenar çubuğunu aç/kapat', icon: <FiList />, shortcut: 'Ctrl+B', category: 'view', action: () => onAction('toggle-sidebar') },
-    { id: 'grid-view', label: 'Izgara Görünümü', description: 'Notları ızgara olarak göster', icon: <FiGrid />, category: 'view', action: () => onAction('grid-view') },
-    { id: 'list-view', label: 'Liste Görünümü', description: 'Notları liste olarak göster', icon: <FiList />, category: 'view', action: () => onAction('list-view') },
-    { id: 'focus-mode', label: 'Odak Modu', description: 'Dikkat dağıtmayan yazma modu', icon: <FiZap />, shortcut: 'Ctrl+Shift+F', category: 'view', action: () => onAction('focus-mode') },
-    { id: 'zen-mode', label: 'Zen Modu', description: 'Tam ekran yazma deneyimi', icon: <FiBookOpen />, shortcut: 'F11', category: 'view', action: () => onAction('zen-mode') },
+    { id: 'toggle-sidebar', label: 'Kenar Çubuğu', description: 'Kenar çubuğunu aç/kapat', icon: <List />, shortcut: 'Ctrl+B', category: 'view', action: () => onAction('toggle-sidebar') },
+    { id: 'grid-view', label: 'Izgara Görünümü', description: 'Notları ızgara olarak göster', icon: <Grid />, category: 'view', action: () => onAction('grid-view') },
+    { id: 'list-view', label: 'Liste Görünümü', description: 'Notları liste olarak göster', icon: <List />, category: 'view', action: () => onAction('list-view') },
+    { id: 'focus-mode', label: 'Odak Modu', description: 'Dikkat dağıtmayan yazma modu', icon: <Zap />, shortcut: 'Ctrl+Shift+F', category: 'view', action: () => onAction('focus-mode') },
+    { id: 'zen-mode', label: 'Zen Modu', description: 'Tam ekran yazma deneyimi', icon: <BookOpen />, shortcut: 'F11', category: 'view', action: () => onAction('zen-mode') },
     
     // Tools
-    { id: 'smart-insights', label: 'Akıllı Analiz', description: 'AI ile not analizi', icon: <FiTrendingUp />, category: 'tools', action: () => onAction('smart-insights') },
-    { id: 'pomodoro', label: 'Pomodoro Timer', description: 'Odaklanma zamanlayıcısı', icon: <FiClock />, category: 'tools', action: () => onAction('pomodoro') },
-    { id: 'export-pdf', label: 'PDF Olarak Dışa Aktar', description: 'Notu PDF formatında indir', icon: <FiDownload />, category: 'tools', action: () => onAction('export-pdf') },
-    { id: 'import-notes', label: 'Notları İçe Aktar', description: 'Dosyadan not içe aktar', icon: <FiUpload />, category: 'tools', action: () => onAction('import-notes') },
+    { id: 'smart-insights', label: 'Akıllı Analiz', description: 'AI ile not analizi', icon: <TrendingUp />, category: 'tools', action: () => onAction('smart-insights') },
+    { id: 'pomodoro', label: 'Pomodoro Timer', description: 'Odaklanma zamanlayıcısı', icon: <Clock />, category: 'tools', action: () => onAction('pomodoro') },
+    { id: 'export-pdf', label: 'PDF Olarak Dışa Aktar', description: 'Notu PDF formatında indir', icon: <Download />, category: 'tools', action: () => onAction('export-pdf') },
+    { id: 'import-notes', label: 'Notları İçe Aktar', description: 'Dosyadan not içe aktar', icon: <Upload />, category: 'tools', action: () => onAction('import-notes') },
     
     // Settings
-    { id: 'toggle-theme', label: 'Tema Değiştir', description: 'Açık/koyu tema', icon: <FiMoon />, shortcut: 'Ctrl+Shift+T', category: 'settings', action: () => onAction('toggle-theme') },
-    { id: 'settings', label: 'Ayarlar', description: 'Uygulama ayarlarını aç', icon: <FiSettings />, shortcut: 'Ctrl+,', category: 'settings', action: () => onAction('settings') },
+    { id: 'toggle-theme', label: 'Tema Değiştir', description: 'Açık/koyu tema', icon: <Moon />, shortcut: 'Ctrl+Shift+T', category: 'settings', action: () => onAction('toggle-theme') },
+    { id: 'settings', label: 'Ayarlar', description: 'Uygulama ayarlarını aç', icon: <Settings />, shortcut: 'Ctrl+,', category: 'settings', action: () => onAction('settings') },
   ];
 
   // Filter actions based on search query
@@ -191,8 +191,8 @@ const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
           {/* Search Header */}
           <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-2 text-gray-400">
-              <FiCommand className="w-5 h-5" />
-              <FiSearch className="w-5 h-5" />
+              <Command className="w-5 h-5" />
+              <Search className="w-5 h-5" />
             </div>
             <input
               ref={inputRef}
@@ -214,7 +214,7 @@ const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
           {currentNote && (
             <div className="px-4 py-2 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-b border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-2 text-sm">
-                <FiFileText className="text-purple-500" />
+                <FileText className="text-purple-500" />
                 <span className="text-gray-500">Aktif not:</span>
                 <span className="font-medium text-gray-900 dark:text-white truncate">{currentNote.title}</span>
               </div>
@@ -280,7 +280,7 @@ const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
 
             {flatActions.length === 0 && (
               <div className="text-center py-12 text-gray-500">
-                <FiSearch className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
                 <p>Sonuç bulunamadı</p>
                 <p className="text-sm mt-1">Farklı bir arama deneyin</p>
               </div>

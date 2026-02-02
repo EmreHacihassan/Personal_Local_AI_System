@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiClock, FiChevronRight, FiFileText, FiStar } from 'react-icons/fi';
+import { Clock, ChevronRight, FileText, Star } from 'lucide-react';
 
 interface Note {
   id: string;
@@ -79,7 +79,7 @@ const RecentNotesWidget: React.FC<RecentNotesWidgetProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
         <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-          <FiClock className="w-4 h-4 text-blue-500" />
+          <Clock className="w-4 h-4 text-blue-500" />
           <span className="font-medium text-sm">Son Erişilen</span>
         </div>
         <span className="text-xs text-gray-500">{recentNotes.length} not</span>
@@ -107,7 +107,7 @@ const RecentNotesWidget: React.FC<RecentNotesWidgetProps> = ({
                   <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
                     {note.title || 'Başlıksız'}
                   </span>
-                  {note.isPinned && <FiStar className="w-3 h-3 text-amber-500 flex-shrink-0" />}
+                  {note.isPinned && <Star className="w-3 h-3 text-amber-500 flex-shrink-0" />}
                 </div>
                 <div className="text-xs text-gray-500 truncate">
                   {getPreview(note.content)}
@@ -119,7 +119,7 @@ const RecentNotesWidget: React.FC<RecentNotesWidgetProps> = ({
                 <span className="text-xs text-gray-400">
                   {formatTimeAgo(note.updatedAt)}
                 </span>
-                <FiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
+                <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
               </div>
             </motion.button>
           ))}

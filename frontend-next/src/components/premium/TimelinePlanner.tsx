@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Plus, ChevronLeft, ChevronRight, X,
   Clock, Edit2, Trash2, Save, Check, Star,
-  AlertCircle, Bell, Repeat, Tag
+  AlertCircle, Bell, Repeat, Tag, Search, 
+  Download, Upload, Copy, Filter, Eye, 
+  ChevronDown, LayoutGrid, List, ArrowRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +22,7 @@ interface PlanEvent {
   isPinned?: boolean;
   reminder?: boolean;
   category?: string;
+  repeat?: 'daily' | 'weekly' | 'monthly' | 'yearly' | null;
 }
 
 interface TimelinePlannerProps {
@@ -85,6 +88,14 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
   const [editingEvent, setEditingEvent] = useState<PlanEvent | null>(null);
   const [timelineMonths, setTimelineMonths] = useState<Date[]>([]);
   
+  // New comfort features state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
+  const [filterCategory, setFilterCategory] = useState<string>('');
+  const [showUpcoming, setShowUpcoming] = useState(true);
+  const [quickAddText, setQuickAddText] = useState('');
+  
   // Form state
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
@@ -135,6 +146,117 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
   // Check if date has events
   const hasEvents = (dateStr: string): boolean => {
     return events.some(e => e.date === dateStr);
+  };
+
+  // Search and filter events
+  const filteredEvents = useMemo(() => {
+    let result = events;
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(e => 
+        e.title.toLowerCase().includes(query) ||
+        e.description?.toLowerCase().includes(query) ||
+        e.category?.toLowerCase().includes(query)
+      );
+    }
+    
+    if (filterCategory) {
+      result = result.filter(e => e.category === filterCategory);
+    }
+    
+    return result;
+  }, [events, searchQuery, filterCategory]);
+
+  // Upcoming events (next 7 days)
+  const upcomingEvents = useMemo(() => {
+    const today = new Date();
+    const weekLater = new Date(today);
+    weekLater.setDate(weekLater.getDate() + 7);
+    
+    return events
+      .filter(e => {
+        const eventDate = new Date(e.date);
+        return eventDate >= today && eventDate <= weekLater;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [events]);
+
+  // Quick add event
+  const handleQuickAdd = () => {
+    if (!quickAddText.trim()) return;
+    
+    const newEvent: PlanEvent = {
+      id: `event-${Date.now()}`,
+      date: selectedDate,
+      title: quickAddText.trim(),
+      color: EVENT_COLORS[4].value
+    };
+    
+    setEvents(prev => [...prev, newEvent]);
+    setQuickAddText('');
+    onEventAdd?.(newEvent);
+  };
+
+  // Duplicate event
+  const duplicateEvent = (event: PlanEvent) => {
+    const newEvent: PlanEvent = {
+      ...event,
+      id: `event-${Date.now()}`,
+      title: `${event.title} (kopya)`
+    };
+    setEvents(prev => [...prev, newEvent]);
+  };
+
+  // Export events
+  const exportEvents = () => {
+    const data = JSON.stringify(events, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `takvim-${formatDate(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Import events
+  const importEvents = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target?.result as string);
+        if (Array.isArray(imported)) {
+          setEvents(prev => [...prev, ...imported.map((ev: PlanEvent) => ({
+            ...ev,
+            id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          }))]);
+        }
+      } catch (err) {
+        console.error('Import failed:', err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // Get week days for week view
+  const getWeekDays = () => {
+    const selected = new Date(selectedDate);
+    const dayOfWeek = selected.getDay();
+    const monday = new Date(selected);
+    monday.setDate(selected.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    
+    const days: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(monday);
+      day.setDate(monday.getDate() + i);
+      days.push(day);
+    }
+    return days;
   };
 
   // Navigate months
@@ -379,14 +501,109 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
             <Calendar className="w-5 h-5 text-primary-500" />
             Takvim Planlayıcı
           </h2>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={goToToday}
-            className="px-3 py-1.5 text-sm font-medium bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
-          >
-            Bugün
-          </motion.button>
+          
+          {/* Toolbar */}
+          <div className="flex items-center gap-2">
+            {/* Search */}
+            <div className="relative">
+              {showSearch ? (
+                <motion.div
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 200, opacity: 1 }}
+                  className="flex items-center"
+                >
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="Etkinlik ara..."
+                    className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => { setShowSearch(false); setSearchQuery(''); }}
+                    className="ml-1 p-1 hover:bg-muted rounded"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </motion.div>
+              ) : (
+                <button
+                  onClick={() => setShowSearch(true)}
+                  className="p-2 hover:bg-muted rounded-lg transition-colors"
+                  title="Ara"
+                >
+                  <Search className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Category Filter */}
+            <select
+              value={filterCategory}
+              onChange={e => setFilterCategory(e.target.value)}
+              className="px-2 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value="">Tüm Kategoriler</option>
+              {CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+
+            {/* View Mode Toggle */}
+            <div className="flex bg-muted rounded-lg p-0.5">
+              <button
+                onClick={() => setViewMode('month')}
+                className={cn(
+                  "p-1.5 rounded transition-colors",
+                  viewMode === 'month' ? "bg-background shadow-sm" : "hover:bg-background/50"
+                )}
+                title="Aylık Görünüm"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('week')}
+                className={cn(
+                  "p-1.5 rounded transition-colors",
+                  viewMode === 'week' ? "bg-background shadow-sm" : "hover:bg-background/50"
+                )}
+                title="Haftalık Görünüm"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Import/Export */}
+            <div className="flex gap-1">
+              <button
+                onClick={exportEvents}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+                title="Dışa Aktar"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+              <label className="p-2 hover:bg-muted rounded-lg transition-colors cursor-pointer" title="İçe Aktar">
+                <Upload className="w-4 h-4" />
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={importEvents}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {/* Today Button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={goToToday}
+              className="px-3 py-1.5 text-sm font-medium bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+            >
+              Bugün
+            </motion.button>
+          </div>
         </div>
         
         {/* Horizontal Timeline */}
@@ -454,6 +671,50 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Upcoming Events Panel */}
+          {showUpcoming && upcomingEvents.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-border">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold flex items-center gap-1">
+                  <Bell className="w-3.5 h-3.5 text-orange-500" />
+                  Yaklaşan
+                </h4>
+                <button
+                  onClick={() => setShowUpcoming(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Gizle
+                </button>
+              </div>
+              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                {upcomingEvents.slice(0, 5).map(event => {
+                  const eventDate = new Date(event.date);
+                  const isToday = formatDate(eventDate) === formatDate(new Date());
+                  return (
+                    <motion.div
+                      key={event.id}
+                      whileHover={{ x: 2 }}
+                      onClick={() => setSelectedDate(event.date)}
+                      className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted cursor-pointer text-xs"
+                    >
+                      <span 
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: event.color || '#3b82f6' }}
+                      />
+                      <span className="flex-1 truncate">{event.title}</span>
+                      <span className={cn(
+                        "text-[10px] flex-shrink-0",
+                        isToday ? "text-green-500 font-medium" : "text-muted-foreground"
+                      )}>
+                        {isToday ? 'Bugün' : `${eventDate.getDate()}/${eventDate.getMonth() + 1}`}
+                      </span>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right: Selected Day Events */}
@@ -482,6 +743,29 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
               <Plus className="w-4 h-4" />
               Etkinlik Ekle
             </motion.button>
+          </div>
+
+          {/* Quick Add Bar */}
+          <div className="mb-4">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={quickAddText}
+                onChange={e => setQuickAddText(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleQuickAdd()}
+                placeholder="Hızlı etkinlik ekle... (Enter)"
+                className="flex-1 px-4 py-2.5 bg-muted/50 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+              />
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleQuickAdd}
+                disabled={!quickAddText.trim()}
+                className="px-4 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Check className="w-5 h-5" />
+              </motion.button>
+            </div>
           </div>
 
           {/* Events List */}
@@ -566,14 +850,25 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                             "p-1.5 rounded-lg transition-colors",
                             event.isPinned ? "text-yellow-500 bg-yellow-500/10" : "text-muted-foreground hover:bg-muted"
                           )}
+                          title="Sabitle"
                         >
                           <Star className="w-4 h-4" />
                         </motion.button>
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
+                          onClick={() => duplicateEvent(event)}
+                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                          title="Kopyala"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => openEventModal(event)}
                           className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+                          title="Düzenle"
                         >
                           <Edit2 className="w-4 h-4" />
                         </motion.button>
@@ -582,6 +877,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                           whileTap={{ scale: 0.9 }}
                           onClick={() => deleteEvent(event.id)}
                           className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+                          title="Sil"
                         >
                           <Trash2 className="w-4 h-4" />
                         </motion.button>
@@ -602,7 +898,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="Xed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             onClick={() => setShowEventModal(false)}
           >
             <motion.div

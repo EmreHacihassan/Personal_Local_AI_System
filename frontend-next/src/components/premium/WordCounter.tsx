@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { FiClock, FiType, FiFileText, FiBook } from 'react-icons/fi';
+import { Clock, Type, FileText, BookOpen } from 'lucide-react';
 
 interface WordCounterProps {
   content: string;
@@ -38,12 +38,12 @@ const WordCounter: React.FC<WordCounterProps> = ({
         className={`flex items-center gap-3 text-xs text-gray-500 ${className}`}
       >
         <span className="flex items-center gap-1">
-          <FiType className="w-3 h-3" />
+          <Type className="w-3 h-3" />
           {wordCount} kelime
         </span>
         <span className="text-gray-300 dark:text-gray-600">•</span>
         <span className="flex items-center gap-1">
-          <FiClock className="w-3 h-3" />
+          <Clock className="w-3 h-3" />
           {readingTimeDisplay}
         </span>
       </motion.div>
@@ -57,7 +57,7 @@ const WordCounter: React.FC<WordCounterProps> = ({
       className={`p-4 bg-gray-50 dark:bg-gray-800 rounded-xl space-y-3 ${className}`}
     >
       <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
-        <FiFileText className="w-4 h-4" />
+        <FileText className="w-4 h-4" />
         Metin İstatistikleri
       </h4>
       
@@ -93,13 +93,13 @@ const WordCounter: React.FC<WordCounterProps> = ({
 
       <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-600">
         <div className="flex items-center gap-2 text-sm">
-          <FiClock className="w-4 h-4 text-blue-500" />
+          <Clock className="w-4 h-4 text-blue-500" />
           <span className="text-gray-600 dark:text-gray-400">
             Okuma: <strong className="text-gray-900 dark:text-white">{readingTimeMinutes} dk</strong>
           </span>
         </div>
         <div className="flex items-center gap-2 text-sm">
-          <FiBook className="w-4 h-4 text-green-500" />
+          <BookOpen className="w-4 h-4 text-green-500" />
           <span className="text-gray-600 dark:text-gray-400">
             Konuşma: <strong className="text-gray-900 dark:text-white">{speakingTimeMinutes} dk</strong>
           </span>

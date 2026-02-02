@@ -3,10 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FiX, FiTrendingUp, FiFileText, FiFolder, FiClock,
-  FiCalendar, FiAward, FiActivity, FiPieChart,
-  FiBarChart2, FiEdit3, FiZap, FiStar
-} from 'react-icons/fi';
+  X, TrendingUp, FileText, Folder, Clock,
+  Calendar, Award, Activity, PieChart,
+  BarChart2, Edit3, Zap, Star
+} from 'lucide-react';
 
 interface StatsDashboardProps {
   isOpen: boolean;
@@ -115,7 +115,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-blue-500/10">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl text-white">
-                <FiBarChart2 className="w-6 h-6" />
+                <BarChart2 className="w-6 h-6" />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">
@@ -128,16 +128,16 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
               onClick={onClose}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
             >
-              <FiX className="w-5 h-5 text-gray-500" />
+              <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
 
           {/* Tabs */}
           <div className="flex gap-1 px-6 pt-4">
             {[
-              { id: 'overview', label: 'Genel Bakış', icon: <FiPieChart /> },
-              { id: 'activity', label: 'Aktivite', icon: <FiActivity /> },
-              { id: 'insights', label: 'İçgörüler', icon: <FiTrendingUp /> },
+              { id: 'overview', label: 'Genel Bakış', icon: <PieChart /> },
+              { id: 'activity', label: 'Aktivite', icon: <Activity /> },
+              { id: 'insights', label: 'İçgörüler', icon: <TrendingUp /> },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -171,10 +171,10 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {[
-                        { label: 'Toplam Not', value: noteCount, icon: <FiFileText />, color: 'from-blue-500 to-cyan-500' },
-                        { label: 'Klasör', value: folderCount, icon: <FiFolder />, color: 'from-purple-500 to-pink-500' },
-                        { label: 'Toplam Kelime', value: stats.totalWords.toLocaleString(), icon: <FiEdit3 />, color: 'from-green-500 to-emerald-500' },
-                        { label: 'Yazma Serisi', value: `${stats.writingStreak} gün 🔥`, icon: <FiZap />, color: 'from-orange-500 to-red-500' },
+                        { label: 'Toplam Not', value: noteCount, icon: <FileText />, color: 'from-blue-500 to-cyan-500' },
+                        { label: 'Klasör', value: folderCount, icon: <Folder />, color: 'from-purple-500 to-pink-500' },
+                        { label: 'Toplam Kelime', value: stats.totalWords.toLocaleString(), icon: <Edit3 />, color: 'from-green-500 to-emerald-500' },
+                        { label: 'Yazma Serisi', value: `${stats.writingStreak} gün 🔥`, icon: <Zap />, color: 'from-orange-500 to-red-500' },
                       ].map((stat, idx) => (
                         <motion.div
                           key={stat.label}
@@ -286,7 +286,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                     {/* Weekly Chart */}
                     <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
                       <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
-                        <FiCalendar className="w-4 h-4" />
+                        <Calendar className="w-4 h-4" />
                         Haftalık Aktivite
                       </h3>
                       
@@ -366,7 +366,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                     <div className="grid md:grid-cols-2 gap-4">
                       {[
                         {
-                          icon: <FiTrendingUp className="w-6 h-6" />,
+                          icon: <TrendingUp className="w-6 h-6" />,
                           title: 'Üretkenlik Trendi',
                           value: '+23%',
                           description: 'Bu hafta geçen haftaya göre daha fazla yazdınız!',
@@ -374,21 +374,21 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                           positive: true,
                         },
                         {
-                          icon: <FiClock className="w-6 h-6" />,
+                          icon: <Clock className="w-6 h-6" />,
                           title: 'En Verimli Saat',
                           value: '14:00 - 16:00',
                           description: 'Bu saatlerde en çok içerik üretiyorsunuz.',
                           color: 'from-blue-500 to-cyan-500',
                         },
                         {
-                          icon: <FiStar className="w-6 h-6" />,
+                          icon: <Star className="w-6 h-6" />,
                           title: 'En Popüler Etiket',
                           value: '#proje',
                           description: '15 notta kullanıldı',
                           color: 'from-purple-500 to-pink-500',
                         },
                         {
-                          icon: <FiAward className="w-6 h-6" />,
+                          icon: <Award className="w-6 h-6" />,
                           title: 'Başarı',
                           value: 'Haftalık Hedef ✓',
                           description: 'Bu hafta 25+ not hedefine ulaştınız!',
@@ -447,7 +447,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                       className="p-4 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-200 dark:border-purple-800 rounded-xl"
                     >
                       <div className="flex items-center gap-3 mb-2">
-                        <FiZap className="w-5 h-5 text-purple-500" />
+                        <Zap className="w-5 h-5 text-purple-500" />
                         <span className="font-medium text-purple-700 dark:text-purple-300">
                           AI Önerisi
                         </span>

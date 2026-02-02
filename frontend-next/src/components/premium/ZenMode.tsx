@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FiX, FiSave, FiClock, FiType, FiMaximize2, FiMusic, FiVolume2, FiVolumeX } from 'react-icons/fi';
+import { X, Save, Clock, Type, Maximize2, Music, Volume2, VolumeX } from 'lucide-react';
 
 interface ZenModeProps {
   isOpen: boolean;
@@ -118,10 +118,10 @@ const ZenMode: React.FC<ZenModeProps> = ({
 
   // Ambient sounds (placeholder - would need actual audio files)
   const ambientSounds = [
-    { id: 'none', label: 'Sessiz', icon: <FiVolumeX /> },
-    { id: 'rain', label: 'Yağmur', icon: <FiVolume2 /> },
-    { id: 'cafe', label: 'Kafe', icon: <FiVolume2 /> },
-    { id: 'forest', label: 'Orman', icon: <FiVolume2 /> },
+    { id: 'none', label: 'Sessiz', icon: <VolumeX /> },
+    { id: 'rain', label: 'Yağmur', icon: <Volume2 /> },
+    { id: 'cafe', label: 'Kafe', icon: <Volume2 /> },
+    { id: 'forest', label: 'Orman', icon: <Volume2 /> },
   ];
 
   if (!isOpen) return null;
@@ -168,11 +168,11 @@ const ZenMode: React.FC<ZenModeProps> = ({
           {/* Left - Session Stats */}
           <div className="flex items-center gap-6 text-white/60">
             <div className="flex items-center gap-2">
-              <FiClock className="w-4 h-4" />
+              <Clock className="w-4 h-4" />
               <span className="font-mono">{formatTime(sessionTime)}</span>
             </div>
             <div className="flex items-center gap-2">
-              <FiType className="w-4 h-4" />
+              <Type className="w-4 h-4" />
               <span>{wordCount} kelime</span>
             </div>
             <div className="text-sm text-white/40">
@@ -235,7 +235,7 @@ const ZenMode: React.FC<ZenModeProps> = ({
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              <FiSave className={isSaving ? 'animate-pulse' : ''} />
+              <Save className={isSaving ? 'animate-pulse' : ''} />
               {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
             </motion.button>
 
@@ -244,7 +244,7 @@ const ZenMode: React.FC<ZenModeProps> = ({
               onClick={onClose}
               className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-lg transition-all"
             >
-              <FiX className="w-5 h-5" />
+              <X className="w-5 h-5" />
             </button>
           </div>
         </motion.div>

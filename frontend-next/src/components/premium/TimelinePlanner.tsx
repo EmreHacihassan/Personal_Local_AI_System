@@ -4,10 +4,9 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Plus, ChevronLeft, ChevronRight, X,
-  Clock, Edit2, Trash2, Save, Check, Star,
-  AlertCircle, Bell, Repeat, Tag, Search, 
-  Download, Upload, Copy, Filter, Eye, 
-  ChevronDown, LayoutGrid, List, ArrowRight
+  Clock, Edit2, Trash2, Check, Star,
+  Bell, Tag, Search, Download, Upload, 
+  History, ChevronDown, ChevronUp, ArrowRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -22,7 +21,6 @@ interface PlanEvent {
   isPinned?: boolean;
   reminder?: boolean;
   category?: string;
-  repeat?: 'daily' | 'weekly' | 'monthly' | 'yearly' | null;
 }
 
 interface TimelinePlannerProps {
@@ -39,7 +37,10 @@ const MONTHS_TR = [
   'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
 ];
 
-const DAYS_TR = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+const MONTHS_SHORT_TR = [
+  'Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz',
+  'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'
+];
 
 const EVENT_COLORS = [
   { name: 'Kırmızı', value: '#ef4444' },
@@ -63,13 +64,8 @@ const formatDate = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
-const getDaysInMonth = (year: number, month: number): number => {
-  return new Date(year, month + 1, 0).getDate();
-};
-
-const getFirstDayOfMonth = (year: number, month: number): number => {
-  const day = new Date(year, month, 1).getDay();
-  return day === 0 ? 6 : day - 1; // Monday = 0
+const getMonthKey = (year: number, month: number): string => {
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
 };
 
 const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
@@ -81,41 +77,26 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
 }) => {
   // State
   const [events, setEvents] = useState<PlanEvent[]>(initialEvents);
-  const [selectedDate, setSelectedDate] = useState<string>(formatDate(new Date()));
-  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
-  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<{ year: number; month: number } | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<PlanEvent | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<PlanEvent | null>(null);
-  const [timelineMonths, setTimelineMonths] = useState<Date[]>([]);
-  
-  // New comfort features state
+  const [showHistory, setShowHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
-  const [viewMode, setViewMode] = useState<'month' | 'week'>('month');
-  const [filterCategory, setFilterCategory] = useState<string>('');
-  const [showUpcoming, setShowUpcoming] = useState(true);
-  const [quickAddText, setQuickAddText] = useState('');
   
   // Form state
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
+  const [eventDate, setEventDate] = useState('');
   const [eventTime, setEventTime] = useState('');
   const [eventColor, setEventColor] = useState(EVENT_COLORS[4].value);
   const [eventCategory, setEventCategory] = useState('');
   const [eventReminder, setEventReminder] = useState(false);
   
   const timelineRef = useRef<HTMLDivElement>(null);
-
-  // Initialize timeline months (12 months centered on current)
-  useEffect(() => {
-    const months: Date[] = [];
-    const now = new Date();
-    for (let i = -3; i <= 8; i++) {
-      const date = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      months.push(date);
-    }
-    setTimelineMonths(months);
-  }, []);
+  const today = new Date();
+  const currentMonthKey = getMonthKey(today.getFullYear(), today.getMonth());
 
   // Load events from localStorage
   useEffect(() => {
@@ -134,78 +115,57 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     localStorage.setItem('timeline-planner-events', JSON.stringify(events));
   }, [events]);
 
-  // Get events for a specific date
-  const getEventsForDate = (dateStr: string): PlanEvent[] => {
-    return events.filter(e => e.date === dateStr).sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return (a.time || '').localeCompare(b.time || '');
-    });
-  };
-
-  // Check if date has events
-  const hasEvents = (dateStr: string): boolean => {
-    return events.some(e => e.date === dateStr);
-  };
-
-  // Search and filter events
+  // Filter events
   const filteredEvents = useMemo(() => {
-    let result = events;
+    if (!searchQuery) return events;
+    const query = searchQuery.toLowerCase();
+    return events.filter(e => 
+      e.title.toLowerCase().includes(query) ||
+      e.description?.toLowerCase().includes(query) ||
+      e.category?.toLowerCase().includes(query)
+    );
+  }, [events, searchQuery]);
+
+  // Separate future and past events
+  const { futureMonths, pastEvents } = useMemo(() => {
+    const todayStr = formatDate(today);
+    const future: { [key: string]: PlanEvent[] } = {};
+    const past: PlanEvent[] = [];
     
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(e => 
-        e.title.toLowerCase().includes(query) ||
-        e.description?.toLowerCase().includes(query) ||
-        e.category?.toLowerCase().includes(query)
-      );
+    filteredEvents.forEach(event => {
+      if (event.date < todayStr) {
+        past.push(event);
+      } else {
+        const eventDate = new Date(event.date);
+        const monthKey = getMonthKey(eventDate.getFullYear(), eventDate.getMonth());
+        if (!future[monthKey]) future[monthKey] = [];
+        future[monthKey].push(event);
+      }
+    });
+    
+    // Sort past events by date descending
+    past.sort((a, b) => b.date.localeCompare(a.date));
+    
+    return { futureMonths: future, pastEvents: past };
+  }, [filteredEvents, today]);
+
+  // Generate future months for timeline (12 months from now)
+  const timelineMonthsData = useMemo(() => {
+    const months: { year: number; month: number; key: string }[] = [];
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
+      months.push({
+        year: date.getFullYear(),
+        month: date.getMonth(),
+        key: getMonthKey(date.getFullYear(), date.getMonth())
+      });
     }
-    
-    if (filterCategory) {
-      result = result.filter(e => e.category === filterCategory);
-    }
-    
-    return result;
-  }, [events, searchQuery, filterCategory]);
+    return months;
+  }, [today]);
 
-  // Upcoming events (next 7 days)
-  const upcomingEvents = useMemo(() => {
-    const today = new Date();
-    const weekLater = new Date(today);
-    weekLater.setDate(weekLater.getDate() + 7);
-    
-    return events
-      .filter(e => {
-        const eventDate = new Date(e.date);
-        return eventDate >= today && eventDate <= weekLater;
-      })
-      .sort((a, b) => a.date.localeCompare(b.date));
-  }, [events]);
-
-  // Quick add event
-  const handleQuickAdd = () => {
-    if (!quickAddText.trim()) return;
-    
-    const newEvent: PlanEvent = {
-      id: `event-${Date.now()}`,
-      date: selectedDate,
-      title: quickAddText.trim(),
-      color: EVENT_COLORS[4].value
-    };
-    
-    setEvents(prev => [...prev, newEvent]);
-    setQuickAddText('');
-    onEventAdd?.(newEvent);
-  };
-
-  // Duplicate event
-  const duplicateEvent = (event: PlanEvent) => {
-    const newEvent: PlanEvent = {
-      ...event,
-      id: `event-${Date.now()}`,
-      title: `${event.title} (kopya)`
-    };
-    setEvents(prev => [...prev, newEvent]);
+  // Get events for a specific month
+  const getEventsForMonth = (monthKey: string): PlanEvent[] => {
+    return futureMonths[monthKey] || [];
   };
 
   // Export events
@@ -243,54 +203,13 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     e.target.value = '';
   };
 
-  // Get week days for week view
-  const getWeekDays = () => {
-    const selected = new Date(selectedDate);
-    const dayOfWeek = selected.getDay();
-    const monday = new Date(selected);
-    monday.setDate(selected.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-    
-    const days: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(monday);
-      day.setDate(monday.getDate() + i);
-      days.push(day);
-    }
-    return days;
-  };
-
-  // Navigate months
-  const prevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11);
-      setCurrentYear(currentYear - 1);
-    } else {
-      setCurrentMonth(currentMonth - 1);
-    }
-  };
-
-  const nextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0);
-      setCurrentYear(currentYear + 1);
-    } else {
-      setCurrentMonth(currentMonth + 1);
-    }
-  };
-
-  const goToToday = () => {
-    const today = new Date();
-    setCurrentMonth(today.getMonth());
-    setCurrentYear(today.getFullYear());
-    setSelectedDate(formatDate(today));
-  };
-
   // Open event modal
-  const openEventModal = (event?: PlanEvent) => {
+  const openEventModal = (event?: PlanEvent, defaultMonth?: { year: number; month: number }) => {
     if (event) {
       setEditingEvent(event);
       setEventTitle(event.title);
       setEventDescription(event.description || '');
+      setEventDate(event.date);
       setEventTime(event.time || '');
       setEventColor(event.color || EVENT_COLORS[4].value);
       setEventCategory(event.category || '');
@@ -299,6 +218,13 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
       setEditingEvent(null);
       setEventTitle('');
       setEventDescription('');
+      // Default to first day of selected month or today
+      if (defaultMonth) {
+        const defaultDate = new Date(defaultMonth.year, defaultMonth.month, 1);
+        setEventDate(formatDate(defaultDate));
+      } else {
+        setEventDate(formatDate(new Date()));
+      }
       setEventTime('');
       setEventColor(EVENT_COLORS[4].value);
       setEventCategory('');
@@ -309,11 +235,11 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
 
   // Save event
   const saveEvent = () => {
-    if (!eventTitle.trim()) return;
+    if (!eventTitle.trim() || !eventDate) return;
 
     const newEvent: PlanEvent = {
       id: editingEvent?.id || `event-${Date.now()}`,
-      date: selectedDate,
+      date: eventDate,
       title: eventTitle.trim(),
       description: eventDescription.trim() || undefined,
       time: eventTime || undefined,
@@ -332,6 +258,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     }
 
     setShowEventModal(false);
+    setSelectedEvent(null);
   };
 
   // Delete event
@@ -339,171 +266,21 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     setEvents(prev => prev.filter(e => e.id !== id));
     onEventDelete?.(id);
     setShowEventModal(false);
+    setSelectedEvent(null);
   };
-
-  // Toggle pin
-  const togglePin = (id: string) => {
-    setEvents(prev => prev.map(e => 
-      e.id === id ? { ...e, isPinned: !e.isPinned } : e
-    ));
-  };
-
-  // Render calendar grid
-  const renderCalendar = () => {
-    const daysInMonth = getDaysInMonth(currentYear, currentMonth);
-    const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
-    const today = formatDate(new Date());
-    const days: JSX.Element[] = [];
-
-    // Empty cells for days before month starts
-    for (let i = 0; i < firstDay; i++) {
-      days.push(<div key={`empty-${i}`} className="h-8" />);
-    }
-
-    // Days of month
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const isSelected = dateStr === selectedDate;
-      const isToday = dateStr === today;
-      const hasEvent = hasEvents(dateStr);
-      const dayEvents = getEventsForDate(dateStr);
-      const eventColor = dayEvents[0]?.color;
-
-      days.push(
-        <motion.button
-          key={day}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setSelectedDate(dateStr)}
-          className={cn(
-            "relative h-8 w-8 rounded-lg text-sm font-medium transition-all",
-            "hover:bg-primary-500/20",
-            isSelected && "bg-primary-500 text-white hover:bg-primary-600",
-            isToday && !isSelected && "ring-2 ring-primary-500 ring-offset-1 ring-offset-background",
-            !isSelected && !isToday && "text-foreground/80"
-          )}
-        >
-          {day}
-          {hasEvent && !isSelected && (
-            <span 
-              className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
-              style={{ backgroundColor: eventColor || '#3b82f6' }}
-            />
-          )}
-        </motion.button>
-      );
-    }
-
-    return days;
-  };
-
-  // Render timeline
-  const renderTimeline = () => {
-    const today = new Date();
-    const todayStr = formatDate(today);
-
-    return (
-      <div 
-        ref={timelineRef}
-        className="flex overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
-      >
-        {timelineMonths.map((monthDate, monthIdx) => {
-          const year = monthDate.getFullYear();
-          const month = monthDate.getMonth();
-          const daysInMonth = getDaysInMonth(year, month);
-          const isCurrentMonth = month === today.getMonth() && year === today.getFullYear();
-
-          return (
-            <div key={monthIdx} className="flex-shrink-0">
-              {/* Month header */}
-              <div className={cn(
-                "sticky top-0 px-3 py-1.5 text-sm font-semibold border-b border-border/50 mb-2",
-                isCurrentMonth ? "text-primary-500" : "text-muted-foreground"
-              )}>
-                {MONTHS_TR[month]} {year}
-              </div>
-              
-              {/* Days */}
-              <div className="flex gap-1 px-2">
-                {Array.from({ length: daysInMonth }, (_, i) => {
-                  const day = i + 1;
-                  const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                  const isToday = dateStr === todayStr;
-                  const isSelected = dateStr === selectedDate;
-                  const dayEvents = getEventsForDate(dateStr);
-                  const hasEvent = dayEvents.length > 0;
-
-                  return (
-                    <motion.div
-                      key={day}
-                      whileHover={{ scale: 1.05 }}
-                      onClick={() => {
-                        setSelectedDate(dateStr);
-                        setCurrentMonth(month);
-                        setCurrentYear(year);
-                      }}
-                      className={cn(
-                        "flex flex-col items-center cursor-pointer transition-all min-w-[40px]",
-                        "rounded-lg p-1.5",
-                        isSelected && "bg-primary-500/20 ring-2 ring-primary-500",
-                        isToday && !isSelected && "bg-green-500/10 ring-1 ring-green-500",
-                        !isSelected && !isToday && "hover:bg-muted/50"
-                      )}
-                    >
-                      <span className={cn(
-                        "text-[10px] font-medium",
-                        isToday ? "text-green-500" : "text-muted-foreground"
-                      )}>
-                        {DAYS_TR[new Date(year, month, day).getDay() === 0 ? 6 : new Date(year, month, day).getDay() - 1]}
-                      </span>
-                      <span className={cn(
-                        "text-sm font-semibold",
-                        isSelected ? "text-primary-500" : isToday ? "text-green-500" : "text-foreground"
-                      )}>
-                        {day}
-                      </span>
-                      {hasEvent && (
-                        <div className="flex gap-0.5 mt-0.5">
-                          {dayEvents.slice(0, 3).map((ev, evIdx) => (
-                            <span 
-                              key={evIdx}
-                              className="w-1.5 h-1.5 rounded-full"
-                              style={{ backgroundColor: ev.color || '#3b82f6' }}
-                            />
-                          ))}
-                          {dayEvents.length > 3 && (
-                            <span className="text-[8px] text-muted-foreground">+{dayEvents.length - 3}</span>
-                          )}
-                        </div>
-                      )}
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  // Get selected date info
-  const selectedDateObj = new Date(selectedDate);
-  const selectedDateEvents = getEventsForDate(selectedDate);
-  const isSelectedToday = selectedDate === formatDate(new Date());
 
   return (
     <div className={cn("flex flex-col h-full bg-background", className)}>
-      {/* Header with Timeline */}
-      <div className="border-b border-border bg-gradient-to-r from-primary-500/5 to-purple-500/5">
-        <div className="flex items-center justify-between px-4 py-3">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-primary-500" />
+      {/* Header */}
+      <div className="border-b border-border bg-gradient-to-r from-primary-500/5 to-purple-500/5 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <Calendar className="w-6 h-6 text-primary-500" />
             Takvim Planlayıcı
           </h2>
           
           {/* Toolbar */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {/* Search */}
             <div className="relative">
               {showSearch ? (
@@ -538,202 +315,25 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
               )}
             </div>
 
-            {/* Category Filter */}
-            <select
-              value={filterCategory}
-              onChange={e => setFilterCategory(e.target.value)}
-              className="px-2 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="">Tüm Kategoriler</option>
-              {CATEGORIES.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-
-            {/* View Mode Toggle */}
-            <div className="flex bg-muted rounded-lg p-0.5">
-              <button
-                onClick={() => setViewMode('month')}
-                className={cn(
-                  "p-1.5 rounded transition-colors",
-                  viewMode === 'month' ? "bg-background shadow-sm" : "hover:bg-background/50"
-                )}
-                title="Aylık Görünüm"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('week')}
-                className={cn(
-                  "p-1.5 rounded transition-colors",
-                  viewMode === 'week' ? "bg-background shadow-sm" : "hover:bg-background/50"
-                )}
-                title="Haftalık Görünüm"
-              >
-                <List className="w-4 h-4" />
-              </button>
-            </div>
-
             {/* Import/Export */}
-            <div className="flex gap-1">
-              <button
-                onClick={exportEvents}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
-                title="Dışa Aktar"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              <label className="p-2 hover:bg-muted rounded-lg transition-colors cursor-pointer" title="İçe Aktar">
-                <Upload className="w-4 h-4" />
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={importEvents}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            {/* Today Button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={goToToday}
-              className="px-3 py-1.5 text-sm font-medium bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+            <button
+              onClick={exportEvents}
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
+              title="Dışa Aktar"
             >
-              Bugün
-            </motion.button>
-          </div>
-        </div>
-        
-        {/* Horizontal Timeline */}
-        <div className="px-4 py-2">
-          {renderTimeline()}
-        </div>
-      </div>
+              <Download className="w-4 h-4" />
+            </button>
+            <label className="p-2 hover:bg-muted rounded-lg transition-colors cursor-pointer" title="İçe Aktar">
+              <Upload className="w-4 h-4" />
+              <input
+                type="file"
+                accept=".json"
+                onChange={importEvents}
+                className="hidden"
+              />
+            </label>
 
-      {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left: Mini Calendar */}
-        <div className="w-72 border-r border-border p-4 flex flex-col gap-4">
-          {/* Month Navigator */}
-          <div className="flex items-center justify-between">
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={prevMonth}
-              className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </motion.button>
-            <span className="font-semibold text-sm">
-              {MONTHS_TR[currentMonth]} {currentYear}
-            </span>
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={nextMonth}
-              className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </motion.button>
-          </div>
-
-          {/* Days of Week */}
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {DAYS_TR.map(day => (
-              <div key={day} className="text-xs font-medium text-muted-foreground py-1">
-                {day}
-              </div>
-            ))}
-          </div>
-
-          {/* Calendar Grid */}
-          <div className="grid grid-cols-7 gap-1">
-            {renderCalendar()}
-          </div>
-
-          {/* Quick Stats */}
-          <div className="mt-auto pt-4 border-t border-border space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Bu ay:</span>
-              <span className="font-medium">
-                {events.filter(e => {
-                  const d = new Date(e.date);
-                  return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-                }).length} etkinlik
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Yaklaşan:</span>
-              <span className="font-medium text-orange-500">
-                {events.filter(e => new Date(e.date) > new Date()).length} etkinlik
-              </span>
-            </div>
-          </div>
-
-          {/* Upcoming Events Panel */}
-          {showUpcoming && upcomingEvents.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-border">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold flex items-center gap-1">
-                  <Bell className="w-3.5 h-3.5 text-orange-500" />
-                  Yaklaşan
-                </h4>
-                <button
-                  onClick={() => setShowUpcoming(false)}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Gizle
-                </button>
-              </div>
-              <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                {upcomingEvents.slice(0, 5).map(event => {
-                  const eventDate = new Date(event.date);
-                  const isToday = formatDate(eventDate) === formatDate(new Date());
-                  return (
-                    <motion.div
-                      key={event.id}
-                      whileHover={{ x: 2 }}
-                      onClick={() => setSelectedDate(event.date)}
-                      className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted cursor-pointer text-xs"
-                    >
-                      <span 
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: event.color || '#3b82f6' }}
-                      />
-                      <span className="flex-1 truncate">{event.title}</span>
-                      <span className={cn(
-                        "text-[10px] flex-shrink-0",
-                        isToday ? "text-green-500 font-medium" : "text-muted-foreground"
-                      )}>
-                        {isToday ? 'Bugün' : `${eventDate.getDate()}/${eventDate.getMonth() + 1}`}
-                      </span>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right: Selected Day Events */}
-        <div className="flex-1 p-4 overflow-y-auto">
-          {/* Selected Date Header */}
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className={cn(
-                "text-xl font-bold",
-                isSelectedToday && "text-green-500"
-              )}>
-                {selectedDateObj.getDate()} {MONTHS_TR[selectedDateObj.getMonth()]}
-                {isSelectedToday && <span className="ml-2 text-sm font-normal">(Bugün)</span>}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'][selectedDateObj.getDay()]}
-                , {selectedDateObj.getFullYear()}
-              </p>
-            </div>
+            {/* Add Event Button */}
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -744,150 +344,300 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
               Etkinlik Ekle
             </motion.button>
           </div>
+        </div>
+      </div>
 
-          {/* Quick Add Bar */}
-          <div className="mb-4">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={quickAddText}
-                onChange={e => setQuickAddText(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleQuickAdd()}
-                placeholder="Hızlı etkinlik ekle... (Enter)"
-                className="flex-1 px-4 py-2.5 bg-muted/50 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
-              />
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleQuickAdd}
-                disabled={!quickAddText.trim()}
-                className="px-4 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Check className="w-5 h-5" />
-              </motion.button>
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {/* Timeline - Months from Today */}
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <ArrowRight className="w-5 h-5 text-primary-500" />
+            Gelecek Aylar
+          </h3>
+          
+          {/* Horizontal Timeline */}
+          <div 
+            ref={timelineRef}
+            className="relative overflow-x-auto pb-4"
+          >
+            {/* Timeline Line */}
+            <div className="absolute top-20 left-0 right-0 h-1 bg-gradient-to-r from-primary-500 via-purple-500 to-blue-500 rounded-full" style={{ minWidth: `${timelineMonthsData.length * 200}px` }} />
+            
+            <div className="flex gap-2" style={{ minWidth: `${timelineMonthsData.length * 200}px` }}>
+              {timelineMonthsData.map((monthData, idx) => {
+                const monthEvents = getEventsForMonth(monthData.key);
+                const isCurrentMonth = monthData.key === currentMonthKey;
+                const isSelected = selectedMonth?.year === monthData.year && selectedMonth?.month === monthData.month;
+                
+                return (
+                  <motion.div
+                    key={monthData.key}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="flex-shrink-0 w-48"
+                  >
+                    {/* Events Above Line */}
+                    <div className="h-16 mb-2 flex flex-col justify-end">
+                      {monthEvents.slice(0, 3).map((event, evIdx) => (
+                        <motion.div
+                          key={event.id}
+                          whileHover={{ scale: 1.05, y: -2 }}
+                          onClick={() => {
+                            setSelectedEvent(event);
+                            openEventModal(event);
+                          }}
+                          className="cursor-pointer mb-1 px-2 py-1 rounded-lg text-xs font-medium truncate transition-all hover:shadow-lg"
+                          style={{ 
+                            backgroundColor: `${event.color}20`,
+                            borderLeft: `3px solid ${event.color}`,
+                            color: event.color
+                          }}
+                          title={`${event.title} - ${new Date(event.date).getDate()} ${MONTHS_SHORT_TR[monthData.month]}`}
+                        >
+                          {event.title}
+                        </motion.div>
+                      ))}
+                      {monthEvents.length > 3 && (
+                        <span className="text-xs text-muted-foreground pl-2">
+                          +{monthEvents.length - 3} daha
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Month Node on Line */}
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedMonth(null);
+                        } else {
+                          setSelectedMonth({ year: monthData.year, month: monthData.month });
+                        }
+                      }}
+                      className={cn(
+                        "relative w-full flex flex-col items-center py-3 rounded-xl transition-all",
+                        isSelected && "bg-primary-500/20 ring-2 ring-primary-500",
+                        isCurrentMonth && !isSelected && "bg-green-500/10 ring-2 ring-green-500",
+                        !isSelected && !isCurrentMonth && "hover:bg-muted/50"
+                      )}
+                    >
+                      {/* Node Circle */}
+                      <div className={cn(
+                        "w-5 h-5 rounded-full border-4 mb-2",
+                        isCurrentMonth ? "bg-green-500 border-green-300" : "bg-primary-500 border-primary-300",
+                        monthEvents.length > 0 && "ring-4 ring-primary-500/20"
+                      )} />
+                      
+                      {/* Month Name */}
+                      <span className={cn(
+                        "font-bold text-base",
+                        isCurrentMonth ? "text-green-500" : isSelected ? "text-primary-500" : "text-foreground"
+                      )}>
+                        {MONTHS_TR[monthData.month]}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {monthData.year}
+                      </span>
+                      
+                      {/* Event Count Badge */}
+                      {monthEvents.length > 0 && (
+                        <span className="absolute -top-1 -right-1 w-6 h-6 bg-primary-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg">
+                          {monthEvents.length}
+                        </span>
+                      )}
+                    </motion.button>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
+        </div>
 
-          {/* Events List */}
-          {selectedDateEvents.length === 0 ? (
+        {/* Selected Month Detail */}
+        <AnimatePresence>
+          {selectedMonth && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex flex-col items-center justify-center py-16 text-center"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-8 overflow-hidden"
             >
-              <div className="w-20 h-20 rounded-full bg-muted/50 flex items-center justify-center mb-4">
-                <Calendar className="w-8 h-8 text-muted-foreground" />
+              <div className="bg-card border border-border rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-bold flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-primary-500" />
+                    {MONTHS_TR[selectedMonth.month]} {selectedMonth.year} Etkinlikleri
+                  </h4>
+                  <div className="flex gap-2">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => openEventModal(undefined, selectedMonth)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Ekle
+                    </motion.button>
+                    <button
+                      onClick={() => setSelectedMonth(null)}
+                      className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                
+                {getEventsForMonth(getMonthKey(selectedMonth.year, selectedMonth.month)).length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">
+                    Bu ayda henüz etkinlik yok
+                  </p>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {getEventsForMonth(getMonthKey(selectedMonth.year, selectedMonth.month))
+                      .sort((a, b) => a.date.localeCompare(b.date))
+                      .map((event) => {
+                        const eventDate = new Date(event.date);
+                        return (
+                          <motion.div
+                            key={event.id}
+                            whileHover={{ scale: 1.02 }}
+                            onClick={() => openEventModal(event)}
+                            className="group cursor-pointer bg-background border border-border rounded-xl p-4 hover:shadow-lg transition-all"
+                            style={{ borderLeftWidth: '4px', borderLeftColor: event.color }}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-bold" style={{ color: event.color }}>
+                                    {eventDate.getDate()} {MONTHS_SHORT_TR[eventDate.getMonth()]}
+                                  </span>
+                                  {event.time && (
+                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Clock className="w-3 h-3" />
+                                      {event.time}
+                                    </span>
+                                  )}
+                                </div>
+                                <h5 className="font-semibold truncate">{event.title}</h5>
+                                {event.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                                    {event.description}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); deleteEvent(event.id); }}
+                                  className="p-1 hover:bg-red-500/10 rounded text-red-500"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                  </div>
+                )}
               </div>
-              <p className="text-muted-foreground mb-2">Bu tarihte etkinlik yok</p>
-              <button
-                onClick={() => openEventModal()}
-                className="text-primary-500 hover:underline text-sm font-medium"
-              >
-                İlk etkinliği ekle →
-              </button>
             </motion.div>
-          ) : (
-            <div className="space-y-3">
-              <AnimatePresence>
-                {selectedDateEvents.map((event, idx) => (
-                  <motion.div
-                    key={event.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="group relative bg-card border border-border rounded-xl p-4 hover:shadow-lg transition-all"
-                    style={{ borderLeftWidth: '4px', borderLeftColor: event.color }}
-                  >
-                    {/* Pin indicator */}
-                    {event.isPinned && (
-                      <span className="absolute -top-2 -right-2 w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center shadow-lg">
-                        <Star className="w-3 h-3 text-white" />
-                      </span>
-                    )}
-
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        {/* Time & Category */}
-                        <div className="flex items-center gap-2 mb-1">
-                          {event.time && (
-                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Clock className="w-3 h-3" />
-                              {event.time}
-                            </span>
-                          )}
-                          {event.category && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 bg-muted rounded-full text-xs">
-                              <Tag className="w-3 h-3" />
-                              {event.category}
-                            </span>
-                          )}
-                          {event.reminder && (
-                            <span className="flex items-center gap-1 text-xs text-orange-500">
-                              <Bell className="w-3 h-3" />
-                            </span>
-                          )}
-                        </div>
-                        
-                        {/* Title */}
-                        <h4 className="font-semibold text-foreground mb-1">{event.title}</h4>
-                        
-                        {/* Description */}
-                        {event.description && (
-                          <p className="text-sm text-muted-foreground line-clamp-2">
-                            {event.description}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => togglePin(event.id)}
-                          className={cn(
-                            "p-1.5 rounded-lg transition-colors",
-                            event.isPinned ? "text-yellow-500 bg-yellow-500/10" : "text-muted-foreground hover:bg-muted"
-                          )}
-                          title="Sabitle"
-                        >
-                          <Star className="w-4 h-4" />
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => duplicateEvent(event)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
-                          title="Kopyala"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => openEventModal(event)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
-                          title="Düzenle"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => deleteEvent(event.id)}
-                          className="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
-                          title="Sil"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </motion.button>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
           )}
+        </AnimatePresence>
+
+        {/* History Section */}
+        <div className="border-t border-border pt-6">
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="flex items-center gap-2 text-lg font-semibold mb-4 hover:text-primary-500 transition-colors"
+          >
+            <History className="w-5 h-5 text-muted-foreground" />
+            Geçmiş
+            <span className="text-sm text-muted-foreground font-normal">
+              ({pastEvents.length} etkinlik)
+            </span>
+            {showHistory ? (
+              <ChevronUp className="w-4 h-4 ml-auto" />
+            ) : (
+              <ChevronDown className="w-4 h-4 ml-auto" />
+            )}
+          </button>
+          
+          <AnimatePresence>
+            {showHistory && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                {pastEvents.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">
+                    Henüz geçmiş etkinlik yok
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                    {pastEvents.map((event) => {
+                      const eventDate = new Date(event.date);
+                      return (
+                        <motion.div
+                          key={event.id}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          whileHover={{ x: 4 }}
+                          onClick={() => openEventModal(event)}
+                          className="group cursor-pointer flex items-center gap-4 p-3 bg-muted/30 rounded-xl hover:bg-muted/50 transition-all"
+                        >
+                          {/* Date */}
+                          <div className="flex-shrink-0 w-16 text-center">
+                            <span className="block text-lg font-bold text-muted-foreground">
+                              {eventDate.getDate()}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {MONTHS_SHORT_TR[eventDate.getMonth()]} {eventDate.getFullYear()}
+                            </span>
+                          </div>
+                          
+                          {/* Color Bar */}
+                          <div 
+                            className="w-1 h-10 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: event.color }}
+                          />
+                          
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <h5 className="font-medium truncate">{event.title}</h5>
+                            {event.description && (
+                              <p className="text-xs text-muted-foreground truncate">
+                                {event.description}
+                              </p>
+                            )}
+                          </div>
+                          
+                          {/* Category & Actions */}
+                          <div className="flex items-center gap-2">
+                            {event.category && (
+                              <span className="px-2 py-0.5 bg-background text-xs rounded-full border border-border">
+                                {event.category}
+                              </span>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteEvent(event.id); }}
+                              className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-lg text-red-500 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -923,10 +673,17 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
 
               {/* Modal Body */}
               <div className="p-6 space-y-4">
-                {/* Date Display */}
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Calendar className="w-4 h-4" />
-                  {selectedDateObj.getDate()} {MONTHS_TR[selectedDateObj.getMonth()]} {selectedDateObj.getFullYear()}
+                {/* Date Picker */}
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground mb-1 block">
+                    Tarih *
+                  </label>
+                  <input
+                    type="date"
+                    value={eventDate}
+                    onChange={e => setEventDate(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
+                  />
                 </div>
 
                 {/* Title */}
@@ -1052,7 +809,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={saveEvent}
-                    disabled={!eventTitle.trim()}
+                    disabled={!eventTitle.trim() || !eventDate}
                     className="flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     <Check className="w-4 h-4" />

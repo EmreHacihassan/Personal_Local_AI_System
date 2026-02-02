@@ -14,6 +14,7 @@ import { LearningPage } from '@/components/pages/LearningPage';
 import { FavoritesPage } from '@/components/pages/FavoritesPage';
 import { TemplatesPage } from '@/components/pages/TemplatesPage';
 import { SearchPage } from '@/components/pages/SearchPage';
+import CalendarPage from '@/components/pages/CalendarPage';
 import { KeyboardShortcutsModal } from '@/components/modals/KeyboardShortcutsModal';
 import { CommandPalette } from '@/components/features/CommandPalette';
 import { useStore } from '@/store/useStore';
@@ -138,6 +139,8 @@ export default function Home() {
         return <TemplatesPage />;
       case 'search':
         return <SearchPage />;
+      case 'calendar':
+        return <CalendarPage />;
       default:
         return <ChatPage />;
     }

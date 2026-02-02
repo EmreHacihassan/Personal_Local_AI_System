@@ -38,7 +38,8 @@ import {
   Shield,
   Play,
   RotateCcw,
-  Square
+  Square,
+  Calendar
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toaster';
 import { useStore, Page } from '@/store/useStore';
@@ -56,6 +57,7 @@ const menuItems: { id: Page; icon: React.ElementType; label: string; labelEn: st
   { id: 'documents', icon: FileText, label: 'Dökümanlar', labelEn: 'Documents', labelDe: 'Dokumente' },
   { id: 'history', icon: History, label: 'Geçmiş', labelEn: 'History', labelDe: 'Verlauf' },
   { id: 'notes', icon: StickyNote, label: 'Notlar', labelEn: 'Notes', labelDe: 'Notizen' },
+  { id: 'calendar', icon: Calendar, label: 'Takvim', labelEn: 'Calendar', labelDe: 'Kalender' },
   { id: 'mind', icon: Brain, label: 'Mind', labelEn: 'Mind', labelDe: 'Mind' },
   { id: 'learning', icon: GraduationCap, label: 'AI ile Öğren', labelEn: 'Learn with AI', labelDe: 'Mit KI lernen' },
   { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard', labelEn: 'Dashboard', labelDe: 'Dashboard' },

@@ -113,7 +113,7 @@ export interface NoteFolder {
 }
 
 export type Theme = 'light' | 'dark' | 'ocean' | 'forest' | 'sunset' | 'lavender' | 'minimalist' | 'cherry';
-export type Page = 'chat' | 'documents' | 'history' | 'dashboard' | 'settings' | 'notes' | 'mind' | 'learning' | 'favorites' | 'templates' | 'search';
+export type Page = 'chat' | 'documents' | 'history' | 'dashboard' | 'settings' | 'notes' | 'mind' | 'learning' | 'favorites' | 'templates' | 'search' | 'calendar';
 
 interface AppState {
   // Theme

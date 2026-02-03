@@ -44,6 +44,11 @@ const SidebarOpen = dynamic(() => import('lucide-react').then(mod => mod.PanelRi
 import { NodeDetailSidebar } from '@/components/mind/NodeDetailSidebar';
 import { FilterPanel } from '@/components/mind/FilterPanel';
 import { GraphExportMenu } from '@/components/mind/GraphExportMenu';
+import { DataSourceSelector, defaultDataSources, type DataSource } from '@/components/mind/DataSourceSelector';
+import { ViewModeSelector, type ViewMode } from '@/components/mind/ViewModeSelector';
+import { GalaxyView } from '@/components/mind/GalaxyView';
+import { ThoughtJourney, JourneyButton } from '@/components/mind/ThoughtJourney';
+import { useMindData, type UnifiedMindNode, type UnifiedMindEdge } from '@/hooks/useMindData';
 
 // Types
 interface GraphNode {
@@ -175,6 +180,73 @@ export default function MindPage() {
     const [dateRangeFilter, setDateRangeFilter] = useState<{ from?: Date; to?: Date }>({});
     const [depthLimit, setDepthLimit] = useState(0);
     const [showHeatMap, setShowHeatMap] = useState(false);
+
+    // === MIND REVOLUTION - New Premium States ===
+    const [viewMode, setViewMode] = useState<ViewMode>('2d');
+    const [dataSources, setDataSources] = useState<DataSource[]>(defaultDataSources);
+    const [showDataSourcePanel, setShowDataSourcePanel] = useState(false);
+    const [showJourney, setShowJourney] = useState(false);
+    const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+
+    // Unified data from all sources
+    const { 
+        data: unifiedData, 
+        loading: unifiedLoading, 
+        error: unifiedError, 
+        refresh: refreshUnifiedData,
+        sourceCounts 
+    } = useMindData({ activeSources: dataSources });
+
+    // Toggle data source
+    const handleDataSourceToggle = useCallback((sourceId: DataSource['id']) => {
+        setDataSources(prev => prev.map(s => 
+            s.id === sourceId ? { ...s, isActive: !s.isActive } : s
+        ));
+    }, []);
+
+    // Convert unified nodes to graph format when in 2D mode
+    const unifiedGraphNodes = useMemo(() => {
+        if (!unifiedData || viewMode !== '2d') return [];
+        return unifiedData.nodes.map(n => ({
+            id: n.id.replace(/^(note|doc|chat|cal)-/, ''), // Remove prefix for compatibility
+            data: {
+                label: n.label,
+                title: n.title,
+                color: n.color,
+                folder_id: n.metadata.folder_id,
+                pinned: n.metadata.pinned,
+                tags: n.metadata.tags,
+            },
+            position: { 
+                x: (n.position?.x || 0) * 300, 
+                y: (n.position?.y || 0) * 300 
+            },
+        }));
+    }, [unifiedData, viewMode]);
+
+    // Convert unified edges to graph format
+    const unifiedGraphEdges = useMemo(() => {
+        if (!unifiedData || viewMode !== '2d') return [];
+        return unifiedData.edges.map(e => ({
+            id: e.id,
+            source: e.source.replace(/^(note|doc|chat|cal)-/, ''),
+            target: e.target.replace(/^(note|doc|chat|cal)-/, ''),
+            type: e.type,
+            label: e.label,
+            animated: e.type === 'similarity' || e.type === 'temporal',
+            data: { strength: e.strength },
+        }));
+    }, [unifiedData, viewMode]);
+
+    // Update data source counts
+    useEffect(() => {
+        if (sourceCounts) {
+            setDataSources(prev => prev.map(s => ({
+                ...s,
+                count: sourceCounts[s.id] || 0
+            })));
+        }
+    }, [sourceCounts]);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
@@ -738,7 +810,7 @@ export default function MindPage() {
                     <motion.div
                         className={cn(
                             "relative transition-all duration-300",
-                            focusedSearch ? "w-96" : "w-72"
+                            focusedSearch ? "w-80" : "w-56"
                         )}
                     >
                         <div className={cn(
@@ -758,7 +830,7 @@ export default function MindPage() {
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onFocus={() => setFocusedSearch(true)}
                                 onBlur={() => setFocusedSearch(false)}
-                                placeholder="Notlarda ara..."
+                                placeholder="Ara..."
                                 className="w-full pl-12 pr-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 focus:bg-white/10 transition-all"
                             />
                             {searchQuery && (
@@ -771,6 +843,43 @@ export default function MindPage() {
                             )}
                         </div>
                     </motion.div>
+
+                    {/* === MIND REVOLUTION - View Mode & Data Sources === */}
+                    <div className="flex items-center gap-3">
+                        {/* View Mode Selector */}
+                        <ViewModeSelector 
+                            currentMode={viewMode}
+                            onModeChange={setViewMode}
+                            language="tr"
+                            compact={true}
+                        />
+
+                        {/* Data Sources Toggle */}
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setShowDataSourcePanel(!showDataSourcePanel)}
+                            className={cn(
+                                "relative p-3 rounded-xl transition-all flex items-center gap-2",
+                                showDataSourcePanel
+                                    ? "bg-gradient-to-r from-violet-500/30 to-purple-500/30 text-violet-400 border border-violet-500/30"
+                                    : "bg-white/5 text-slate-400 hover:bg-white/10 border border-white/10"
+                            )}
+                            title="Veri Kaynakları"
+                        >
+                            <Layers className="w-5 h-5" />
+                            <span className="text-xs font-medium">
+                                {dataSources.filter(s => s.isActive).length}/{dataSources.length}
+                            </span>
+                        </motion.button>
+
+                        {/* Journey Button */}
+                        <JourneyButton
+                            onClick={() => setShowJourney(true)}
+                            disabled={!unifiedData || unifiedData.nodes.length === 0}
+                            language="tr"
+                        />
+                    </div>
 
                     {/* Controls */}
                     <div className="flex items-center gap-3">
@@ -1793,6 +1902,91 @@ export default function MindPage() {
                         />
                     )}
                 </AnimatePresence>
+
+                {/* === MIND REVOLUTION - Data Source Selector Panel === */}
+                <AnimatePresence>
+                    {showDataSourcePanel && (
+                        <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 20 }}
+                            className="absolute top-20 right-4 z-30 w-80"
+                        >
+                            <DataSourceSelector
+                                sources={dataSources}
+                                onSourceToggle={handleDataSourceToggle}
+                                language="tr"
+                            />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* === MIND REVOLUTION - 3D Galaxy View === */}
+                <AnimatePresence>
+                    {viewMode === '3d' && unifiedData && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 z-20"
+                        >
+                            <GalaxyView
+                                nodes={unifiedData.nodes.map(n => ({
+                                    id: n.id,
+                                    x: n.position?.x || 0,
+                                    y: n.position?.y || 0,
+                                    z: n.position?.z || 0,
+                                    size: 0.5 + (n.connections.length * 0.1),
+                                    color: n.type === 'note' ? '#a855f7' :
+                                           n.type === 'document' ? '#3b82f6' :
+                                           n.type === 'chat' ? '#10b981' : '#f59e0b',
+                                    glow: n.type === 'note' ? 'rgba(168,85,247,0.6)' :
+                                          n.type === 'document' ? 'rgba(59,130,246,0.6)' :
+                                          n.type === 'chat' ? 'rgba(16,185,129,0.6)' : 'rgba(245,158,11,0.6)',
+                                    label: n.label,
+                                    type: n.type,
+                                    connections: n.connections,
+                                }))}
+                                edges={unifiedData.edges.map(e => ({
+                                    id: e.id,
+                                    source: e.source,
+                                    target: e.target,
+                                    type: e.type,
+                                    strength: e.strength,
+                                }))}
+                                onNodeClick={(nodeId) => {
+                                    setFocusedNodeId(nodeId);
+                                    // Try to fetch note details
+                                    const originalId = nodeId.replace(/^(note|doc|chat|cal)-/, '');
+                                    fetchNoteDetails(originalId);
+                                }}
+                                onNodeHover={(nodeId) => setHoveredNode(nodeId)}
+                                selectedNodeId={focusedNodeId}
+                                hoveredNodeId={hoveredNode}
+                                autoRotate={true}
+                            />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* === MIND REVOLUTION - Thought Journey === */}
+                <ThoughtJourney
+                    nodes={unifiedData?.nodes || []}
+                    onNodeFocus={(nodeId) => {
+                        setFocusedNodeId(nodeId);
+                        // Zoom to node in 2D mode or focus in 3D
+                        if (viewMode === '2d') {
+                            const originalId = nodeId.replace(/^(note|doc|chat|cal)-/, '');
+                            const node = graphData?.nodes.find(n => n.id === originalId);
+                            if (node) {
+                                setPan({ x: -node.position.x + 400, y: -node.position.y + 300 });
+                            }
+                        }
+                    }}
+                    onClose={() => setShowJourney(false)}
+                    isOpen={showJourney}
+                    language="tr"
+                />
             </div>
         </div>
     );

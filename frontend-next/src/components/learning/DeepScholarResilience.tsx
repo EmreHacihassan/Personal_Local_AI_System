@@ -343,7 +343,7 @@ export function DeepScholarResiliencePanel({
   documentId,
   workspaceId: _workspaceId,
   isGenerating,
-  apiUrl = 'http://localhost:8001',
+  apiUrl = 'http://localhost:8000',
   onResumeFromCheckpoint,
   onPartialExport,
 }: DeepScholarResiliencePanelProps) {

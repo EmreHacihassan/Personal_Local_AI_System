@@ -76,7 +76,7 @@ interface AgentTeam {
   status: 'active' | 'inactive';
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const CATEGORY_ICONS: Record<string, React.ComponentType<any>> = {
   research: FileSearch,

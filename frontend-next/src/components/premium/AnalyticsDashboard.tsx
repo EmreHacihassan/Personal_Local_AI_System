@@ -73,7 +73,7 @@ export function AnalyticsDashboard({ className = '' }: AnalyticsDashboardProps) 
   const fetchDashboard = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:8001/api/analytics/dashboard');
+      const res = await fetch('http://localhost:8000/api/analytics/dashboard');
       const dashboardData = await res.json();
       setData(dashboardData);
     } catch (error) {
@@ -86,7 +86,7 @@ export function AnalyticsDashboard({ className = '' }: AnalyticsDashboardProps) 
   const generateInsights = async () => {
     setIsGeneratingInsights(true);
     try {
-      await fetch('http://localhost:8001/api/analytics/insights/generate?days=7', {
+      await fetch('http://localhost:8000/api/analytics/insights/generate?days=7', {
         method: 'POST',
       });
       await fetchDashboard();

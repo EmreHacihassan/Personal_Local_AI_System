@@ -172,7 +172,8 @@ export function NotesPage() {
     notes, addNote, updateNote, deleteNote,
     noteFolders, addFolder, updateFolder, deleteFolder,
     setNotes, setFolders,
-    language, addNoteTag, removeNoteTag
+    language, addNoteTag, removeNoteTag,
+    targetNoteId, setTargetNoteId
   } = useStore();
 
   // API Sync logic moved to AppInitializer (Global sync)
@@ -193,6 +194,20 @@ export function NotesPage() {
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [filterByTag, setFilterByTag] = useState<string | null>(null);
+
+  // Handle targetNoteId from store (navigation from Mind page)
+  useEffect(() => {
+    if (targetNoteId && notes.length > 0) {
+      const targetNote = notes.find(n => n.id === targetNoteId);
+      if (targetNote) {
+        setSelectedNote(targetNote);
+        setEditTitle(targetNote.title);
+        setEditContent(targetNote.content);
+        // Clear targetNoteId after selecting
+        setTargetNoteId(null);
+      }
+    }
+  }, [targetNoteId, notes, setTargetNoteId]);
 
   // New features state
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');

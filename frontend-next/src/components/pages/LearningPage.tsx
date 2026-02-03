@@ -144,7 +144,7 @@ interface ChatMessage {
 }
 
 // API Base
-const API_BASE = 'http://localhost:8001';
+const API_BASE = 'http://localhost:8000';
 
 // API Functions
 async function apiGet(endpoint: string) {

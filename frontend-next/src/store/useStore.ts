@@ -137,6 +137,9 @@ interface AppState {
   setCurrentPage: (page: Page) => void;
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  targetNoteId: string | null;
+  setTargetNoteId: (id: string | null) => void;
+  navigateToNote: (noteId: string) => void;
 
   // Chat
   messages: Message[];
@@ -270,6 +273,9 @@ export const useStore = create<AppState>()(
       setCurrentPage: (page: Page) => set({ currentPage: page }),
       sidebarCollapsed: false,
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      targetNoteId: null as string | null,
+      setTargetNoteId: (id: string | null) => set({ targetNoteId: id }),
+      navigateToNote: (noteId: string) => set({ targetNoteId: noteId, currentPage: 'notes' as Page }),
 
       // Chat
       messages: [] as Message[],

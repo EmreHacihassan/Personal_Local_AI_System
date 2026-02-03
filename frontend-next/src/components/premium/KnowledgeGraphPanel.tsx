@@ -59,7 +59,7 @@ interface GraphStats {
   relationship_types: Record<string, number>;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const ENTITY_ICONS: Record<string, React.ComponentType<any>> = {
   person: Users,

@@ -102,7 +102,7 @@ interface BurnoutAssessment {
 // CONSTANTS
 // ============================================================================
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const FEATURE_TABS: { id: FeatureTab; label: string; icon: React.ReactNode; color: string }[] = [
   { id: 'neuroscience', label: 'Nörobilim', icon: <Brain className="w-5 h-5" />, color: 'from-purple-500 to-violet-500' },

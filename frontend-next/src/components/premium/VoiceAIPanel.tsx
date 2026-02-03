@@ -33,7 +33,7 @@ export function VoiceAIPanel({ className = '' }: VoiceAIPanelProps) {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('http://localhost:8001/api/voice/status');
+      const res = await fetch('http://localhost:8000/api/voice/status');
       const data = await res.json();
       setStatus(data);
     } catch (error) {
@@ -84,7 +84,7 @@ export function VoiceAIPanel({ className = '' }: VoiceAIPanelProps) {
       const formData = new FormData();
       formData.append('file', audioBlob, 'recording.webm');
 
-      const res = await fetch('http://localhost:8001/api/voice/transcribe', {
+      const res = await fetch('http://localhost:8000/api/voice/transcribe', {
         method: 'POST',
         body: formData,
       });
@@ -107,7 +107,7 @@ export function VoiceAIPanel({ className = '' }: VoiceAIPanelProps) {
 
   const getAIResponse = async (text: string) => {
     try {
-      const res = await fetch('http://localhost:8001/api/chat', {
+      const res = await fetch('http://localhost:8000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text }),
@@ -125,7 +125,7 @@ export function VoiceAIPanel({ className = '' }: VoiceAIPanelProps) {
     
     setIsSpeaking(true);
     try {
-      const res = await fetch('http://localhost:8001/api/voice/synthesize', {
+      const res = await fetch('http://localhost:8000/api/voice/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: response }),

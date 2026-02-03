@@ -45,7 +45,7 @@ import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { useStore, Message } from '@/store/useStore';
-import { sendChatMessage } from '@/lib/api';
+import { sendChatMessage, generateSessionTitle } from '@/lib/api';
 import { cn, generateId, formatDate } from '@/lib/utils';
 import { useChatWebSocket } from '@/hooks/useWebSocket';
 import { ModelBadge, ComparisonView } from '@/components/chat/ModelBadge';
@@ -148,6 +148,7 @@ export function ChatPage() {
     // Session management - for conversation persistence
     currentSessionId,
     setCurrentSession,
+    renameSession,
   } = useStore();
 
   // WebSocket hook for real-time streaming with Model Routing
@@ -192,6 +193,7 @@ export function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const streamStartTimeRef = useRef<number | null>(null); // Gerçek başlangıç zamanı
+  const titleGeneratedForSessionRef = useRef<string | null>(null); // Track which session had title generated
 
   const scrollToBottom = useCallback(() => {
     if (autoScroll) {
@@ -207,7 +209,7 @@ export function ChatPage() {
   useEffect(() => {
     const checkLlmHealth = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/health`);
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/health`);
         if (response.ok) {
           const data = await response.json();
           const ollamaComponent = data.components?.find((c: { name: string }) => c.name === 'ollama');
@@ -394,6 +396,41 @@ export function ChatPage() {
       wsResetRoutingState?.();
     }
   }, [wsIsStreaming, wsStreamingResponse, wsSources, wsRoutingInfo, addMessage, setIsTyping, setStreamingContent, wsResetRoutingState]);
+
+  // Auto-generate session title from first message using AI
+  useEffect(() => {
+    // Check if we have a session and messages
+    if (!currentSessionId) return;
+    
+    // Check if we already generated title for this session
+    if (titleGeneratedForSessionRef.current === currentSessionId) return;
+    
+    // Only generate title when we have exactly 2 messages (1 user + 1 assistant = first exchange complete)
+    const userMessages = messages.filter(m => m.role === 'user');
+    const assistantMessages = messages.filter(m => m.role === 'assistant');
+    
+    // Need exactly 1 user message and 1 assistant message (first response received)
+    if (userMessages.length === 1 && assistantMessages.length === 1 && !isTyping && !wsIsStreaming) {
+      const firstUserMessage = userMessages[0];
+      
+      // Mark as generated to prevent duplicate calls
+      titleGeneratedForSessionRef.current = currentSessionId;
+      
+      // Call API to generate title
+      generateSessionTitle(currentSessionId, firstUserMessage.content)
+        .then((response) => {
+          if (response.success && response.data?.title) {
+            // Update local store with new title
+            renameSession(currentSessionId, response.data.title);
+            console.log('✨ AI Generated session title:', response.data.title);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to generate session title:', error);
+          // Don't block user experience - title will just remain as default
+        });
+    }
+  }, [currentSessionId, messages, isTyping, wsIsStreaming, renameSession]);
 
   const handleSend = async () => {
     if (!inputValue.trim() || isTyping) return;
@@ -1293,6 +1330,7 @@ export function ChatPage() {
                 if (confirm(language === 'tr' ? 'Tüm mesajları silmek istediğinize emin misiniz?' : 'Are you sure you want to clear all messages?')) {
                   clearMessages();
                   setCurrentSession(null); // Start a new session when clearing messages
+                  titleGeneratedForSessionRef.current = null; // Reset title tracker for new session
                 }
               }}
               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-colors text-xs"

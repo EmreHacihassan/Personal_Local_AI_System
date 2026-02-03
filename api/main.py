@@ -3244,6 +3244,119 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class SessionUpdateRequest(BaseModel):
+    """Session güncelleme isteği"""
+    title: Optional[str] = None
+    is_pinned: Optional[bool] = None
+    tags: Optional[List[str]] = None
+    category: Optional[str] = None
+
+
+@app.patch("/api/sessions/{session_id}", tags=["Sessions"])
+async def update_session(session_id: str, request: SessionUpdateRequest):
+    """
+    Oturum bilgilerini güncelle (title, pin status, tags, category).
+    """
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+        
+        # Güncellenecek alanları uygula
+        if request.title is not None:
+            session_manager.update_session_title(session_id, request.title)
+        
+        if request.is_pinned is not None:
+            if request.is_pinned != session.is_pinned:
+                session_manager.toggle_pin(session_id)
+        
+        if request.tags is not None:
+            # Mevcut tag'leri temizle ve yenilerini ekle
+            for tag in list(session.tags):
+                session_manager.remove_tag(session_id, tag)
+            for tag in request.tags:
+                session_manager.add_tag(session_id, tag)
+        
+        if request.category is not None:
+            session_manager.set_category(session_id, request.category)
+        
+        # Güncellenmiş session'ı al
+        updated_session = session_manager.get_session(session_id)
+        
+        return {
+            "success": True,
+            "session": updated_session.to_dict() if updated_session else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class GenerateTitleRequest(BaseModel):
+    """AI ile başlık oluşturma isteği"""
+    first_message: str
+
+
+@app.post("/api/sessions/{session_id}/generate-title", tags=["Sessions"])
+async def generate_session_title(session_id: str, request: GenerateTitleRequest):
+    """
+    İlk mesaja göre AI ile akıllı başlık oluştur.
+    """
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Oturum bulunamadı")
+        
+        # AI ile başlık oluştur
+        system_prompt = """Sen bir sohbet başlığı oluşturan asistansın. 
+Verilen mesaj için kısa, açıklayıcı bir başlık oluştur.
+Başlık maksimum 5-6 kelime olmalı.
+Sadece başlığı yaz, başka hiçbir şey ekleme.
+Tırnak işareti kullanma."""
+
+        user_prompt = f"Mesaj: {request.first_message[:500]}"
+
+        try:
+            # LLM'den başlık al
+            title = llm_manager.generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                temperature=0.3,
+                max_tokens=50,
+                use_cache=False  # Her seferinde yeni başlık
+            )
+            
+            # Başlığı temizle
+            title = title.strip().strip('"\'')
+            # Çok uzunsa kes
+            if len(title) > 60:
+                title = title[:57] + "..."
+            
+            # Başlık boşsa varsayılan kullan
+            if not title:
+                title = request.first_message[:50] + ("..." if len(request.first_message) > 50 else "")
+            
+        except Exception as llm_error:
+            # LLM hata verirse ilk mesajdan başlık oluştur
+            title = request.first_message[:50] + ("..." if len(request.first_message) > 50 else "")
+        
+        # Başlığı kaydet
+        session_manager.update_session_title(session_id, title)
+        
+        return {
+            "success": True,
+            "title": title,
+            "session_id": session_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/api/sessions/cleanup/old", tags=["Sessions"])
 async def cleanup_old_sessions(days: int = 7):
     """

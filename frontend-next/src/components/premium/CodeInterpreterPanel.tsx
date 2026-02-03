@@ -51,7 +51,7 @@ print(f"Toplam: {sum(result)}")
     setResult(null);
 
     try {
-      const res = await fetch('http://localhost:8001/api/code/execute', {
+      const res = await fetch('http://localhost:8000/api/code/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

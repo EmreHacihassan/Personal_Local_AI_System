@@ -49,6 +49,7 @@ import { ViewModeSelector, type ViewMode } from '@/components/mind/ViewModeSelec
 import { GalaxyView } from '@/components/mind/GalaxyView';
 import { ThoughtJourney, JourneyButton } from '@/components/mind/ThoughtJourney';
 import { useMindData, type UnifiedMindNode, type UnifiedMindEdge } from '@/hooks/useMindData';
+import { useStore } from '@/store/useStore';
 
 // Types
 interface GraphNode {
@@ -422,6 +423,9 @@ const applyTimelineLayout = (data: GraphData): GraphData => {
 export default function MindPage() {
     // Router
     const router = useRouter();
+    
+    // Store - for navigation
+    const { navigateToNote, setCurrentPage } = useStore();
 
     // State
     const [graphData, setGraphData] = useState<GraphData | null>(null);
@@ -1421,7 +1425,7 @@ export default function MindPage() {
                                     <motion.button
                                         whileHover={{ scale: 1.05 }}
                                         whileTap={{ scale: 0.95 }}
-                                        onClick={() => router.push('/notes')}
+                                        onClick={() => setCurrentPage('notes')}
                                         className="mt-6 px-6 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium hover:opacity-90 transition-opacity"
                                     >
                                         İlk Notunu Oluştur
@@ -1872,7 +1876,7 @@ export default function MindPage() {
                                             <motion.button
                                                 whileHover={{ scale: 1.02 }}
                                                 whileTap={{ scale: 0.98 }}
-                                                onClick={() => router.push(`/notes?id=${selectedNode.id}`)}
+                                                onClick={() => navigateToNote(selectedNode.id)}
                                                 className="w-full mt-2 px-4 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                                             >
                                                 Nota Git
@@ -2029,7 +2033,7 @@ export default function MindPage() {
                                     <motion.button
                                         whileHover={{ scale: 1.02 }}
                                         whileTap={{ scale: 0.98 }}
-                                        onClick={() => router.push(`/notes?id=${noteDetails.id}`)}
+                                        onClick={() => navigateToNote(noteDetails.id)}
                                         className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                                     >
                                         Nota Git

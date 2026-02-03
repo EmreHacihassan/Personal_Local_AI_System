@@ -57,7 +57,7 @@ export function AutonomousAgentPanel({ className = '' }: AutonomousAgentPanelPro
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('http://localhost:8001/api/autonomous/status');
+      const res = await fetch('http://localhost:8000/api/autonomous/status');
       const data = await res.json();
       setStatus(data);
     } catch (error) {
@@ -67,7 +67,7 @@ export function AutonomousAgentPanel({ className = '' }: AutonomousAgentPanelPro
 
   const fetchSessions = async () => {
     try {
-      const res = await fetch('http://localhost:8001/api/autonomous/sessions');
+      const res = await fetch('http://localhost:8000/api/autonomous/sessions');
       const data = await res.json();
       setSessions(data.sessions || []);
     } catch (error) {
@@ -84,7 +84,7 @@ export function AutonomousAgentPanel({ className = '' }: AutonomousAgentPanelPro
 
     try {
       // Create and run via WebSocket for real-time updates
-      const ws = new WebSocket(`ws://localhost:8001/api/autonomous/ws/new`);
+      const ws = new WebSocket(`ws://localhost:8000/api/autonomous/ws/new`);
 
       ws.onopen = () => {
         ws.send(JSON.stringify({
@@ -138,7 +138,7 @@ export function AutonomousAgentPanel({ className = '' }: AutonomousAgentPanelPro
 
   const runWithRestApi = async () => {
     try {
-      const res = await fetch('http://localhost:8001/api/autonomous/run?goal=' + encodeURIComponent(goal) + '&max_iterations=' + maxIterations, {
+      const res = await fetch('http://localhost:8000/api/autonomous/run?goal=' + encodeURIComponent(goal) + '&max_iterations=' + maxIterations, {
         method: 'POST',
       });
       const data = await res.json();
@@ -165,7 +165,7 @@ export function AutonomousAgentPanel({ className = '' }: AutonomousAgentPanelPro
     if (!activeSession) return;
 
     try {
-      await fetch(`http://localhost:8001/api/autonomous/sessions/${activeSession.id}/stop`, {
+      await fetch(`http://localhost:8000/api/autonomous/sessions/${activeSession.id}/stop`, {
         method: 'POST',
       });
       setIsRunning(false);

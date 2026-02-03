@@ -3,9 +3,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Calendar, Plus, ChevronLeft, ChevronRight, X,
-  Clock, Edit2, Trash2, Check, Star,
-  Bell, Tag, Search, Download, Upload, 
+  Calendar, Plus, X,
+  Clock, Trash2, Check, Pin,
+  Bell, Search, Download, Upload, 
   History, ChevronDown, ChevronUp, ArrowRight,
   LayoutGrid, List, GitBranch, AlertTriangle
 } from 'lucide-react';
@@ -100,12 +100,16 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
   const [eventReminder, setEventReminder] = useState(false);
   
   const timelineRef = useRef<HTMLDivElement>(null);
-  const today = new Date();
-  const currentMonthKey = getMonthKey(today.getFullYear(), today.getMonth());
+  
+  // Memoize today to prevent unnecessary recalculations
+  const today = useMemo(() => new Date(), []);
+  const todayStr = useMemo(() => formatDate(today), [today]);
+  const currentMonthKey = useMemo(() => getMonthKey(today.getFullYear(), today.getMonth()), [today]);
 
   // Load events and viewMode from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('timeline-planner-events');
+    // Use 'timeline-events' to match useMindData.ts for Mind integration
+    const saved = localStorage.getItem('timeline-events');
     if (saved) {
       try {
         setEvents(JSON.parse(saved));
@@ -119,9 +123,9 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     }
   }, []);
 
-  // Save events to localStorage
+  // Save events to localStorage (key: 'timeline-events' for Mind integration)
   useEffect(() => {
-    localStorage.setItem('timeline-planner-events', JSON.stringify(events));
+    localStorage.setItem('timeline-events', JSON.stringify(events));
   }, [events]);
 
   // Save viewMode to localStorage
@@ -140,17 +144,20 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     );
   }, [events, searchQuery]);
 
-  // Get all future events sorted by date
+  // Get all future events sorted by date (pinned first)
   const allFutureEvents = useMemo(() => {
-    const todayStr = formatDate(today);
     return filteredEvents
       .filter(e => e.date >= todayStr)
-      .sort((a, b) => a.date.localeCompare(b.date));
-  }, [filteredEvents, today]);
+      .sort((a, b) => {
+        // Pinned events first
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return a.date.localeCompare(b.date);
+      });
+  }, [filteredEvents, todayStr]);
 
   // Separate future and past events
   const { futureMonths, pastEvents } = useMemo(() => {
-    const todayStr = formatDate(today);
     const future: { [key: string]: PlanEvent[] } = {};
     const past: PlanEvent[] = [];
     
@@ -169,7 +176,14 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     past.sort((a, b) => b.date.localeCompare(a.date));
     
     return { futureMonths: future, pastEvents: past };
-  }, [filteredEvents, today]);
+  }, [filteredEvents, todayStr]);
+
+  // Toggle pin status
+  const togglePin = (eventId: string) => {
+    setEvents(prev => prev.map(e => 
+      e.id === eventId ? { ...e, isPinned: !e.isPinned } : e
+    ));
+  };
 
   // Generate future months for timeline (12 months from now)
   const timelineMonthsData = useMemo(() => {
@@ -587,6 +601,9 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
+                                  {event.isPinned && (
+                                    <Pin className="w-3 h-3 text-amber-500" />
+                                  )}
                                   <span className="text-sm font-bold" style={{ color: event.color }}>
                                     {eventDate.getDate()} {MONTHS_SHORT_TR[eventDate.getMonth()]}
                                   </span>
@@ -605,6 +622,16 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                                 )}
                               </div>
                               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); togglePin(event.id); }}
+                                  className={cn(
+                                    "p-1 rounded",
+                                    event.isPinned ? "text-amber-500" : "hover:bg-amber-500/10 text-amber-500"
+                                  )}
+                                  title={event.isPinned ? "Sabitlemeyi Kaldır" : "Sabitle"}
+                                >
+                                  <Pin className="w-3.5 h-3.5" />
+                                </button>
                                 <button
                                   onClick={(e) => { e.stopPropagation(); confirmDeleteEvent(event.id); }}
                                   className="p-1 hover:bg-red-500/10 rounded text-red-500"
@@ -679,16 +706,33 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                               color: event.color
                             }}
                           >
+                            {event.isPinned && <Pin className="w-3 h-3 inline mr-1" />}
                             {eventDate.getDate()} {MONTHS_TR[eventDate.getMonth()]} {eventDate.getFullYear()}
                           </div>
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={(e) => { e.stopPropagation(); confirmDeleteEvent(event.id); }}
-                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-xl text-red-500 transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </motion.button>
+                          <div className="flex gap-1">
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={(e) => { e.stopPropagation(); togglePin(event.id); }}
+                              className={cn(
+                                "p-2 rounded-xl transition-all",
+                                event.isPinned 
+                                  ? "bg-amber-500/20 text-amber-500" 
+                                  : "opacity-0 group-hover:opacity-100 hover:bg-amber-500/10 text-amber-500"
+                              )}
+                              title={event.isPinned ? "Sabitlemeyi Kaldır" : "Sabitle"}
+                            >
+                              <Pin className="w-4 h-4" />
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={(e) => { e.stopPropagation(); confirmDeleteEvent(event.id); }}
+                              className="p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-xl text-red-500 transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </motion.button>
+                          </div>
                         </div>
                         
                         {/* Title */}
@@ -833,6 +877,11 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                         
                         {/* Actions */}
                         <div className="col-span-2 flex justify-end gap-2">
+                          {event.isPinned && (
+                            <span className="flex items-center gap-1 text-xs text-amber-500">
+                              <Pin className="w-3 h-3" />
+                            </span>
+                          )}
                           <span className={cn(
                             "text-xs px-2 py-1 rounded-lg",
                             daysUntil <= 3 ? "bg-orange-500/10 text-orange-500" : 
@@ -841,6 +890,20 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                           )}>
                             {daysUntil === 0 ? 'Bugün' : daysUntil === 1 ? 'Yarın' : `${daysUntil} gün`}
                           </span>
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={(e) => { e.stopPropagation(); togglePin(event.id); }}
+                            className={cn(
+                              "p-1.5 rounded-lg transition-all",
+                              event.isPinned 
+                                ? "bg-amber-500/20 text-amber-500" 
+                                : "opacity-0 group-hover:opacity-100 hover:bg-amber-500/10 text-amber-500"
+                            )}
+                            title={event.isPinned ? "Sabitlemeyi Kaldır" : "Sabitle"}
+                          >
+                            <Pin className="w-4 h-4" />
+                          </motion.button>
                           <motion.button
                             whileHover={{ scale: 1.1 }}
                             whileTap={{ scale: 0.9 }}

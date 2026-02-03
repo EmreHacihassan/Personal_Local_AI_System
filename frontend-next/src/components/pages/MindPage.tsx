@@ -123,6 +123,302 @@ const EDGE_COLORS: Record<string, { stroke: string; glow: string }> = {
 // Particle colors for neural effect
 const PARTICLE_COLORS = ['#a855f7', '#8b5cf6', '#6366f1', '#3b82f6', '#06b6d4', '#ec4899'];
 
+// ============ LAYOUT FUNCTIONS ============
+
+// Enhanced Force-Directed Layout with better physics
+const applyForceLayout = (data: GraphData): GraphData => {
+    if (!data.nodes.length) return data;
+
+    const width = 1200;
+    const height = 900;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // Initial positions - golden ratio spiral for organic feel
+    const phi = (1 + Math.sqrt(5)) / 2;
+    const nodes = data.nodes.map((node, i) => {
+        const angle = i * 2 * Math.PI / phi;
+        const radius = Math.sqrt(i + 1) * 40;
+        return {
+            ...node,
+            position: {
+                x: centerX + Math.cos(angle) * radius,
+                y: centerY + Math.sin(angle) * radius
+            },
+            velocity: { x: 0, y: 0 }
+        };
+    });
+
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+    // Physics constants - tuned for better visualization
+    const REPULSION = 15000;
+    const SPRING_LENGTH = 180;
+    const SPRING_K = 0.04;
+    const DAMPING = 0.9;
+    const CENTER_GRAVITY = 0.008;
+    const ITERATIONS = 200;
+    const MIN_DISTANCE = 60;
+
+    for (let iter = 0; iter < ITERATIONS; iter++) {
+        const cooling = 1 - (iter / ITERATIONS) * 0.7;
+
+        // Repulsion between all nodes
+        for (let a = 0; a < nodes.length; a++) {
+            const nodeA = nodes[a];
+            for (let b = a + 1; b < nodes.length; b++) {
+                const nodeB = nodes[b];
+                const dx = nodeA.position.x - nodeB.position.x;
+                const dy = nodeA.position.y - nodeB.position.y;
+                const distSq = Math.max(dx * dx + dy * dy, MIN_DISTANCE * MIN_DISTANCE);
+                const dist = Math.sqrt(distSq);
+
+                const force = (REPULSION / distSq) * cooling;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+
+                nodeA.velocity.x += fx;
+                nodeA.velocity.y += fy;
+                nodeB.velocity.x -= fx;
+                nodeB.velocity.y -= fy;
+            }
+        }
+
+        // Spring attraction for edges
+        for (const edge of data.edges) {
+            const source = nodeMap.get(edge.source);
+            const target = nodeMap.get(edge.target);
+
+            if (source && target) {
+                const dx = target.position.x - source.position.x;
+                const dy = target.position.y - source.position.y;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                const force = (dist - SPRING_LENGTH) * SPRING_K * cooling;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+
+                source.velocity.x += fx;
+                source.velocity.y += fy;
+                target.velocity.x -= fx;
+                target.velocity.y -= fy;
+            }
+        }
+
+        // Apply forces
+        for (const node of nodes) {
+            // Center gravity
+            node.velocity.x += (centerX - node.position.x) * CENTER_GRAVITY;
+            node.velocity.y += (centerY - node.position.y) * CENTER_GRAVITY;
+
+            // Update position
+            node.position.x += node.velocity.x * cooling;
+            node.position.y += node.velocity.y * cooling;
+
+            // Damping
+            node.velocity.x *= DAMPING;
+            node.velocity.y *= DAMPING;
+
+            // Keep in bounds with soft boundaries
+            const margin = 100;
+            if (node.position.x < margin) node.velocity.x += 2;
+            if (node.position.x > width - margin) node.velocity.x -= 2;
+            if (node.position.y < margin) node.velocity.y += 2;
+            if (node.position.y > height - margin) node.velocity.y -= 2;
+        }
+    }
+
+    return { ...data, nodes };
+};
+
+// Hierarchical Layout - Tree structure
+const applyHierarchicalLayout = (data: GraphData): GraphData => {
+    if (!data.nodes.length) return data;
+
+    const width = 1200;
+    const height = 900;
+
+    // Find root nodes (nodes with most connections)
+    const sortedByConnections = [...data.nodes].sort((a, b) => {
+        const aConns = data.edges.filter(e => e.source === a.id || e.target === a.id).length;
+        const bConns = data.edges.filter(e => e.source === b.id || e.target === b.id).length;
+        return bConns - aConns;
+    });
+
+    const root = sortedByConnections[0];
+    if (!root) return data;
+
+    // BFS to assign levels
+    const levels = new Map<string, number>();
+    const queue = [root.id];
+    levels.set(root.id, 0);
+    const visited = new Set<string>([root.id]);
+
+    while (queue.length > 0) {
+        const current = queue.shift()!;
+        const currentLevel = levels.get(current)!;
+
+        data.edges.forEach(e => {
+            let neighbor = null;
+            if (e.source === current) neighbor = e.target;
+            else if (e.target === current) neighbor = e.source;
+
+            if (neighbor && !visited.has(neighbor)) {
+                visited.add(neighbor);
+                levels.set(neighbor, currentLevel + 1);
+                queue.push(neighbor);
+            }
+        });
+    }
+
+    // Assign remaining nodes
+    data.nodes.forEach((n, i) => {
+        if (!levels.has(n.id)) {
+            levels.set(n.id, Math.floor(i / 5) + 3);
+        }
+    });
+
+    // Group by level and position
+    const maxLevel = Math.max(...Array.from(levels.values()));
+    const levelHeight = height / (maxLevel + 2);
+    const nodeCounts = new Map<number, number>();
+    const nodeIndices = new Map<string, number>();
+
+    data.nodes.forEach(n => {
+        const level = levels.get(n.id) || 0;
+        const count = nodeCounts.get(level) || 0;
+        nodeIndices.set(n.id, count);
+        nodeCounts.set(level, count + 1);
+    });
+
+    const nodes = data.nodes.map(node => {
+        const level = levels.get(node.id) || 0;
+        const count = nodeCounts.get(level) || 1;
+        const index = nodeIndices.get(node.id) || 0;
+        const nodeWidth = width / (count + 1);
+
+        return {
+            ...node,
+            position: {
+                x: nodeWidth * (index + 1),
+                y: levelHeight * (level + 1)
+            }
+        };
+    });
+
+    return { ...data, nodes };
+};
+
+// Radial Layout - Concentric circles
+const applyRadialLayout = (data: GraphData): GraphData => {
+    if (!data.nodes.length) return data;
+
+    const width = 1200;
+    const height = 900;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // Sort by importance (connection count)
+    const nodeConnections = new Map<string, number>();
+    data.nodes.forEach(n => nodeConnections.set(n.id, 0));
+    data.edges.forEach(e => {
+        nodeConnections.set(e.source, (nodeConnections.get(e.source) || 0) + 1);
+        nodeConnections.set(e.target, (nodeConnections.get(e.target) || 0) + 1);
+    });
+
+    const sortedNodes = [...data.nodes].sort((a, b) => {
+        return (nodeConnections.get(b.id) || 0) - (nodeConnections.get(a.id) || 0);
+    });
+
+    // Assign rings based on importance
+    const rings: string[][] = [];
+    let ringIndex = 0;
+    let nodesInRing = 0;
+    const maxPerRing = [1, 8, 16, 24, 32];
+
+    sortedNodes.forEach(node => {
+        if (!rings[ringIndex]) rings[ringIndex] = [];
+        rings[ringIndex].push(node.id);
+        nodesInRing++;
+
+        const maxNodes = maxPerRing[ringIndex] || Math.floor(Math.PI * 2 * (ringIndex + 1) * 4);
+        if (nodesInRing >= maxNodes) {
+            ringIndex++;
+            nodesInRing = 0;
+        }
+    });
+
+    // Position nodes
+    const ringSpacing = Math.min(width, height) / (rings.length * 2 + 2);
+    const nodeMap = new Map<string, { x: number; y: number }>();
+
+    rings.forEach((ring, rIndex) => {
+        const radius = rIndex === 0 ? 0 : ringSpacing * (rIndex + 0.5);
+        ring.forEach((nodeId, nIndex) => {
+            const angle = (2 * Math.PI * nIndex) / ring.length - Math.PI / 2;
+            nodeMap.set(nodeId, {
+                x: centerX + Math.cos(angle) * radius,
+                y: centerY + Math.sin(angle) * radius
+            });
+        });
+    });
+
+    const nodes = data.nodes.map(node => ({
+        ...node,
+        position: nodeMap.get(node.id) || { x: centerX, y: centerY }
+    }));
+
+    return { ...data, nodes };
+};
+
+// Timeline Layout - Chronological horizontal flow
+const applyTimelineLayout = (data: GraphData): GraphData => {
+    if (!data.nodes.length) return data;
+
+    const width = 1600;
+    const height = 900;
+    const padding = 100;
+
+    // Sort by date or alphabetically as fallback
+    const sortedNodes = [...data.nodes].sort((a, b) => {
+        const dateA = a.data.tags?.find(t => t.match(/^\d{4}/)) || a.data.title;
+        const dateB = b.data.tags?.find(t => t.match(/^\d{4}/)) || b.data.title;
+        return dateA.localeCompare(dateB);
+    });
+
+    // Group by color (category) for vertical lanes
+    const colorGroups = new Map<string, string[]>();
+    sortedNodes.forEach(node => {
+        const color = node.data.color || 'default';
+        if (!colorGroups.has(color)) colorGroups.set(color, []);
+        colorGroups.get(color)!.push(node.id);
+    });
+
+    const colors = Array.from(colorGroups.keys());
+    const laneHeight = (height - padding * 2) / Math.max(colors.length, 1);
+
+    // Position nodes
+    const nodeMap = new Map<string, { x: number; y: number }>();
+    const timeWidth = width - padding * 2;
+
+    colors.forEach((color, laneIndex) => {
+        const nodesInLane = colorGroups.get(color) || [];
+        const y = padding + laneHeight * (laneIndex + 0.5);
+
+        nodesInLane.forEach((nodeId, index) => {
+            const x = padding + (timeWidth * index) / Math.max(nodesInLane.length - 1, 1);
+            nodeMap.set(nodeId, { x, y });
+        });
+    });
+
+    const nodes = data.nodes.map(node => ({
+        ...node,
+        position: nodeMap.get(node.id) || { x: width / 2, y: height / 2 }
+    }));
+
+    return { ...data, nodes };
+};
+
 export default function MindPage() {
     // Router
     const router = useRouter();
@@ -247,6 +543,15 @@ export default function MindPage() {
             })));
         }
     }, [sourceCounts]);
+
+    // Sync viewMode with layoutType for 2D layouts
+    useEffect(() => {
+        if (viewMode === 'hierarchical' || viewMode === 'radial' || viewMode === 'timeline') {
+            setLayoutType(viewMode);
+        } else if (viewMode === '2d') {
+            setLayoutType('force');
+        }
+    }, [viewMode]);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const svgRef = useRef<SVGSVGElement>(null);
@@ -377,8 +682,22 @@ export default function MindPage() {
                 console.warn('[MindPage] No nodes in response');
             }
 
-            // Apply enhanced force-directed layout
-            const layoutedData = applyForceLayout(data);
+            // Apply layout based on current layoutType
+            let layoutedData: GraphData;
+            switch (layoutType) {
+                case 'hierarchical':
+                    layoutedData = applyHierarchicalLayout(data);
+                    break;
+                case 'radial':
+                    layoutedData = applyRadialLayout(data);
+                    break;
+                case 'timeline':
+                    layoutedData = applyTimelineLayout(data);
+                    break;
+                case 'force':
+                default:
+                    layoutedData = applyForceLayout(data);
+            }
             setGraphData(layoutedData);
         } catch (err) {
             console.error('[MindPage] Graph fetch error:', err);
@@ -390,7 +709,7 @@ export default function MindPage() {
         } finally {
             setLoading(false);
         }
-    }, [showOrphans, showSimilarity, showTags, similarityThreshold]);
+    }, [showOrphans, showSimilarity, showTags, similarityThreshold, layoutType]);
 
     useEffect(() => {
         fetchGraph();
@@ -564,112 +883,6 @@ export default function MindPage() {
         }
         return null;
     }, [showClusters, clusters]);
-
-    // Enhanced Force-Directed Layout with better physics
-    const applyForceLayout = (data: GraphData): GraphData => {
-        if (!data.nodes.length) return data;
-
-        const width = 1200;
-        const height = 900;
-        const centerX = width / 2;
-        const centerY = height / 2;
-
-        // Initial positions - golden ratio spiral for organic feel
-        const phi = (1 + Math.sqrt(5)) / 2;
-        const nodes = data.nodes.map((node, i) => {
-            const angle = i * 2 * Math.PI / phi;
-            const radius = Math.sqrt(i + 1) * 40;
-            return {
-                ...node,
-                position: {
-                    x: centerX + Math.cos(angle) * radius,
-                    y: centerY + Math.sin(angle) * radius
-                },
-                velocity: { x: 0, y: 0 }
-            };
-        });
-
-        const nodeMap = new Map(nodes.map(n => [n.id, n]));
-
-        // Physics constants - tuned for better visualization
-        const REPULSION = 15000;
-        const SPRING_LENGTH = 180;
-        const SPRING_K = 0.04;
-        const DAMPING = 0.9;
-        const CENTER_GRAVITY = 0.008;
-        const ITERATIONS = 200;
-        const MIN_DISTANCE = 60;
-
-        for (let iter = 0; iter < ITERATIONS; iter++) {
-            const cooling = 1 - (iter / ITERATIONS) * 0.7;
-
-            // Repulsion between all nodes
-            for (let a = 0; a < nodes.length; a++) {
-                const nodeA = nodes[a];
-                for (let b = a + 1; b < nodes.length; b++) {
-                    const nodeB = nodes[b];
-                    const dx = nodeA.position.x - nodeB.position.x;
-                    const dy = nodeA.position.y - nodeB.position.y;
-                    const distSq = Math.max(dx * dx + dy * dy, MIN_DISTANCE * MIN_DISTANCE);
-                    const dist = Math.sqrt(distSq);
-
-                    const force = (REPULSION / distSq) * cooling;
-                    const fx = (dx / dist) * force;
-                    const fy = (dy / dist) * force;
-
-                    nodeA.velocity.x += fx;
-                    nodeA.velocity.y += fy;
-                    nodeB.velocity.x -= fx;
-                    nodeB.velocity.y -= fy;
-                }
-            }
-
-            // Spring attraction for edges
-            for (const edge of data.edges) {
-                const source = nodeMap.get(edge.source);
-                const target = nodeMap.get(edge.target);
-
-                if (source && target) {
-                    const dx = target.position.x - source.position.x;
-                    const dy = target.position.y - source.position.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-                    const force = (dist - SPRING_LENGTH) * SPRING_K * cooling;
-                    const fx = (dx / dist) * force;
-                    const fy = (dy / dist) * force;
-
-                    source.velocity.x += fx;
-                    source.velocity.y += fy;
-                    target.velocity.x -= fx;
-                    target.velocity.y -= fy;
-                }
-            }
-
-            // Apply forces
-            for (const node of nodes) {
-                // Center gravity
-                node.velocity.x += (centerX - node.position.x) * CENTER_GRAVITY;
-                node.velocity.y += (centerY - node.position.y) * CENTER_GRAVITY;
-
-                // Update position
-                node.position.x += node.velocity.x * cooling;
-                node.position.y += node.velocity.y * cooling;
-
-                // Damping
-                node.velocity.x *= DAMPING;
-                node.velocity.y *= DAMPING;
-
-                // Keep in bounds with soft boundaries
-                const margin = 100;
-                if (node.position.x < margin) node.velocity.x += 2;
-                if (node.position.x > width - margin) node.velocity.x -= 2;
-                if (node.position.y < margin) node.velocity.y += 2;
-                if (node.position.y > height - margin) node.velocity.y -= 2;
-            }
-        }
-
-        return { ...data, nodes };
-    };
 
     // Filtered nodes with memoization
     const { filteredNodes, filteredEdges } = useMemo(() => {

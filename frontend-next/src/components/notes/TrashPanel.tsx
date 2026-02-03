@@ -19,13 +19,21 @@ import { API_BASE_URL } from '@/lib/api';
 
 interface TrashNote {
     id: string;
-    title: string;
-    content: string;
-    folder_id: string | null;
-    tags: string[];
-    created_at: string;
-    updated_at: string;
+    original_note: {
+        id: string;
+        title: string;
+        content: string;
+        folder_id: string | null;
+        color?: string;
+        pinned?: boolean;
+        created_at: string;
+        updated_at: string;
+        tags?: string;
+        locked?: boolean;
+        encrypted?: boolean;
+    };
     deleted_at: string;
+    deleted_from_folder: string | null;
     versions: any[];
 }
 
@@ -284,26 +292,23 @@ export function TrashPanel({ isOpen, onClose, onNoteRestored }: TrashPanelProps)
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <FileText className="w-4 h-4 text-muted-foreground" />
-                                                        <h4 className="font-medium truncate">{note.title}</h4>
+                                                        <h4 className="font-medium truncate">{note.original_note.title}</h4>
                                                     </div>
                                                     <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-                                                        {note.content?.replace(/[#*`]/g, '').slice(0, 150)}...
+                                                        {note.original_note.content?.replace(/[#*`]/g, '').slice(0, 150) || 'Boş not'}
                                                     </p>
                                                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                                         <span className="flex items-center gap-1">
                                                             <Clock className="w-3 h-3" />
                                                             Silindi: {formatDate(note.deleted_at)}
                                                         </span>
-                                                        {note.tags && note.tags.length > 0 && (
+                                                        {note.original_note.tags && (
                                                             <span className="flex items-center gap-1">
-                                                                {note.tags.slice(0, 2).map((tag, i) => (
+                                                                {note.original_note.tags.split(' ').slice(0, 2).map((tag, i) => (
                                                                     <span key={i} className="px-1.5 py-0.5 bg-muted rounded text-[10px]">
                                                                         {tag}
                                                                     </span>
                                                                 ))}
-                                                                {note.tags.length > 2 && (
-                                                                    <span className="text-[10px]">+{note.tags.length - 2}</span>
-                                                                )}
                                                             </span>
                                                         )}
                                                         {note.versions && note.versions.length > 0 && (

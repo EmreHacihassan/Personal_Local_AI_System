@@ -18,6 +18,7 @@ export interface ImageSettings {
     align: 'left' | 'center' | 'right';
     shape: 'default' | 'rounded' | 'circle' | 'bordered';
     caption?: string;
+    showCaption?: boolean;
     // New custom sizing options
     customWidth?: number;
     customHeight?: number;
@@ -37,6 +38,7 @@ export function ImageSettingsModal({ isOpen, onClose, onConfirm, imageUrl, image
         align: initialSettings?.align || 'center',
         shape: initialSettings?.shape || 'rounded',
         caption: initialSettings?.caption || imageName.split('.')[0],
+        showCaption: initialSettings?.showCaption ?? true,
         customWidth: initialSettings?.customWidth || 300,
         customHeight: initialSettings?.customHeight || 200,
         scalePercent: initialSettings?.scalePercent || 100,
@@ -83,6 +85,7 @@ export function ImageSettingsModal({ isOpen, onClose, onConfirm, imageUrl, image
                 align: initialSettings?.align || 'center',
                 shape: initialSettings?.shape || 'rounded',
                 caption: initialSettings?.caption || imageName.split('.')[0],
+                showCaption: initialSettings?.showCaption ?? true,
                 customWidth: initialSettings?.customWidth || originalDimensions.width,
                 customHeight: initialSettings?.customHeight || originalDimensions.height,
                 scalePercent: initialSettings?.scalePercent || 100,
@@ -269,7 +272,7 @@ export function ImageSettingsModal({ isOpen, onClose, onConfirm, imageUrl, image
                                             getShapeClass(settings.shape)
                                         )}
                                     />
-                                    {settings.caption && (
+                                    {settings.caption && settings.showCaption && (
                                         <p className={cn(
                                             "mt-2 text-sm text-center text-muted-foreground font-medium",
                                             settings.align === 'left' ? 'text-left' : settings.align === 'right' ? 'text-right' : 'text-center'
@@ -449,12 +452,29 @@ export function ImageSettingsModal({ isOpen, onClose, onConfirm, imageUrl, image
 
                                 {/* Caption Input */}
                                 <div>
-                                    <label className="text-sm font-medium mb-3 block">Altyazı</label>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <label className="text-sm font-medium">Altyazı</label>
+                                        <button
+                                            onClick={() => setSettings({ ...settings, showCaption: !settings.showCaption })}
+                                            className={cn(
+                                                "flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all",
+                                                settings.showCaption
+                                                    ? "bg-primary-500/10 text-primary-600 dark:text-primary-400"
+                                                    : "bg-muted text-muted-foreground"
+                                            )}
+                                        >
+                                            {settings.showCaption ? 'Göster' : 'Gizli'}
+                                        </button>
+                                    </div>
                                     <input
                                         type="text"
                                         value={settings.caption}
                                         onChange={(e) => setSettings({ ...settings, caption: e.target.value })}
-                                        className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                                        disabled={!settings.showCaption}
+                                        className={cn(
+                                            "w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50",
+                                            !settings.showCaption && "opacity-50 cursor-not-allowed"
+                                        )}
                                         placeholder="Görsel açıklaması..."
                                     />
                                 </div>

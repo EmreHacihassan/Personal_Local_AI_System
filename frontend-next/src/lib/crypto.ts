@@ -32,7 +32,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt.buffer as ArrayBuffer,
       iterations: ITERATIONS,
       hash: 'SHA-256',
     },
@@ -73,7 +73,7 @@ export async function encryptText(plaintext: string, password: string): Promise<
   combined.set(new Uint8Array(ciphertext), salt.length + iv.length);
   
   // Base64 encode
-  return btoa(String.fromCharCode(...combined));
+  return btoa(String.fromCharCode.apply(null, Array.from(combined)));
 }
 
 /**

@@ -99,6 +99,16 @@ import FloatingQuickNote from '@/components/premium/FloatingQuickNote';
 import RecentNotesWidget from '@/components/premium/RecentNotesWidget';
 import TimelinePlanner from '@/components/premium/TimelinePlanner';
 
+// File Attachments (Premium)
+import { AttachmentUploader } from '@/components/notes/AttachmentUploader';
+import { AttachmentsList } from '@/components/notes/AttachmentsList';
+import { FilePreviewModal } from '@/components/modals/FilePreviewModal';
+import { Paperclip } from 'lucide-react';
+import { NoteAttachment } from '@/store/useStore';
+
+// Premium Note Components
+import { PinnedNotesBar } from '@/components/notes/PinnedNotesBar';
+
 // Backend - Frontend Data Mappers
 const mapNoteFromApi = (note: any): Note => ({
   id: note.id,
@@ -110,6 +120,7 @@ const mapNoteFromApi = (note: any): Note => ({
   isLocked: note.locked || false, // Kilit durumu
   isEncrypted: note.encrypted || false, // AI'dan gizleme durumu
   tags: note.tags || [],
+  attachments: note.attachments || [], // File attachments
   createdAt: new Date(note.created_at),
   updatedAt: new Date(note.updated_at)
 });
@@ -121,6 +132,7 @@ const mapFolderFromApi = (folder: any): NoteFolder => ({
   parentId: folder.parent_id,
   color: folder.color,
   isLocked: folder.locked || false, // Kilit durumu
+  isPinned: folder.pinned || false, // Sabitleme durumu
   createdAt: new Date(folder.created_at)
 });
 
@@ -195,6 +207,12 @@ export function NotesPage() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [uploadedImageInfo, setUploadedImageInfo] = useState<{ url: string, name: string } | null>(null);
   const [editingImageInfo, setEditingImageInfo] = useState<{ url: string; alt: string; options: Record<string, string> } | null>(null);
+
+  // File Attachments State (Premium)
+  const [showAttachmentUploader, setShowAttachmentUploader] = useState(false);
+  const [noteAttachments, setNoteAttachments] = useState<NoteAttachment[]>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<NoteAttachment | null>(null);
+  const [showFilePreview, setShowFilePreview] = useState(false);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -344,10 +362,39 @@ export function NotesPage() {
     return path;
   }, [currentFolder, folders]);
 
-  // Get subfolders of current folder
+  // Get subfolders of current folder (pinned first)
   const subFolders = useMemo(() => {
-    return folders.filter(f => f.parentId === currentFolderId);
+    return folders
+      .filter(f => f.parentId === currentFolderId)
+      .sort((a, b) => {
+        // Pinned folders first
+        if (a.isPinned && !b.isPinned) return -1;
+        if (!a.isPinned && b.isPinned) return 1;
+        return 0;
+      });
   }, [folders, currentFolderId]);
+
+  // Recursive note count for a folder (includes all nested subfolders)
+  const getRecursiveNoteCount = useCallback((folderId: string): number => {
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return 0;
+    
+    // Direct notes in this folder
+    const directNotes = notes.filter(n => n.folder === folderId || n.folder === folder.name).length;
+    
+    // Child folders
+    const childFolders = folders.filter(f => f.parentId === folderId);
+    
+    // Recursive count from child folders
+    const childNotes = childFolders.reduce((sum, child) => sum + getRecursiveNoteCount(child.id), 0);
+    
+    return directNotes + childNotes;
+  }, [folders, notes]);
+
+  // Get direct subfolder count
+  const getDirectSubfolderCount = useCallback((folderId: string): number => {
+    return folders.filter(f => f.parentId === folderId).length;
+  }, [folders]);
 
   // Get all unique folder names from notes (for backward compatibility)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -364,11 +411,9 @@ export function NotesPage() {
   const filteredNotes = useMemo(() => {
     return notes
       .filter(note => {
-        // Şifreli notlar için decode edilmiş içerikte ara
-        const searchableContent = note.isEncrypted ? getDisplayContent(note) : note.content;
         const matchesSearch =
           note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          searchableContent.toLowerCase().includes(searchQuery.toLowerCase());
+          note.content.toLowerCase().includes(searchQuery.toLowerCase());
 
         // Match folder - either by folder ID or folder name
         const matchesFolder = !currentFolderId
@@ -798,12 +843,8 @@ export function NotesPage() {
         pdf.text(note.title, 25, y);
         y += 6;
 
-        // Şifreli notları decode et
-        if (note.isEncrypted) {
-          const decoded = getDisplayContent(note);
-          const preview = decoded.length > 200 ? decoded.substring(0, 200) + '...' : decoded;
-          y = addTextToPDF(pdf, preview, y, { fontSize: 9, indent: 5 });
-        } else if (note.content) {
+        // Not içeriğini ekle
+        if (note.content) {
           const preview = note.content.length > 200 ? note.content.substring(0, 200) + '...' : note.content;
           y = addTextToPDF(pdf, preview, y, { fontSize: 9, indent: 5 });
         }
@@ -897,18 +938,16 @@ export function NotesPage() {
   const handleEdit = (note: Note) => {
     setSelectedNote(note);
     setEditTitle(note.title);
-    // Şifreli notlar için decode edilmiş içerik göster
-    setEditContent(note.isEncrypted ? getDisplayContent(note) : note.content);
+    setEditContent(note.content);
     setIsEditing(true);
+    // Load attachments for this note
+    setNoteAttachments((note as any).attachments || []);
   };
 
   // Kaydet
   const handleSave = async () => {
     if (selectedNote) {
-      // Şifreli not ise içeriği tekrar encode et
-      const contentToSave = selectedNote.isEncrypted 
-        ? btoa(unescape(encodeURIComponent(editContent)))
-        : editContent;
+      const contentToSave = editContent;
       
       // Optimistic update
       const updatedNote = {
@@ -931,7 +970,8 @@ export function NotesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: editTitle,
-            content: contentToSave
+            content: contentToSave,
+            attachments: noteAttachments // Save attachments
           })
         });
         
@@ -952,8 +992,7 @@ export function NotesPage() {
     setIsEditing(false);
     if (selectedNote) {
       setEditTitle(selectedNote.title);
-      // Şifreli notlar için decode edilmiş içerik göster
-      setEditContent(selectedNote.isEncrypted ? getDisplayContent(selectedNote) : selectedNote.content);
+      setEditContent(selectedNote.content);
     }
   };
 
@@ -1059,53 +1098,36 @@ export function NotesPage() {
     }
   };
 
-  // ==================== AI'DAN GİZLEME (OBFUSCATION) ====================
-  
-  // Not'u AI'dan gizle/göster toggle
-  const handleToggleNoteHidden = async (note: Note) => {
-    const newHiddenState = !note.isEncrypted;
+  // Toggle folder pin - Sabitlenmiş klasörler üstte görünür
+  const handleToggleFolderPin = async (folder: NoteFolder) => {
+    const newPinState = !folder.isPinned;
     
-    // İçeriği obfuscate/deobfuscate et
-    let newContent = note.content;
-    if (newHiddenState) {
-      // Base64 encode et (AI anlayamaz ama UI'da decode edilir)
-      newContent = btoa(unescape(encodeURIComponent(note.content)));
-    } else {
-      // Base64 decode et
-      try {
-        newContent = decodeURIComponent(escape(atob(note.content)));
-      } catch {
-        newContent = note.content;
-      }
-    }
-    
-    updateNote(note.id, { 
-      content: newContent,
-      isEncrypted: newHiddenState 
-    });
-    
-    if (selectedNote?.id === note.id) {
-      setSelectedNote({ 
-        ...note, 
-        content: newContent,
-        isEncrypted: newHiddenState 
-      });
-      setEditContent(newHiddenState ? decodeURIComponent(escape(atob(newContent))) : newContent);
-    }
+    // Optimistic update
+    updateFolder(folder.id, { isPinned: newPinState });
 
-    // Backend'e kaydet
+    // Backend API call
     try {
-      await fetch(`/api/notes/${note.id}`, {
+      const response = await fetch(`/api/folders/${folder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          content: newContent,
-          encrypted: newHiddenState 
-        }),
+        body: JSON.stringify({ pinned: newPinState }),
       });
+      if (!response.ok) {
+        // Revert on failure
+        updateFolder(folder.id, { isPinned: folder.isPinned });
+        console.error('Failed to toggle folder pin');
+      }
     } catch (error) {
-      console.error('Toggle hidden error:', error);
+      console.error('Toggle folder pin error:', error);
     }
+  };
+
+  // ==================== AI'DAN GİZLEME (OBFUSCATION) - DEAKTIF ====================
+  
+  // Not'u AI'dan gizle/göster toggle - ŞİMDİLİK DEVRE DIŞI
+  const handleToggleNoteHidden = async (_note: Note) => {
+    // DEAKTIF - Hiçbir şey yapma
+    return;
   };
 
   // Gizli not içeriğini decode et (UI görüntüleme için)
@@ -1140,11 +1162,13 @@ export function NotesPage() {
     const options = [
       `size:${settings.size}`,
       `align:${settings.align}`,
-      `shape:${settings.shape}`
+      `shape:${settings.shape}`,
+      `showCaption:${settings.showCaption !== false}`
     ].join('|');
 
-    // ![Caption|size:medium|align:center|shape:rounded](url)
-    const caption = settings.caption || uploadedImageInfo.name;
+    // ![Caption|size:medium|align:center|shape:rounded|showCaption:true](url)
+    // Use empty string if caption is empty, not fallback to filename
+    const caption = settings.caption !== undefined ? settings.caption : uploadedImageInfo.name;
     const imageMarkdown = `\n![${caption}|${options}](${uploadedImageInfo.url})\n`;
 
     const textarea = document.querySelector('textarea');
@@ -1182,12 +1206,14 @@ export function NotesPage() {
     const newOptions = [
       `size:${settings.size}`,
       `align:${settings.align}`,
-      `shape:${settings.shape}`
+      `shape:${settings.shape}`,
+      `showCaption:${settings.showCaption !== false}`
     ].join('|');
 
     // Build old and new markdown patterns
     const oldAlt = editingImageInfo.alt || '';
-    const newCaption = settings.caption || editingImageInfo.alt || 'image';
+    // Use empty string if caption is cleared, not fallback
+    const newCaption = settings.caption !== undefined ? settings.caption : (editingImageInfo.alt || '');
     
     // Escape special regex characters in URL
     const escapedUrl = editingImageInfo.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1254,7 +1280,9 @@ export function NotesPage() {
     
     const updatedContent = selectedNote.content.replace(imageRegex, (match, altText) => {
       // Parse existing alt text to get caption (before first |)
-      const caption = altText.split('|')[0] || 'image';
+      // Use newOptions.caption if provided, otherwise keep existing caption
+      const existingCaption = altText.split('|')[0];
+      const caption = newOptions.caption !== undefined ? newOptions.caption : existingCaption;
       return `![${caption}|${newOptionsStr}](${imageUrl})`;
     });
 
@@ -1262,6 +1290,53 @@ export function NotesPage() {
     updateNote(selectedNote.id, { content: updatedContent });
     setSelectedNote(prev => prev ? { ...prev, content: updatedContent } : null);
   };
+
+  // Handle paste event for images (Ctrl+V)
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        try {
+          // Upload image to backend
+          const formData = new FormData();
+          formData.append('file', file);
+
+          let res;
+          try {
+            res = await fetch('/api/v1/upload/image', {
+              method: 'POST',
+              body: formData,
+            });
+            if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
+          } catch {
+            res = await fetch(`${API_BASE_URL}/api/v1/upload/image`, {
+              method: 'POST',
+              body: formData,
+            });
+          }
+
+          if (res.ok) {
+            const data = await res.json();
+            setUploadedImageInfo({ url: data.url, name: data.original_name || 'pasted-image' });
+            setShowImageModal(true);
+          } else {
+            toast.error(language === 'tr' ? 'Görsel yüklenemedi' : 'Image upload failed');
+          }
+        } catch (error) {
+          console.error('Paste image error:', error);
+          toast.error(language === 'tr' ? 'Görsel yapıştırılamadı' : 'Failed to paste image');
+        }
+        return;
+      }
+    }
+  }, [language]);
 
   const t = {
     title: { tr: 'Notlarım', en: 'My Notes', de: 'Meine Notizen' },
@@ -1548,6 +1623,20 @@ export function NotesPage() {
       </header>
       )}
 
+      {/* Pinned Notes Bar - Premium Feature */}
+      {!isNoteFullscreen && (
+        <PinnedNotesBar
+          notes={notes}
+          selectedNoteId={selectedNote?.id}
+          language={language}
+          onSelectNote={(note) => {
+            setSelectedNote(note);
+            setIsEditing(false);
+          }}
+          onUnpinNote={(note) => handleTogglePin(note)}
+        />
+      )}
+
       {/* Breadcrumb Navigation - Not tam ekran modunda gizle */}
       {!isNoteFullscreen && (
       <div className="px-6 py-3 border-b border-border bg-muted/30 flex items-center gap-2 overflow-x-auto">
@@ -1685,19 +1774,33 @@ export function NotesPage() {
         {/* Sol Panel - Not Listesi (Not tam ekranda gizle) */}
         {!isNoteFullscreen && (
         <div className="w-80 border-r border-border flex flex-col bg-muted/30">
-          {/* Arama */}
+          {/* Arama - Premium Search */}
           <div className="p-4 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <div className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-r from-primary-500/10 to-purple-500/10 rounded-xl opacity-0 group-focus-within:opacity-100 blur-xl transition-opacity" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground group-focus-within:text-primary-500 transition-colors" />
               <input
                 id="notes-search-input"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t.searchNotes[language]}
-                className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+                className="relative w-full pl-10 pr-10 py-2.5 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 transition-all"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
+            {/* Ctrl+F hint */}
+            <p className="mt-1.5 text-[10px] text-muted-foreground flex items-center gap-1">
+              <kbd className="px-1 py-0.5 bg-muted rounded text-[9px] font-mono">Ctrl+F</kbd>
+              <span>{language === 'tr' ? 'ile hızlı ara' : language === 'de' ? 'zum schnellen Suchen' : 'to quick search'}</span>
+            </p>
           </div>
 
           {/* Tags Filter */}
@@ -1745,23 +1848,48 @@ export function NotesPage() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95 }}
+                  whileHover={{ scale: 1.01, x: 2 }}
+                  whileTap={{ scale: 0.99 }}
                   className="group"
                 >
                   <div
-                    className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border border-blue-200 dark:border-blue-800 cursor-pointer hover:shadow-md transition-all"
+                    className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border border-blue-200 dark:border-blue-800 cursor-pointer hover:shadow-lg hover:shadow-blue-500/10 transition-all backdrop-blur-sm"
                     onClick={() => setCurrentFolderId(folder.id)}
                   >
                     <span className="text-2xl">{folder.icon}</span>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm text-blue-700 dark:text-blue-300 truncate flex items-center gap-1">
+                        {folder.isPinned && <Pin className="w-3 h-3 text-primary-500" />}
                         {folder.name}
                         {folder.isLocked && <Lock className="w-3 h-3 text-amber-500" />}
                       </p>
                       <p className="text-xs text-blue-500/70 dark:text-blue-400/70">
-                        {notes.filter(n => n.folder === folder.id || n.folder === folder.name).length} {t.notes[language]}
+                        {getRecursiveNoteCount(folder.id)} {t.notes[language]}
+                        {getDirectSubfolderCount(folder.id) > 0 && (
+                          <span className="ml-1">• {getDirectSubfolderCount(folder.id)} {language === 'tr' ? 'klasör' : language === 'de' ? 'Ordner' : 'folders'}</span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Pin Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleFolderPin(folder);
+                        }}
+                        className={cn(
+                          "p-1.5 rounded-lg transition-colors",
+                          folder.isPinned
+                            ? "text-primary-500 bg-primary-100 dark:bg-primary-900/30"
+                            : "text-muted-foreground hover:bg-accent"
+                        )}
+                        title={folder.isPinned 
+                          ? (language === 'tr' ? 'Sabitlemeyi Kaldır' : language === 'de' ? 'Lösen' : 'Unpin')
+                          : (language === 'tr' ? 'Sabitle' : language === 'de' ? 'Anheften' : 'Pin')
+                        }
+                      >
+                        <Pin className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1825,15 +1953,18 @@ export function NotesPage() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95 }}
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
                       onClick={() => {
                         setSelectedNote(note);
                         setIsEditing(false);
                       }}
                       className={cn(
-                        "w-full text-left p-3 rounded-xl transition-all group border",
+                        "w-full text-left p-3 rounded-xl transition-all group border backdrop-blur-sm",
+                        "hover:shadow-lg hover:shadow-primary-500/5",
                         colorClasses.bg,
                         selectedNote?.id === note.id
-                          ? "ring-2 ring-primary-500"
+                          ? "ring-2 ring-primary-500 shadow-md shadow-primary-500/10"
                           : colorClasses.border
                       )}
                     >
@@ -1842,7 +1973,6 @@ export function NotesPage() {
                           <div className="flex items-center gap-1">
                             {note.isPinned && <Pin className="w-3 h-3 text-primary-500" />}
                             {note.isLocked && <Lock className="w-3 h-3 text-amber-500" />}
-                            {note.isEncrypted && <EyeOff className="w-3 h-3 text-purple-500" />}
                             <p className="font-medium text-sm truncate">{note.title}</p>
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-1">
@@ -1899,24 +2029,6 @@ export function NotesPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleToggleNoteHidden(note);
-                            }}
-                            className={cn(
-                              "p-1.5 rounded-lg transition-colors",
-                              note.isEncrypted
-                                ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30"
-                                : "text-muted-foreground hover:bg-accent"
-                            )}
-                            title={note.isEncrypted 
-                              ? (language === 'tr' ? 'AI Görebilir' : 'AI Can See')
-                              : (language === 'tr' ? 'AI\'dan Gizle' : 'Hide from AI')
-                            }
-                          >
-                            {note.isEncrypted ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
                               handleDeleteNote(note);
                             }}
                             className={cn(
@@ -1947,15 +2059,18 @@ export function NotesPage() {
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.9 }}
+                        whileHover={{ scale: 1.02, y: -2 }}
+                        whileTap={{ scale: 0.98 }}
                         onClick={() => {
                           setSelectedNote(note);
                           setIsEditing(false);
                         }}
                         className={cn(
-                          "text-left p-3 rounded-xl transition-all group border aspect-square flex flex-col",
+                          "text-left p-3 rounded-xl transition-all group border aspect-square flex flex-col backdrop-blur-sm",
+                          "hover:shadow-xl hover:shadow-primary-500/10",
                           colorClasses.bg,
                           selectedNote?.id === note.id
-                            ? "ring-2 ring-primary-500"
+                            ? "ring-2 ring-primary-500 shadow-lg shadow-primary-500/15"
                             : colorClasses.border
                         )}
                       >
@@ -1963,7 +2078,6 @@ export function NotesPage() {
                           <div className="flex items-center gap-1">
                             {note.isPinned && <Pin className="w-3 h-3 text-primary-500" />}
                             {note.isLocked && <Lock className="w-3 h-3 text-amber-500" />}
-                            {note.isEncrypted && <EyeOff className="w-3 h-3 text-purple-500" />}
                           </div>
                           <button
                             onClick={(e) => {
@@ -1995,37 +2109,58 @@ export function NotesPage() {
               )}
             </AnimatePresence>
 
-            {/* Empty State */}
+            {/* Empty State - Premium */}
             {subFolders.length === 0 && filteredNotes.length === 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col items-center justify-center py-12 text-center"
+                className="flex flex-col items-center justify-center py-16 text-center"
               >
-                <div className="w-20 h-20 mb-4 rounded-full bg-muted/50 flex items-center justify-center">
-                  <FolderOpen className="w-10 h-10 text-muted-foreground/50" />
-                </div>
-                <h3 className="text-sm font-medium text-foreground mb-1">
+                {/* Animated Icon */}
+                <motion.div
+                  initial={{ scale: 0.8 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                  className="relative mb-6"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary-500/20 to-purple-500/20 rounded-full blur-2xl" />
+                  <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center border border-border/50 shadow-inner">
+                    <motion.div
+                      animate={{ rotate: [0, 5, -5, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+                    >
+                      <FolderOpen className="w-12 h-12 text-muted-foreground/50" />
+                    </motion.div>
+                  </div>
+                </motion.div>
+                
+                <h3 className="text-base font-semibold text-foreground mb-2">
                   {t.emptyFolder[language]}
                 </h3>
-                <p className="text-xs text-muted-foreground max-w-[200px]">
+                <p className="text-sm text-muted-foreground max-w-[280px] mb-6">
                   {t.emptyFolderHint[language]}
                 </p>
-                <div className="flex items-center gap-2 mt-4">
-                  <button
+                
+                {/* Premium Action Buttons */}
+                <div className="flex items-center gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => setShowNewFolderForm(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-muted hover:bg-accent rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 text-sm bg-muted hover:bg-accent rounded-xl border border-border/50 transition-all hover:shadow-md"
                   >
-                    <FolderPlus className="w-3.5 h-3.5" />
+                    <FolderPlus className="w-4 h-4" />
                     {t.newFolder[language]}
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={handleNewNote}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 text-sm bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-xl hover:from-primary-600 hover:to-primary-700 transition-all shadow-md hover:shadow-lg hover:shadow-primary-500/20"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-4 h-4" />
                     {t.newNote[language]}
-                  </button>
+                  </motion.button>
                 </div>
               </motion.div>
             )}
@@ -2050,11 +2185,6 @@ export function NotesPage() {
                   <div className="flex items-center gap-2">
                     {selectedNote.isPinned && <Pin className="w-5 h-5 text-primary-500" />}
                     {selectedNote.isLocked && <Lock className="w-5 h-5 text-amber-500" />}
-                    {selectedNote.isEncrypted && (
-                      <span title={language === 'tr' ? 'AI\'dan Gizli' : 'Hidden from AI'}>
-                        <EyeOff className="w-5 h-5 text-purple-500" />
-                      </span>
-                    )}
                     <h2 className="text-xl font-semibold">{selectedNote.title}</h2>
                   </div>
                 )}
@@ -2119,23 +2249,6 @@ export function NotesPage() {
                     }
                   >
                     {selectedNote.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                  </button>
-
-                  {/* AI'dan Gizle/Göster Button */}
-                  <button
-                    onClick={() => handleToggleNoteHidden(selectedNote)}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
-                      selectedNote.isEncrypted
-                        ? "bg-purple-500 text-white"
-                        : "bg-muted hover:bg-accent"
-                    )}
-                    title={selectedNote.isEncrypted 
-                      ? (language === 'tr' ? 'AI Görebilir Yap' : 'Make AI Visible')
-                      : (language === 'tr' ? 'AI\'dan Gizle' : 'Hide from AI')
-                    }
-                  >
-                    {selectedNote.isEncrypted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
 
                   {/* Version History Button */}
@@ -2471,6 +2584,22 @@ export function NotesPage() {
                             <ImageIcon className="w-4 h-4" />
                           </button>
                         </div>
+
+                        {/* File Attachment Button */}
+                        <button
+                          onClick={() => setShowAttachmentUploader(true)}
+                          className="p-2 hover:bg-accent rounded-lg transition-colors"
+                          title={language === 'tr' ? 'Dosya Ekle' : 'Add File'}
+                        >
+                          <Paperclip className="w-4 h-4" />
+                        </button>
+
+                        {/* Attachment Count Badge */}
+                        {noteAttachments.length > 0 && (
+                          <span className="px-1.5 py-0.5 bg-primary-500/20 text-primary-600 text-xs font-medium rounded-full">
+                            {noteAttachments.length}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex-1" />
@@ -2487,6 +2616,7 @@ export function NotesPage() {
                         id="note-editor-textarea"
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
+                        onPaste={handlePaste}
                         placeholder={t.writePlaceholder[language]}
                         className="w-full flex-1 resize-none bg-transparent focus:outline-none text-foreground placeholder:text-muted-foreground leading-relaxed font-mono text-sm"
                         style={{ minHeight: showMathKeyboard ? '200px' : '300px' }}
@@ -2634,35 +2764,30 @@ export function NotesPage() {
                         <FileText className="w-3.5 h-3.5 text-muted-foreground" />
                       </div>
                     </div>
-                  </div>
-                ) : selectedNote.isEncrypted ? (
-                  <div className="prose prose-sm max-w-none dark:prose-invert p-6">
-                    {/* AI'dan gizli içerik banner'ı */}
-                    <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-3 mb-4 not-prose">
-                      <div className="flex items-center gap-2">
-                        <EyeOff className="w-5 h-5 text-purple-600" />
-                        <span className="text-sm text-purple-700 dark:text-purple-300">
-                          {language === 'tr' ? 'Bu not AI\'dan gizleniyor' : 'This note is hidden from AI'}
-                        </span>
+
+                    {/* Attachments List */}
+                    {noteAttachments.length > 0 && (
+                      <div className="border-t border-border">
+                        <AttachmentsList
+                          attachments={noteAttachments}
+                          onPreview={(attachment) => {
+                            setPreviewAttachment(attachment);
+                            setShowFilePreview(true);
+                          }}
+                          onDelete={async (attachment) => {
+                            try {
+                              await fetch(`${API_BASE_URL}/api/v1/upload/file/${attachment.id}`, {
+                                method: 'DELETE',
+                              });
+                              setNoteAttachments(prev => prev.filter(a => a.id !== attachment.id));
+                              toast.success(language === 'tr' ? 'Dosya silindi' : 'File deleted');
+                            } catch (error) {
+                              toast.error(language === 'tr' ? 'Dosya silinemedi' : 'Failed to delete file');
+                            }
+                          }}
+                          language={language}
+                        />
                       </div>
-                    </div>
-                    {getDisplayContent(selectedNote) ? (
-                      <WikiContentRenderer
-                        content={getDisplayContent(selectedNote)}
-                        notes={notes}
-                        onNavigate={(noteId) => {
-                          const note = notes.find(n => n.id === noteId);
-                          if (note) {
-                            setSelectedNote(note);
-                          }
-                        }}
-                        onImageEdit={handleImageEdit}
-                        onImageUpdate={handleInlineImageUpdate}
-                      />
-                    ) : (
-                      <p className="text-muted-foreground italic">
-                        {t.emptyNoteHint[language]}
-                      </p>
                     )}
                   </div>
                 ) : (
@@ -2685,12 +2810,37 @@ export function NotesPage() {
                         {t.emptyNoteHint[language]}
                       </p>
                     )}
+                    
+                    {/* Attachments List (View Mode) */}
+                    {noteAttachments.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <AttachmentsList
+                          attachments={noteAttachments}
+                          onPreview={(attachment) => {
+                            setPreviewAttachment(attachment);
+                            setShowFilePreview(true);
+                          }}
+                          onDelete={async (attachment) => {
+                            try {
+                              await fetch(`${API_BASE_URL}/api/v1/upload/file/${attachment.id}`, {
+                                method: 'DELETE',
+                              });
+                              setNoteAttachments(prev => prev.filter(a => a.id !== attachment.id));
+                              toast.success(language === 'tr' ? 'Dosya silindi' : 'File deleted');
+                            } catch (error) {
+                              toast.error(language === 'tr' ? 'Dosya silinemedi' : 'Failed to delete file');
+                            }
+                          }}
+                          language={language}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* AI Toolbar - Premium AI özellikleri (şifreli notlarda gizle) */}
-              {selectedNote && !isEditing && !selectedNote.isEncrypted && (
+              {/* AI Toolbar - Premium AI özellikleri */}
+              {selectedNote && !isEditing && (
                 <NoteAIToolbar
                   noteId={selectedNote.id}
                   noteTitle={selectedNote.title}
@@ -3103,10 +3253,36 @@ export function NotesPage() {
             size: (editingImageInfo.options.size as ImageSettings['size']) || 'medium',
             align: (editingImageInfo.options.align as ImageSettings['align']) || 'center',
             shape: (editingImageInfo.options.shape as ImageSettings['shape']) || 'rounded',
-            caption: editingImageInfo.alt
+            caption: editingImageInfo.alt,
+            showCaption: editingImageInfo.options.showCaption !== 'false'
           } : undefined}
         />
       )}
+
+      {/* File Attachment Uploader Modal */}
+      {showAttachmentUploader && selectedNote && (
+        <AttachmentUploader
+          noteId={selectedNote.id}
+          onUploadComplete={(attachment) => {
+            setNoteAttachments(prev => [...prev, attachment]);
+            toast.success(language === 'tr' ? 'Dosya eklendi' : 'File attached');
+          }}
+          onClose={() => setShowAttachmentUploader(false)}
+          onError={(message) => toast.error(message)}
+          language={language}
+        />
+      )}
+
+      {/* File Preview Modal */}
+      <FilePreviewModal
+        isOpen={showFilePreview}
+        onClose={() => {
+          setShowFilePreview(false);
+          setPreviewAttachment(null);
+        }}
+        attachment={previewAttachment}
+        language={language}
+      />
 
       {/* Trash Panel */}
       <TrashPanel
@@ -3132,7 +3308,7 @@ export function NotesPage() {
       {/* Version History Panel */}
       {showVersionHistory && selectedNote && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl max-h-[80vh] overflow-hidden">
+          <div className="w-full max-w-2xl h-[80vh] bg-card rounded-2xl shadow-2xl overflow-hidden">
             <VersionHistoryPanel
               note={selectedNote}
               versions={noteVersions.map(v => ({

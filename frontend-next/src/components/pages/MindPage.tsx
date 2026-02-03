@@ -1668,7 +1668,7 @@ export default function MindPage() {
                                             <p className="text-sm text-slate-300 leading-relaxed">{aiSummary}</p>
                                         ) : (
                                             <p className="text-sm text-slate-500 italic">
-                                                AI özet için "Oluştur" butonuna tıklayın
+                                                AI özet için &ldquo;Oluştur&rdquo; butonuna tıklayın
                                             </p>
                                         )}
                                     </div>

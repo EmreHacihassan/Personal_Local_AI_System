@@ -6,7 +6,8 @@ import {
   Calendar, Plus, ChevronLeft, ChevronRight, X,
   Clock, Edit2, Trash2, Check, Star,
   Bell, Tag, Search, Download, Upload, 
-  History, ChevronDown, ChevronUp, ArrowRight
+  History, ChevronDown, ChevronUp, ArrowRight,
+  LayoutGrid, List, GitBranch, AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,8 @@ interface TimelinePlannerProps {
   onEventDelete?: (id: string) => void;
   className?: string;
 }
+
+type ViewMode = 'timeline' | 'cards' | 'compact';
 
 // Turkish month names
 const MONTHS_TR = [
@@ -84,6 +87,8 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
   const [showHistory, setShowHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('timeline');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
   // Form state
   const [eventTitle, setEventTitle] = useState('');
@@ -98,7 +103,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
   const today = new Date();
   const currentMonthKey = getMonthKey(today.getFullYear(), today.getMonth());
 
-  // Load events from localStorage
+  // Load events and viewMode from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('timeline-planner-events');
     if (saved) {
@@ -108,12 +113,21 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
         console.error('Failed to load events:', e);
       }
     }
+    const savedViewMode = localStorage.getItem('timeline-planner-viewmode') as ViewMode;
+    if (savedViewMode && ['timeline', 'cards', 'compact'].includes(savedViewMode)) {
+      setViewMode(savedViewMode);
+    }
   }, []);
 
   // Save events to localStorage
   useEffect(() => {
     localStorage.setItem('timeline-planner-events', JSON.stringify(events));
   }, [events]);
+
+  // Save viewMode to localStorage
+  useEffect(() => {
+    localStorage.setItem('timeline-planner-viewmode', viewMode);
+  }, [viewMode]);
 
   // Filter events
   const filteredEvents = useMemo(() => {
@@ -125,6 +139,14 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
       e.category?.toLowerCase().includes(query)
     );
   }, [events, searchQuery]);
+
+  // Get all future events sorted by date
+  const allFutureEvents = useMemo(() => {
+    const todayStr = formatDate(today);
+    return filteredEvents
+      .filter(e => e.date >= todayStr)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [filteredEvents, today]);
 
   // Separate future and past events
   const { futureMonths, pastEvents } = useMemo(() => {
@@ -261,12 +283,21 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
     setSelectedEvent(null);
   };
 
-  // Delete event
+  // Delete event with confirmation
+  const confirmDeleteEvent = (id: string) => {
+    setDeleteConfirmId(id);
+  };
+
   const deleteEvent = (id: string) => {
     setEvents(prev => prev.filter(e => e.id !== id));
     onEventDelete?.(id);
     setShowEventModal(false);
     setSelectedEvent(null);
+    setDeleteConfirmId(null);
+  };
+
+  const cancelDelete = () => {
+    setDeleteConfirmId(null);
   };
 
   return (
@@ -333,6 +364,49 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
               />
             </label>
 
+            {/* View Mode Toggle */}
+            <div className="flex bg-muted rounded-xl p-1 gap-1">
+              <button
+                onClick={() => setViewMode('timeline')}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                  viewMode === 'timeline' 
+                    ? "bg-background shadow-sm text-primary-500" 
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Zaman Çizelgesi"
+              >
+                <GitBranch className="w-4 h-4" />
+                <span className="hidden sm:inline">Timeline</span>
+              </button>
+              <button
+                onClick={() => setViewMode('cards')}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                  viewMode === 'cards' 
+                    ? "bg-background shadow-sm text-primary-500" 
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Kartlar"
+              >
+                <LayoutGrid className="w-4 h-4" />
+                <span className="hidden sm:inline">Kartlar</span>
+              </button>
+              <button
+                onClick={() => setViewMode('compact')}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                  viewMode === 'compact' 
+                    ? "bg-background shadow-sm text-primary-500" 
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Kompakt Liste"
+              >
+                <List className="w-4 h-4" />
+                <span className="hidden sm:inline">Kompakt</span>
+              </button>
+            </div>
+
             {/* Add Event Button */}
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -349,7 +423,9 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {/* Timeline - Months from Today */}
+        {/* VIEW MODE: TIMELINE */}
+        {viewMode === 'timeline' && (
+        <>
         <div className="mb-8">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <ArrowRight className="w-5 h-5 text-primary-500" />
@@ -530,7 +606,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                               </div>
                               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); deleteEvent(event.id); }}
+                                  onClick={(e) => { e.stopPropagation(); confirmDeleteEvent(event.id); }}
                                   className="p-1 hover:bg-red-500/10 rounded text-red-500"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -546,6 +622,242 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
+        </>
+        )}
+
+        {/* VIEW MODE: CARDS */}
+        {viewMode === 'cards' && (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <LayoutGrid className="w-5 h-5 text-primary-500" />
+              Tüm Gelecek Etkinlikler
+              <span className="text-sm font-normal text-muted-foreground">({allFutureEvents.length})</span>
+            </h3>
+            
+            {allFutureEvents.length === 0 ? (
+              <div className="text-center py-16">
+                <Calendar className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
+                <p className="text-muted-foreground">Henüz planlanmış etkinlik yok</p>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => openEventModal()}
+                  className="mt-4 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors"
+                >
+                  İlk Etkinliği Ekle
+                </motion.button>
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {allFutureEvents.map((event, idx) => {
+                  const eventDate = new Date(event.date);
+                  const daysUntil = Math.ceil((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                  
+                  return (
+                    <motion.div
+                      key={event.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.03 }}
+                      whileHover={{ scale: 1.02, y: -4 }}
+                      onClick={() => openEventModal(event)}
+                      className="group cursor-pointer bg-card border border-border rounded-2xl overflow-hidden hover:shadow-xl transition-all"
+                    >
+                      {/* Color Header */}
+                      <div 
+                        className="h-2"
+                        style={{ backgroundColor: event.color }}
+                      />
+                      
+                      <div className="p-5">
+                        {/* Date Badge */}
+                        <div className="flex items-start justify-between mb-3">
+                          <div 
+                            className="px-3 py-1.5 rounded-xl text-sm font-bold"
+                            style={{ 
+                              backgroundColor: `${event.color}20`,
+                              color: event.color
+                            }}
+                          >
+                            {eventDate.getDate()} {MONTHS_TR[eventDate.getMonth()]} {eventDate.getFullYear()}
+                          </div>
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={(e) => { e.stopPropagation(); confirmDeleteEvent(event.id); }}
+                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-xl text-red-500 transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </motion.button>
+                        </div>
+                        
+                        {/* Title */}
+                        <h4 className="text-lg font-bold mb-2 line-clamp-2">{event.title}</h4>
+                        
+                        {/* Description */}
+                        {event.description && (
+                          <p className="text-sm text-muted-foreground line-clamp-3 mb-3">
+                            {event.description}
+                          </p>
+                        )}
+                        
+                        {/* Footer Info */}
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <div className="flex items-center gap-3">
+                            {event.time && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5" />
+                                {event.time}
+                              </span>
+                            )}
+                            {event.category && (
+                              <span className="px-2 py-0.5 bg-muted rounded-full">
+                                {event.category}
+                              </span>
+                            )}
+                          </div>
+                          <span className={cn(
+                            "font-medium",
+                            daysUntil <= 7 ? "text-orange-500" : "text-muted-foreground"
+                          )}>
+                            {daysUntil === 0 ? 'Bugün' : daysUntil === 1 ? 'Yarın' : `${daysUntil} gün sonra`}
+                          </span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW MODE: COMPACT */}
+        {viewMode === 'compact' && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <List className="w-5 h-5 text-primary-500" />
+              Etkinlik Listesi
+              <span className="text-sm font-normal text-muted-foreground">({allFutureEvents.length})</span>
+            </h3>
+            
+            {allFutureEvents.length === 0 ? (
+              <div className="text-center py-16">
+                <Calendar className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
+                <p className="text-muted-foreground">Henüz planlanmış etkinlik yok</p>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => openEventModal()}
+                  className="mt-4 px-4 py-2 bg-primary-500 text-white rounded-xl font-medium hover:bg-primary-600 transition-colors"
+                >
+                  İlk Etkinliği Ekle
+                </motion.button>
+              </div>
+            ) : (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                {/* Table Header */}
+                <div className="grid grid-cols-12 gap-4 px-4 py-3 bg-muted/50 border-b border-border text-sm font-semibold text-muted-foreground">
+                  <div className="col-span-2">Tarih</div>
+                  <div className="col-span-4">Başlık</div>
+                  <div className="col-span-2">Kategori</div>
+                  <div className="col-span-2">Saat</div>
+                  <div className="col-span-2 text-right">İşlem</div>
+                </div>
+                
+                {/* Table Body */}
+                <div className="divide-y divide-border">
+                  {allFutureEvents.map((event, idx) => {
+                    const eventDate = new Date(event.date);
+                    const daysUntil = Math.ceil((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                    
+                    return (
+                      <motion.div
+                        key={event.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.02 }}
+                        onClick={() => openEventModal(event)}
+                        className="grid grid-cols-12 gap-4 px-4 py-3 items-center cursor-pointer hover:bg-muted/30 transition-colors group"
+                      >
+                        {/* Date */}
+                        <div className="col-span-2">
+                          <div className="flex items-center gap-2">
+                            <div 
+                              className="w-1 h-8 rounded-full"
+                              style={{ backgroundColor: event.color }}
+                            />
+                            <div>
+                              <span className="font-semibold block">
+                                {eventDate.getDate()} {MONTHS_SHORT_TR[eventDate.getMonth()]}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {eventDate.getFullYear()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Title */}
+                        <div className="col-span-4">
+                          <span className="font-medium truncate block">{event.title}</span>
+                          {event.description && (
+                            <span className="text-xs text-muted-foreground truncate block">
+                              {event.description}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Category */}
+                        <div className="col-span-2">
+                          {event.category ? (
+                            <span className="px-2 py-1 bg-muted text-xs rounded-lg">
+                              {event.category}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </div>
+                        
+                        {/* Time */}
+                        <div className="col-span-2">
+                          {event.time ? (
+                            <span className="flex items-center gap-1 text-sm">
+                              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                              {event.time}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </div>
+                        
+                        {/* Actions */}
+                        <div className="col-span-2 flex justify-end gap-2">
+                          <span className={cn(
+                            "text-xs px-2 py-1 rounded-lg",
+                            daysUntil <= 3 ? "bg-orange-500/10 text-orange-500" : 
+                            daysUntil <= 7 ? "bg-yellow-500/10 text-yellow-600" : 
+                            "bg-muted text-muted-foreground"
+                          )}>
+                            {daysUntil === 0 ? 'Bugün' : daysUntil === 1 ? 'Yarın' : `${daysUntil} gün`}
+                          </span>
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={(e) => { e.stopPropagation(); confirmDeleteEvent(event.id); }}
+                            className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-lg text-red-500 transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </motion.button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* History Section */}
         <div className="border-t border-border pt-6">
@@ -624,7 +936,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                               </span>
                             )}
                             <button
-                              onClick={(e) => { e.stopPropagation(); deleteEvent(event.id); }}
+                              onClick={(e) => { e.stopPropagation(); confirmDeleteEvent(event.id); }}
                               className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-lg text-red-500 transition-all"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -640,6 +952,55 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteConfirmId && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+            onClick={cancelDelete}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 mx-auto rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                  <AlertTriangle className="w-8 h-8 text-red-500" />
+                </div>
+                <h3 className="text-lg font-bold mb-2">Etkinliği Sil</h3>
+                <p className="text-muted-foreground mb-6">
+                  Bu etkinliği silmek istediğinize emin misiniz? Bu işlem geri alınamaz.
+                </p>
+                <div className="flex gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={cancelDelete}
+                    className="flex-1 px-4 py-2.5 bg-muted text-foreground rounded-xl font-medium hover:bg-muted/80 transition-colors"
+                  >
+                    İptal
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => deleteEvent(deleteConfirmId)}
+                    className="flex-1 px-4 py-2.5 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors"
+                  >
+                    Evet, Sil
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Event Modal */}
       <AnimatePresence>
@@ -789,7 +1150,7 @@ const TimelinePlanner: React.FC<TimelinePlannerProps> = ({
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => deleteEvent(editingEvent.id)}
+                    onClick={() => { setShowEventModal(false); confirmDeleteEvent(editingEvent.id); }}
                     className="flex items-center gap-2 px-4 py-2 text-red-500 hover:bg-red-500/10 rounded-xl transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />

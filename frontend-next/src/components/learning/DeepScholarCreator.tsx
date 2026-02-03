@@ -607,7 +607,7 @@ export function DeepScholarCreator({
     if (event.type === 'originality_check') {
       setAgentThoughts(prev => [...prev, {
         agent: 'OriginalityChecker',
-        message: `📊 Orijinallik: ${(event.originality_score * 100).toFixed(0)}% | Benzerlik: ${(event.similarity_index * 100).toFixed(0)}%`,
+        message: `📊 Orijinallik: ${((event.originality_score ?? 0) * 100).toFixed(0)}% | Benzerlik: ${((event.similarity_index ?? 0) * 100).toFixed(0)}%`,
         timestamp: new Date().toISOString(),
         type: 'result'
       }]);
@@ -617,7 +617,7 @@ export function DeepScholarCreator({
     if (event.type === 'research_analytics') {
       setAgentThoughts(prev => [...prev, {
         agent: 'ResearchAnalytics',
-        message: `📊 Kalite: ${event.quality_score}/100 | Çeşitlilik: ${(event.diversity_score * 100).toFixed(0)}% | Güncellik: ${(event.recency_score * 100).toFixed(0)}%`,
+        message: `📊 Kalite: ${event.quality_score ?? 0}/100 | Çeşitlilik: ${((event.diversity_score ?? 0) * 100).toFixed(0)}% | Güncellik: ${((event.recency_score ?? 0) * 100).toFixed(0)}%`,
         timestamp: new Date().toISOString(),
         type: 'result'
       }]);

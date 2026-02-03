@@ -81,7 +81,7 @@ export function InlineImageEditor({
     const [size, setSize] = useState<string>(options.size || 'medium');
     const [align, setAlign] = useState<string>(options.align || 'center');
     const [shape, setShape] = useState<string>(options.shape || 'rounded');
-    const [caption, setCaption] = useState<string>(options.caption || alt || '');
+    const [caption, setCaption] = useState<string>(options.caption !== undefined ? options.caption : (alt !== 'image' ? alt : ''));
     const [showAdvanced, setShowAdvanced] = useState(false);
     
     // OCR
@@ -442,7 +442,7 @@ export function InlineImageEditor({
                 draggable={false}
             />
 
-            {/* Caption - Aynı konumda */}
+            {/* Caption - Aynı konumda - only show if not empty */}
             {caption && (
                 <p className={cn(
                     "mt-1 text-xs text-muted-foreground",

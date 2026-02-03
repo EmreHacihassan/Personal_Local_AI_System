@@ -182,24 +182,26 @@ interface ImageOptions {
     align?: string;
     shape?: string;
     caption?: string;
+    showCaption?: boolean;
     offsetX?: number;
     offsetY?: number;
 }
 
 const parseImageOptions = (altText: string): { caption: string, options: ImageOptions } => {
     if (!altText.includes('|')) {
-        return { caption: altText, options: {} };
+        return { caption: altText, options: { caption: altText } };
     }
 
     const parts = altText.split('|');
     const caption = parts[0];
-    const options: ImageOptions = {};
+    const options: ImageOptions = { caption }; // Store caption in options too
 
     for (let i = 1; i < parts.length; i++) {
         const part = parts[i].trim();
         if (part.startsWith('size:')) options.size = part.replace('size:', '');
         else if (part.startsWith('align:')) options.align = part.replace('align:', '');
         else if (part.startsWith('shape:')) options.shape = part.replace('shape:', '');
+        else if (part.startsWith('showCaption:')) options.showCaption = part.replace('showCaption:', '') === 'true';
         else if (part.startsWith('offsetX:')) options.offsetX = parseInt(part.replace('offsetX:', '')) || 0;
         else if (part.startsWith('offsetY:')) options.offsetY = parseInt(part.replace('offsetY:', '')) || 0;
     }
@@ -217,7 +219,7 @@ export function parseContent(content: string): ContentPart[] {
     // Basit yaklaşım: Regex exec ile sırayla gitmek zor çünkü iç içe olabilir veya sıra karışık
     // Parçalama stratejisi: Önce resimlere göre böl, sonra text kısımlarını wiki linklere göre böl
 
-    let lastIndex = 0;
+    const _lastIndex = 0; // Reserved for future use
     let match;
     const imageRegex = new RegExp(IMAGE_REGEX);
 
@@ -417,13 +419,13 @@ export function WikiContentRenderer({ content, notes, onNavigate, onImageEdit, o
                                             loading="lazy"
                                             onClick={() => setSelectedImageIndex(index)}
                                         />
-                                        {/* Caption */}
-                                        {(mergedOpts.caption || part.alt) && (
+                                        {/* Caption - only show if showCaption is not false and caption exists (not fallback to alt) */}
+                                        {mergedOpts.showCaption !== false && mergedOpts.caption && (
                                             <span className={cn(
                                                 "text-xs text-muted-foreground font-medium",
                                                 alignValue === 'left' ? 'text-left' : alignValue === 'right' ? 'text-right' : 'text-center'
                                             )}>
-                                                {mergedOpts.caption || part.alt}
+                                                {mergedOpts.caption}
                                             </span>
                                         )}
                                     </>

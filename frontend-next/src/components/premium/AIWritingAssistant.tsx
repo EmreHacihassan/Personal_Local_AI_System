@@ -195,7 +195,7 @@ const AIWritingAssistant: React.FC<AIWritingAssistantProps> = ({
                 Seçili metin:
               </div>
               <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
-                "{selectedText}"
+                &ldquo;{selectedText}&rdquo;
               </div>
             </div>
           )}

@@ -74,6 +74,7 @@ class Folder:
     created_at: str
     updated_at: str
     locked: bool = False  # Kilitli klasör silinemez
+    pinned: bool = False  # Sabitlenmiş klasör
     
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -82,6 +83,26 @@ class Folder:
     def from_dict(cls, data: Dict) -> "Folder":
         # Eski klasörler için varsayılan değerler ekle
         data.setdefault('locked', False)
+        data.setdefault('pinned', False)
+        return cls(**data)
+
+
+@dataclass
+class NoteAttachment:
+    """Not ek dosyası modeli."""
+    id: str
+    name: str  # UUID ile oluşturulan dosya adı
+    original_name: str  # Orijinal dosya adı
+    url: str  # Dosya URL'i
+    file_type: str  # MIME type
+    size: int  # Bytes cinsinden boyut
+    uploaded_at: str
+    
+    def to_dict(self) -> Dict:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> "NoteAttachment":
         return cls(**data)
 
 
@@ -99,6 +120,11 @@ class Note:
     tags: List[str]
     locked: bool = False  # Kilitli not silinemez
     encrypted: bool = False  # Şifreli not - AI okuyamaz
+    attachments: List[Dict] = None  # Eklenen dosyalar
+    
+    def __post_init__(self):
+        if self.attachments is None:
+            self.attachments = []
     
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -108,6 +134,7 @@ class Note:
         # Eski notlar için varsayılan değerler ekle
         data.setdefault('locked', False)
         data.setdefault('encrypted', False)
+        data.setdefault('attachments', [])
         return cls(**data)
 
 
@@ -476,6 +503,7 @@ class NotesManager:
         icon: str = None,
         parent_id: str = None,
         locked: bool = None,
+        pinned: bool = None,
     ) -> Optional[Folder]:
         """Klasörü güncelle."""
         folders = self._load_folders()
@@ -494,6 +522,8 @@ class NotesManager:
                         f["parent_id"] = parent_id
                 if locked is not None:
                     f["locked"] = locked
+                if pinned is not None:
+                    f["pinned"] = pinned
                 
                 f["updated_at"] = datetime.now().isoformat()
                 folders[i] = f

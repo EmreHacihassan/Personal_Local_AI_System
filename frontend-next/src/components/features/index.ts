@@ -3,7 +3,7 @@
  */
 
 // Wiki-style links & backlinks
-export { WikiLink, WikiContentRenderer, NoteHoverPreview, parseWikiLinks, extractWikiLinks, findBacklinks, createWikiLink } from './WikiLinkParser';
+export { WikiLink, WikiContentRenderer, NoteHoverPreview, extractWikiLinks, findBacklinks, createWikiLink } from './WikiLinkParser';
 export { BacklinksPanel } from './BacklinksPanel';
 
 // Search & Navigation

@@ -57,6 +57,7 @@ class FolderUpdate(BaseModel):
     color: Optional[str] = None
     icon: Optional[str] = None
     locked: Optional[bool] = None  # Kilitleme durumu
+    pinned: Optional[bool] = None  # Sabitleme durumu
 
 
 # ============ NOTES ENDPOINTS ============
@@ -204,6 +205,7 @@ async def update_folder(folder_id: str, folder: FolderUpdate):
             icon=folder.icon,
             parent_id=folder.parent_id,
             locked=folder.locked,  # Kilit durumu güncelleme
+            pinned=folder.pinned,  # Sabitleme durumu güncelleme
         )
         
         if not updated_folder:

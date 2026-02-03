@@ -228,7 +228,7 @@ export function SavedSearches({
                                     <div className="flex-1 min-w-0">
                                         <p className="font-medium text-sm truncate">{search.name}</p>
                                         <p className="text-xs text-muted-foreground truncate">
-                                            "{search.query}"
+                                            &ldquo;{search.query}&rdquo;
                                         </p>
                                         <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                                             <Clock className="w-3 h-3" />

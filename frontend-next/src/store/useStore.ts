@@ -88,6 +88,16 @@ export interface Document {
   chunks?: number;
 }
 
+export interface NoteAttachment {
+  id: string;
+  name: string;  // UUID ile oluşturulan dosya adı
+  original_name: string;  // Orijinal dosya adı
+  url: string;  // Dosya URL'i
+  file_type: string;  // MIME type
+  size: number;  // Bytes cinsinden boyut
+  uploaded_at: string;
+}
+
 export interface Note {
   id: string;
   title: string;
@@ -98,6 +108,7 @@ export interface Note {
   isLocked?: boolean; // Kilitli not silinemez
   isEncrypted?: boolean; // Şifreli not - AI okuyamaz
   tags?: string[];
+  attachments?: NoteAttachment[]; // Ekli dosyalar
   createdAt: Date;
   updatedAt: Date;
 }
@@ -109,6 +120,7 @@ export interface NoteFolder {
   parentId: string | null;
   color: string;
   isLocked?: boolean; // Kilitli klasör silinemez
+  isPinned?: boolean; // Sabitlenmiş klasör üstte görünür
   createdAt: Date;
 }
 

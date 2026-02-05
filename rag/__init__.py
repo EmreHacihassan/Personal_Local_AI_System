@@ -57,6 +57,28 @@ from .reranker import (
     reranker,
 )
 
+# Adaptive Threshold (NEW - Premium)
+from .adaptive_threshold import (
+    AdaptiveThresholdEngine,
+    AdaptiveRetriever,
+    ThresholdConfig,
+    ThresholdResult,
+    QueryDifficulty,
+    adaptive_threshold,
+    adaptive_retriever,
+)
+
+# Context Optimizer (NEW - Premium)
+from .context_optimizer import (
+    ContextOptimizer,
+    ContextBuilder,
+    OptimizedContext,
+    OptimizerConfig,
+    CompressionStrategy,
+    context_optimizer,
+    context_builder,
+)
+
 # Query Expansion
 from .query_expansion import (
     ExpansionStrategy,
@@ -276,6 +298,22 @@ __all__ = [
     "EnsembleReranker",
     "Reranker",
     "reranker",
+    # Adaptive Threshold (Premium)
+    "AdaptiveThresholdEngine",
+    "AdaptiveRetriever",
+    "ThresholdConfig",
+    "ThresholdResult",
+    "QueryDifficulty",
+    "adaptive_threshold",
+    "adaptive_retriever",
+    # Context Optimizer (Premium)
+    "ContextOptimizer",
+    "ContextBuilder",
+    "OptimizedContext",
+    "OptimizerConfig",
+    "CompressionStrategy",
+    "context_optimizer",
+    "context_builder",
     # Query Expansion
     "ExpansionStrategy",
     "ExpandedQuery",

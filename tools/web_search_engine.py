@@ -34,6 +34,31 @@ import httpx
 import requests
 from bs4 import BeautifulSoup
 
+# ============ PREMIUM EXTRACTION (OPTIONAL) ============
+# Trafilatura - Best-in-class article extraction
+try:
+    import trafilatura
+    from trafilatura.settings import use_config
+    TRAFILATURA_AVAILABLE = True
+except ImportError:
+    TRAFILATURA_AVAILABLE = False
+
+# Newspaper3k - News article parsing
+try:
+    from newspaper import Article, Config as NewspaperConfig
+    NEWSPAPER_AVAILABLE = True
+except ImportError:
+    NEWSPAPER_AVAILABLE = False
+
+# KeyBERT - Semantic keyword extraction
+try:
+    from keybert import KeyBERT
+    KEYBERT_AVAILABLE = True
+    _keybert_model = None
+except ImportError:
+    KEYBERT_AVAILABLE = False
+    _keybert_model = None
+
 
 # ============ ENUMS & DATA CLASSES ============
 
@@ -254,8 +279,8 @@ class ContentExtractor:
             "Connection": "keep-alive",
         })
     
-    def extract(self, url: str) -> Optional[ContentExtraction]:
-        """URL'den içerik çıkar"""
+    def extract(self, url: str, use_premium: bool = True) -> Optional[ContentExtraction]:
+        """URL'den içerik çıkar - Premium kütüphaneler varsa kullanır"""
         try:
             start_time = time.time()
             
@@ -267,6 +292,14 @@ class ContentExtractor:
                 response.encoding = 'utf-8'
             
             html = response.text
+            
+            # Premium extraction with Trafilatura (if available)
+            if use_premium and TRAFILATURA_AVAILABLE:
+                premium_result = self._extract_with_trafilatura(html, url)
+                if premium_result:
+                    return premium_result
+            
+            # Fallback: BeautifulSoup
             soup = BeautifulSoup(html, 'html.parser')
             
             # Gürültülü elementleri kaldır
@@ -561,6 +594,115 @@ class ContentExtractor:
             return "tr"
         return "en"
     
+    def _extract_with_trafilatura(self, html: str, url: str) -> Optional[ContentExtraction]:
+        """Trafilatura ile premium içerik çıkarma"""
+        if not TRAFILATURA_AVAILABLE:
+            return None
+        
+        try:
+            # Trafilatura config
+            config = use_config()
+            config.set("DEFAULT", "EXTRACTION_TIMEOUT", "30")
+            
+            # Extract with full options
+            result = trafilatura.extract(
+                html,
+                url=url,
+                include_comments=False,
+                include_tables=True,
+                include_images=False,
+                include_links=False,
+                output_format='json',
+                with_metadata=True,
+                favor_precision=True,
+                config=config
+            )
+            
+            if not result:
+                return None
+            
+            import json
+            data = json.loads(result)
+            
+            content = data.get("text", "")
+            if len(content) < 100:
+                return None
+            
+            # Kelime sayısı ve okuma süresi
+            word_count = len(content.split())
+            reading_time = max(1, word_count // 200)
+            
+            return ContentExtraction(
+                title=data.get("title", ""),
+                main_content=content[:self.max_content_length],
+                meta_description=data.get("description", ""),
+                headings=[],  # Trafilatura doesn't provide headings separately
+                key_points=[],
+                images=[],
+                links=[],
+                tables=[],
+                code_blocks=[],
+                word_count=word_count,
+                reading_time_min=reading_time,
+                language=data.get("language", "unknown"),
+                published_date=data.get("date", None),
+                author=data.get("author", None)
+            )
+        except Exception as e:
+            # Fall back to BeautifulSoup
+            return None
+    
+    def _extract_with_newspaper(self, url: str, html: str) -> Optional[ContentExtraction]:
+        """Newspaper3k ile haber içerik çıkarma"""
+        if not NEWSPAPER_AVAILABLE:
+            return None
+        
+        try:
+            config = NewspaperConfig()
+            config.browser_user_agent = self.session.headers.get("User-Agent", "")
+            config.request_timeout = self.timeout
+            config.fetch_images = False
+            config.memoize_articles = False
+            
+            article = Article(url, config=config)
+            article.set_html(html)
+            article.parse()
+            
+            content = article.text
+            if len(content) < 100:
+                return None
+            
+            # NLP features (optional)
+            try:
+                article.nlp()
+                keywords = article.keywords[:10]
+                summary = article.summary
+            except:
+                keywords = []
+                summary = ""
+            
+            word_count = len(content.split())
+            reading_time = max(1, word_count // 200)
+            
+            return ContentExtraction(
+                title=article.title,
+                main_content=content[:self.max_content_length],
+                meta_description=summary[:500] if summary else "",
+                headings=[],
+                key_points=keywords,
+                images=[],
+                links=[],
+                tables=[],
+                code_blocks=[],
+                word_count=word_count,
+                reading_time_min=reading_time,
+                language="unknown",
+                published_date=str(article.publish_date)[:10] if article.publish_date else None,
+                author=article.authors[0] if article.authors else None
+            )
+        except Exception:
+            return None
+
     def classify_source(self, url: str) -> Tuple[SourceType, float]:
         """Kaynak türünü ve güvenilirlik skorunu belirle"""
         domain = urlparse(url).netloc.lower()
@@ -797,7 +939,7 @@ class PremiumWebSearchEngine:
     
     def __init__(
         self,
-        max_results: int = 8,
+        max_results: int = 30,
         extract_content: bool = True,
         use_wikipedia: bool = True,
         cache_enabled: bool = True,
@@ -1217,7 +1359,7 @@ class WebSearchTool:
     name = "web_search"
     description = "Web'de arama yapar, içerik çıkarır ve kapsamlı sonuçlar döndürür."
     
-    def __init__(self, max_results: int = 8):
+    def __init__(self, max_results: int = 30):
         self.max_results = max_results
         self.engine = get_search_engine()
     

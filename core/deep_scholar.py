@@ -22,6 +22,7 @@ Maksimum: 60 sayfa
 
 import asyncio
 import json
+import logging
 import time
 import hashlib
 import re
@@ -31,6 +32,8 @@ from datetime import datetime
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 import traceback
+
+logger = logging.getLogger(__name__)
 
 from core.config import settings
 from core.llm_manager import llm_manager
@@ -436,7 +439,7 @@ class AcademicSearchEngine:
                                 reliability_score=0.9  # Akademik kaynak
                             ))
         except Exception as e:
-            print(f"[Semantic Scholar Error] {e}")
+            logger.warning(f"Semantic Scholar arama hatası: {e}")
         
         return results
     
@@ -495,7 +498,7 @@ class AcademicSearchEngine:
                                 reliability_score=0.9
                             ))
         except Exception as e:
-            print(f"[arXiv Error] {e}")
+            logger.warning(f"arXiv arama hatası: {e}")
         
         return results
     
@@ -546,7 +549,7 @@ class AcademicSearchEngine:
                                 reliability_score=0.85
                             ))
         except Exception as e:
-            print(f"[CrossRef Error] {e}")
+            logger.warning(f"CrossRef arama hatası: {e}")
         
         return results
     
@@ -616,7 +619,7 @@ class WebSearchEngine:
                         reliability_score=getattr(wr, 'reliability_score', 0.5)
                     ))
         except Exception as e:
-            print(f"[Web Search Error] {e}")
+            logger.warning(f"Web arama hatası: {e}")
         
         return results
 
@@ -978,7 +981,7 @@ class ResearcherAgent(BaseAgent):
                         reliability_score=0.8
                     ))
         except Exception as e:
-            print(f"[RAG Search Error] {e}")
+            logger.warning(f"RAG arama hatası: {e}")
         
         # Deduplicate ve sırala
         seen = set()
@@ -2621,11 +2624,11 @@ class PDFExporter:
                 html_path = output_path.replace('.pdf', '.html')
                 with open(html_path, 'w', encoding='utf-8') as f:
                     f.write(html_template)
-                print(f"PDF export için pdfkit gerekli. HTML olarak kaydedildi: {html_path}")
+                logger.info(f"PDF export için pdfkit gerekli. HTML olarak kaydedildi: {html_path}")
                 return False
                 
         except Exception as e:
-            print(f"[PDF Export Error] {e}")
+            logger.error(f"PDF export hatası: {e}")
             return False
 
 

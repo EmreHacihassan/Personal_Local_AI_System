@@ -174,7 +174,7 @@ const translations = {
 };
 
 // API Base
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
 // Stars Component
 const StarsDisplay: React.FC<{ stars: number; size?: number }> = ({ stars, size = 16 }) => (

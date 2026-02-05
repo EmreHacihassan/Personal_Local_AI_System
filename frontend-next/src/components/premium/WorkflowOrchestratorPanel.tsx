@@ -91,7 +91,7 @@ interface NodeType {
   outputs: string[];
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
 const NODE_ICONS: Record<string, React.ComponentType<any>> = {
   text_input: MessageSquare,

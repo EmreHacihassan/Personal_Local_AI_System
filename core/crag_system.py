@@ -42,7 +42,8 @@ class CorrectionAction(str, Enum):
     DECOMPOSE = "decompose"  # Break into sub-queries
     EXPAND = "expand"  # Add related terms
     WEB_SEARCH = "web_search"  # Fall back to web
-    GIVE_UP = "give_up"  # Cannot answer
+    USE_GENERAL_KNOWLEDGE = "use_general_knowledge"  # Fall back to LLM general knowledge
+    GIVE_UP = "give_up"  # Cannot answer (for personal data queries only)
 
 
 class HallucinationRisk(str, Enum):
@@ -605,7 +606,11 @@ class CRAGPipeline:
             if action == CorrectionAction.NONE:
                 break
             elif action == CorrectionAction.GIVE_UP:
-                logger.warning("CRAG: Giving up - cannot find relevant documents")
+                logger.warning("CRAG: Giving up - cannot find relevant documents for personal data query")
+                break
+            elif action == CorrectionAction.USE_GENERAL_KNOWLEDGE:
+                logger.info("CRAG: Falling back to general knowledge - no relevant documents for general query")
+                # Continue to generation step with empty context - LLM will use general knowledge
                 break
             elif action == CorrectionAction.WEB_SEARCH:
                 if self.web_searcher:
@@ -634,7 +639,7 @@ class CRAGPipeline:
         # Step 3: Select best documents for generation
         unique_docs = self._deduplicate_docs(all_graded_docs)
         used_docs = sorted(unique_docs, key=lambda d: d.relevance_score, reverse=True)
-        used_docs = [d for d in used_docs if d.relevance_score >= 0.3][:5]  # Top 5
+        used_docs = [d for d in used_docs if d.relevance_score >= 0.3][:30]  # Top 30
         
         # Step 4: Generate answer
         context_text = "\n\n".join(
@@ -690,8 +695,24 @@ class CRAGPipeline:
         if relevant_count >= self.min_relevant_docs:
             return CorrectionAction.NONE
         
+        # Check if query is likely about personal data (requires KB)
+        personal_data_indicators = [
+            "dosya", "belge", "kayıt", "not", "yüklediğim", "eklediğim",
+            "my files", "my documents", "my notes", "uploaded", "added",
+            "benim", "kendi", "bendeki", "arşiv"
+        ]
+        is_personal_query = any(
+            indicator in analysis.original_query.lower() 
+            for indicator in personal_data_indicators
+        )
+        
         if iteration >= self.max_iterations:
-            return CorrectionAction.GIVE_UP
+            # For personal data queries, give up if no documents found
+            # For general queries, use LLM's built-in knowledge
+            if is_personal_query:
+                return CorrectionAction.GIVE_UP
+            else:
+                return CorrectionAction.USE_GENERAL_KNOWLEDGE
         
         # Choose correction based on iteration and query type
         if iteration == 1:
@@ -704,7 +725,11 @@ class CRAGPipeline:
         else:
             if self.web_searcher:
                 return CorrectionAction.WEB_SEARCH
-            return CorrectionAction.GIVE_UP
+            # Final fallback: general knowledge for non-personal queries
+            if is_personal_query:
+                return CorrectionAction.GIVE_UP
+            else:
+                return CorrectionAction.USE_GENERAL_KNOWLEDGE
     
     def _deduplicate_docs(self, docs: List[GradedDocument]) -> List[GradedDocument]:
         """Remove duplicate documents"""

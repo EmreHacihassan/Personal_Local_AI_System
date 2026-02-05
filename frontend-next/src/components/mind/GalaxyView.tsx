@@ -40,6 +40,41 @@ interface GalaxyEdge {
   strength: number;
 }
 
+// Projected edge with full node references (source and target are nodes, not strings)
+interface ProjectedGalaxyEdge {
+  id: string;
+  type: string;
+  strength: number;
+  source: {
+    id: string;
+    x: number;
+    y: number;
+    z: number;
+    size: number;
+    color: string;
+    glow: string;
+    label: string;
+    type: 'note' | 'document' | 'chat' | 'calendar';
+    connections: string[];
+    projected: { x: number; y: number; scale: number };
+    depth: number;
+  };
+  target: {
+    id: string;
+    x: number;
+    y: number;
+    z: number;
+    size: number;
+    color: string;
+    glow: string;
+    label: string;
+    type: 'note' | 'document' | 'chat' | 'calendar';
+    connections: string[];
+    projected: { x: number; y: number; scale: number };
+    depth: number;
+  };
+}
+
 interface Particle3D {
   id: number;
   x: number;
@@ -276,20 +311,26 @@ export const GalaxyView: React.FC<GalaxyViewProps> = ({
     });
   }, [particles, rotation, dimensions]);
 
-  // Project edges
-  const projectedEdges = useMemo(() => {
-    return edges.map(edge => {
+  // Project edges with proper type narrowing
+  const projectedEdges = useMemo((): ProjectedGalaxyEdge[] => {
+    const results: ProjectedGalaxyEdge[] = [];
+    
+    for (const edge of edges) {
       const sourceNode = projectedNodes.find(n => n.id === edge.source);
       const targetNode = projectedNodes.find(n => n.id === edge.target);
 
-      if (!sourceNode || !targetNode) return null;
-
-      return {
-        ...edge,
-        source: sourceNode,
-        target: targetNode,
-      };
-    }).filter(Boolean);
+      if (sourceNode && targetNode) {
+        results.push({
+          id: edge.id,
+          type: edge.type,
+          strength: edge.strength,
+          source: sourceNode,
+          target: targetNode,
+        });
+      }
+    }
+    
+    return results;
   }, [edges, projectedNodes]);
 
   const resetView = () => {
@@ -367,8 +408,7 @@ export const GalaxyView: React.FC<GalaxyViewProps> = ({
         ))}
 
         {/* Edges */}
-        {projectedEdges.map((edge: any, index) => {
-          if (!edge) return null;
+        {projectedEdges.map((edge, index) => {
           const isHighlighted = hoveredNodeId === edge.source.id || hoveredNodeId === edge.target.id;
           
           return (

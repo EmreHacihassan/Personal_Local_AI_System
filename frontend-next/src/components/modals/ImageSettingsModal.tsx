@@ -165,7 +165,7 @@ export function ImageSettingsModal({ isOpen, onClose, onConfirm, imageUrl, image
         setIsExtracting(true);
         setOcrError('');
         try {
-            const response = await fetch('http://localhost:8000/api/notes/ocr', {
+            const response = await fetch('http://localhost:8001/api/notes/ocr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ image_path: imageUrl })

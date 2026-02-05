@@ -175,8 +175,8 @@ async def get_memory_status():
         try:
             stats = ltm.get_stats()
             status["long_term_stats"] = stats
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to get long-term memory stats: {e}")
     
     return status
 
@@ -603,7 +603,8 @@ async def set_llm_function(request: SetLLMFunctionRequest):
                     with concurrent.futures.ThreadPoolExecutor() as pool:
                         return pool.submit(asyncio.run, llm_fn(prompt)).result()
                 return asyncio.run(llm_fn(prompt))
-            except:
+            except Exception as e:
+                logger.warning(f"Memory LLM summarization failed: {e}")
                 return ""
         
         mm.set_llm_function(sync_llm_fn)

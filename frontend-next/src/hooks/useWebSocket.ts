@@ -29,7 +29,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8001';
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error';
 
@@ -439,6 +439,8 @@ export interface ChatStreamState {
   // Available models (from connected message)
   availableModels: Record<string, { name: string; display_name: string; icon: string }>;
   routingEnabled: boolean;
+  // Session ID from backend (for new sessions)
+  receivedSessionId: string | null;
 }
 
 export function useChatWebSocket(
@@ -463,6 +465,7 @@ export function useChatWebSocket(
     learningApplied: false,
     availableModels: {},
     routingEnabled: false,
+    receivedSessionId: null,
   });
 
   // Generate unique client ID
@@ -481,6 +484,10 @@ export function useChatWebSocket(
         break;
 
       case 'start':
+        // Backend'den gelen session_id'yi yakala (yeni session oluşturulduğunda)
+        if (message.session_id) {
+          console.log('📌 [WS] Received session_id from backend:', message.session_id);
+        }
         setStreamState(prev => ({
           ...prev,
           streamingResponse: '',
@@ -497,6 +504,7 @@ export function useChatWebSocket(
           requiresComparison: false,
           comparisonRouting: undefined,
           learningApplied: false,
+          receivedSessionId: message.session_id || null,
         }));
         break;
 
@@ -613,17 +621,25 @@ export function useChatWebSocket(
         break;
       
       case 'error':
+        console.error('[WS Chat] Received error:', message.error || message.message);
         setStreamState(prev => ({
           ...prev,
           streamError: message.error || message.message || 'Bilinmeyen hata',
           isStreaming: false,
           statusMessage: null,
+          currentPhase: 'error',
         }));
         break;
 
       case 'pong':
         // Keepalive response, ignore
         break;
+      
+      default:
+        // Log unknown message types for debugging
+        if (message.type && !['pong', 'ping'].includes(message.type)) {
+          console.log('[WS Chat] Unknown message type:', message.type, message);
+        }
     }
   }, []);
 
@@ -632,6 +648,25 @@ export function useChatWebSocket(
     ...options,
     onMessage: handleMessage,
   });
+
+  // Reset streaming state when WebSocket disconnects
+  useEffect(() => {
+    if (ws.status === 'disconnected' || ws.status === 'error') {
+      setStreamState(prev => {
+        if (prev.isStreaming) {
+          console.warn('[WS Chat] Connection lost during streaming, resetting state');
+          return {
+            ...prev,
+            isStreaming: false,
+            streamError: 'Bağlantı kesildi',
+            statusMessage: null,
+            currentPhase: 'error',
+          };
+        }
+        return prev;
+      });
+    }
+  }, [ws.status]);
 
   const startStream = useCallback((content: string, streamSessionId?: string) => {
     // Reset state
@@ -711,6 +746,16 @@ export function useChatWebSocket(
       responseMode?: 'normal' | 'analytical' | 'creative' | 'technical';
     }
   ) => {
+    // 🔍 DEBUG: Log session ID being sent
+    const effectiveSessionId = opts?.sessionId || sessionId;
+    console.log('📤 [WS DEBUG] sendRoutedMessage called:', {
+      content: content.substring(0, 50) + '...',
+      optsSessionId: opts?.sessionId,
+      hookSessionId: sessionId,
+      effectiveSessionId: effectiveSessionId,
+      timestamp: new Date().toISOString()
+    });
+
     setStreamState(prev => ({
       ...prev,
       streamingResponse: '',
@@ -726,16 +771,19 @@ export function useChatWebSocket(
       learningApplied: false,
     }));
 
-    return ws.sendMessage({
+    const messagePayload = {
       type: 'chat',
       message: content,
-      session_id: opts?.sessionId || sessionId,
+      session_id: effectiveSessionId,
       use_routing: opts?.useRouting !== false, // Default true
       force_model: opts?.forceModel,
       web_search: opts?.webSearch || false,
       complexity_level: opts?.complexityLevel || 'auto',
       response_mode: opts?.responseMode || 'normal',
-    });
+    };
+    
+    console.log('📤 [WS DEBUG] Sending payload:', messagePayload);
+    return ws.sendMessage(messagePayload);
   }, [ws, sessionId]);
 
   /**

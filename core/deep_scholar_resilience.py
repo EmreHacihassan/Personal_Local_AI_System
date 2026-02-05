@@ -18,6 +18,7 @@ Premium Feature: Enterprise-grade reliability
 
 import asyncio
 import json
+import logging
 import os
 import hashlib
 from datetime import datetime, timedelta
@@ -27,6 +28,8 @@ from enum import Enum
 from pathlib import Path
 import aiofiles
 import traceback
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -276,7 +279,7 @@ class AutoSaveManager:
             self._cache[document_id] = entries
             return entries
         except Exception as e:
-            print(f"[AutoSave] Load error: {e}")
+            logger.warning(f"AutoSave yükleme hatası: {e}")
             return []
     
     def get_cached_content(self, document_id: str) -> str:
@@ -411,7 +414,7 @@ class CheckpointManager:
             self._checkpoints[document_id] = checkpoint
             return checkpoint
         except Exception as e:
-            print(f"[Checkpoint] Load error: {e}")
+            logger.warning(f"Checkpoint yükleme hatası: {e}")
             return None
     
     def get_checkpoint(self, document_id: str) -> Optional[ResilienceCheckpoint]:
@@ -748,7 +751,7 @@ class OfflineModeManager:
             self._offline_data[document_id] = offline
             return offline
         except Exception as e:
-            print(f"[Offline] Load error: {e}")
+            logger.warning(f"Çevrimdışı veri yükleme hatası: {e}")
             return None
     
     def get_pending_sync(self) -> List[str]:
@@ -1021,7 +1024,7 @@ class DeepScholarResilienceService:
                 else:
                     callback(event)
             except Exception as e:
-                print(f"[Resilience] Callback error: {e}")
+                logger.warning(f"Resilience callback hatası: {e}")
     
     async def on_section_complete(
         self,

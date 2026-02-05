@@ -218,8 +218,8 @@ async def session_websocket(websocket: WebSocket, session_id: str):
                     "type": "update",
                     **update
                 })
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"WebSocket update send failed (client may have disconnected): {e}")
         
         session = await agent.run_session(session.id, on_update=on_update)
         
@@ -245,8 +245,8 @@ async def session_websocket(websocket: WebSocket, session_id: str):
                 "type": "error",
                 "message": str(e)
             })
-        except:
-            pass
+        except Exception as send_err:
+            logger.debug(f"Failed to send error to WebSocket: {send_err}")
     finally:
         try:
             await websocket.close()

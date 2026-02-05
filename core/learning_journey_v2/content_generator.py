@@ -12,10 +12,13 @@ Bu modül:
 
 import asyncio
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     ContentBlock, ContentType, Package, Stage,
@@ -169,7 +172,8 @@ Giriş:
 
             try:
                 content = await self.llm_service.generate(prompt)
-            except:
+            except Exception as e:
+                logger.warning(f"LLM intro generation failed, using mock: {e}")
                 content = self._mock_intro(package)
         else:
             content = self._mock_intro(package)
@@ -225,7 +229,8 @@ Açıklama:
 
             try:
                 content = await self.llm_service.generate(prompt)
-            except:
+            except Exception as e:
+                logger.warning(f"LLM explanation generation failed, using mock: {e}")
                 content = self._mock_explanation(topic)
         else:
             content = self._mock_explanation(topic)
@@ -334,7 +339,8 @@ Markdown formatında yaz."""
 
                 try:
                     content = await self.llm_service.generate(prompt)
-                except:
+                except Exception as e:
+                    logger.warning(f"LLM examples generation failed, using mock: {e}")
                     content = self._mock_examples(topic)
             else:
                 content = self._mock_examples(topic)
@@ -517,8 +523,8 @@ class RAGContentEnhancer:
                     })
                 
                 return enhanced_content, citations
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"RAG enhancement failed: {e}")
         
         return content, []
 

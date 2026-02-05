@@ -923,28 +923,83 @@ st.set_page_config(
 
 
 # ============ SESSION STATE INITIALIZATION ============
+# RADIKAL ÇÖZÜM: URL query params ile session kontrolü
+# - URL'de ?s=xxx varsa → o session yüklenir
+# - URL temiz ise → HER ZAMAN yeni, boş session
 
 def init_session_state():
-    """Session state'i başlat."""
-    if "session_id" not in st.session_state:
-        new_session = session_manager.create_session()
-        st.session_state.session_id = new_session.id
-
+    """
+    Session state'i başlat - RADIKAL VERSİYON.
+    
+    Mantık:
+    1. URL'de ?s=session_id varsa → o session'ı yükle
+    2. URL temiz ise → YENİ session oluştur (eski konuşmayı yükleme!)
+    3. Sidebar'dan tıklama → URL'ye ?s=xxx eklenir
+    """
+    # URL'den session parametresini al
+    query_params = st.query_params
+    url_session_id = query_params.get("s", None)
+    
+    # _page_load_id: Her tam sayfa yüklemesinde (F5, yeni sekme) farklı olur
+    # Bu sayede sayfa yenilendiğinde yeni session başlatılır
+    import hashlib
+    page_load_marker = hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
+    
+    if "_last_page_load" not in st.session_state:
+        st.session_state._last_page_load = page_load_marker
+        st.session_state._force_new_session = True
+    
+    # URL'de session ID varsa → o session'ı yükle
+    if url_session_id:
+        # URL parametresi değiştiyse session'ı güncelle
+        if st.session_state.get("_loaded_url_session") != url_session_id:
+            existing = session_manager.get_session(url_session_id)
+            if existing:
+                st.session_state.session_id = url_session_id
+                st.session_state.messages = [
+                    {
+                        "role": m.role,
+                        "content": m.content,
+                        "sources": m.sources if hasattr(m, 'sources') else [],
+                        "web_sources": [],
+                    }
+                    for m in existing.messages
+                ]
+                st.session_state._loaded_url_session = url_session_id
+                st.session_state._force_new_session = False
+            else:
+                # Session bulunamadı, yeni oluştur
+                _create_fresh_session()
+    
+    # URL temiz ve yeni sayfa yüklemesi → YENİ SESSION
+    elif st.session_state.get("_force_new_session", True):
+        _create_fresh_session()
+        st.session_state._force_new_session = False
+    
+    # Session ID yoksa → yeni oluştur
+    elif "session_id" not in st.session_state:
+        _create_fresh_session()
+    
+    # Mesajlar yoksa → boş liste
     if "messages" not in st.session_state:
-        existing_session = session_manager.get_session(st.session_state.session_id)
-        if existing_session:
-            st.session_state.messages = [
-                {
-                    "role": m.role,
-                    "content": m.content,
-                    "sources": m.sources if hasattr(m, 'sources') else [],
-                    "web_sources": [],
-                }
-                for m in existing_session.messages
-            ]
-        else:
-            st.session_state.messages = []
+        st.session_state.messages = []
+    
+    # Diğer state değişkenlerini init et
+    _init_other_states()
 
+
+def _create_fresh_session():
+    """Tamamen yeni, boş session oluştur."""
+    new_session = session_manager.create_session()
+    st.session_state.session_id = new_session.id
+    st.session_state.messages = []
+    st.session_state._loaded_url_session = None
+    # URL'yi temizle (eski session parametresini kaldır)
+    st.query_params.clear()
+
+
+def _init_other_states():
+    """Diğer session state değişkenlerini init et."""
     if "current_page" not in st.session_state:
         st.session_state.current_page = "chat"
     
@@ -1097,7 +1152,7 @@ def save_message_to_session(role: str, content: str, sources: list = None):
 
 
 def load_session(session_id: str):
-    """Session'ı yükle."""
+    """Session'ı yükle ve URL'yi güncelle."""
     session = session_manager.get_session(session_id)
     if session:
         st.session_state.session_id = session_id
@@ -1110,16 +1165,24 @@ def load_session(session_id: str):
             }
             for m in session.messages
         ]
+        st.session_state._loaded_url_session = session_id
+        st.session_state._force_new_session = False
+        # URL'ye session parametresi ekle (sayfa yenilenince aynı session açılsın)
+        st.query_params["s"] = session_id
         return True
     return False
 
 
 def create_new_session():
-    """Yeni session oluştur."""
+    """Yeni session oluştur ve URL'yi temizle."""
     new_session = session_manager.create_session()
     st.session_state.session_id = new_session.id
     st.session_state.messages = []
     st.session_state.web_search_enabled = False
+    st.session_state._loaded_url_session = None
+    st.session_state._force_new_session = False
+    # URL'den session parametresini temizle
+    st.query_params.clear()
 
 
 # ============ HTTP SESSION WITH CONNECTION POOLING ============

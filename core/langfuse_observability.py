@@ -16,6 +16,7 @@ Langfuse Cloud veya Self-hosted destekler.
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -28,6 +29,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
 import threading
+
+logger = logging.getLogger(__name__)
 
 # Optional Langfuse import
 try:
@@ -859,13 +862,13 @@ class Observability:
         if LANGFUSE_AVAILABLE and langfuse_key:
             try:
                 self._backend = LangfuseBackend()
-                print("📊 Langfuse observability initialized")
+                logger.info("Langfuse observability initialized")
             except Exception as e:
-                print(f"⚠️ Langfuse init failed: {e}, using local backend")
+                logger.warning(f"Langfuse init failed: {e}, using local backend")
                 self._backend = LocalObservabilityBackend()
         else:
             self._backend = LocalObservabilityBackend()
-            print("📊 Local observability backend initialized")
+            logger.info("Local observability backend initialized")
     
     @property
     def backend(self) -> ObservabilityBackend:

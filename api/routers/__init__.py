@@ -16,6 +16,11 @@ from .advanced_rag import router as advanced_rag_router
 from .voice_router import voice_router  # Voice & Multimodal (LOCAL)
 from .screen_router import router as screen_router  # Screen Capture (LOCAL)
 from .premium import router as premium_router  # Premium Features (NEW)
+from .notifications import router as notifications_router, notification_manager  # Notifications (NEW)
+from .models import router as models_router  # Model management (NEW)
+from .sessions import router as sessions_router  # Session management (NEW)
+from .services import router as services_router  # Service management (NEW)
+from .tiers import router as tiers_router  # Premium Tiers (NEW)
 from ..computer_use_endpoints import router as computer_use_router  # Computer Use Agent
 
 __all__ = [
@@ -28,6 +33,12 @@ __all__ = [
     "advanced_rag_router",
     "voice_router",
     "screen_router",
-    "premium_router",  # NEW: Premium Features
+    "premium_router",
+    "notifications_router",
+    "notification_manager",
+    "models_router",
+    "sessions_router",
+    "services_router",
+    "tiers_router",
     "computer_use_router",
 ]

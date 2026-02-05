@@ -314,17 +314,56 @@ def create_builtin_mcp_server() -> LocalMCPServer:
     """Yerleşik araçlarla MCP sunucusu oluştur."""
     server = LocalMCPServer("builtin")
     
-    # Calculator tool
+    # Calculator tool - AST-based safe evaluation
     def calculator(expression: str) -> Dict[str, Any]:
-        """Matematiksel ifadeyi hesapla."""
+        """Matematiksel ifadeyi güvenli şekilde hesapla (AST-based)."""
+        import ast
+        import operator
+        
+        # Desteklenen operatörler
+        SAFE_OPERATORS = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+        
+        def safe_eval_node(node):
+            """AST node'unu güvenli şekilde değerlendir."""
+            if isinstance(node, ast.Constant):  # Python 3.8+
+                if isinstance(node.value, (int, float)):
+                    return node.value
+                raise ValueError(f"Desteklenmeyen değer: {type(node.value)}")
+            elif isinstance(node, ast.Num):  # Python 3.7 uyumluluğu
+                return node.n
+            elif isinstance(node, ast.BinOp):
+                op_func = SAFE_OPERATORS.get(type(node.op))
+                if op_func is None:
+                    raise ValueError(f"Desteklenmeyen operatör: {type(node.op).__name__}")
+                left = safe_eval_node(node.left)
+                right = safe_eval_node(node.right)
+                return op_func(left, right)
+            elif isinstance(node, ast.UnaryOp):
+                op_func = SAFE_OPERATORS.get(type(node.op))
+                if op_func is None:
+                    raise ValueError(f"Desteklenmeyen unary operatör: {type(node.op).__name__}")
+                return op_func(safe_eval_node(node.operand))
+            elif isinstance(node, ast.Expression):
+                return safe_eval_node(node.body)
+            else:
+                raise ValueError(f"Desteklenmeyen ifade tipi: {type(node).__name__}")
+        
         try:
-            # Safe eval for math
-            allowed = set("0123456789+-*/.() ")
-            if not all(c in allowed for c in expression):
-                return {"error": "Invalid expression"}
-            result = eval(expression)
+            # Expression'ı parse et
+            tree = ast.parse(expression.strip(), mode='eval')
+            result = safe_eval_node(tree)
             return {"result": result, "expression": expression}
-        except Exception as e:
+        except (ValueError, SyntaxError, TypeError, ZeroDivisionError) as e:
             return {"error": str(e)}
     
     server.register_tool(

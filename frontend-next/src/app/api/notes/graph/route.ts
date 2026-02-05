@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 export async function GET(request: NextRequest) {
     try {
@@ -52,10 +52,27 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         console.error('[Notes Graph] Error:', error);
 
+        // Empty data structure for fallback
+        const emptyGraphData = {
+            nodes: [],
+            edges: [],
+            stats: {
+                total_nodes: 0,
+                total_edges: 0,
+                connected_nodes: 0,
+                orphan_nodes: 0,
+                wiki_links: 0,
+                tag_links: 0,
+                similarity_links: 0,
+            },
+            error: true,
+        };
+
         // Check if backend is down
         if (error instanceof TypeError && error.message.includes('fetch')) {
             return NextResponse.json(
                 {
+                    ...emptyGraphData,
                     detail: 'Backend bağlantısı kurulamadı. Lütfen backend\'in çalıştığından emin olun.',
                     hint: 'Terminal\'de: python run.py'
                 },
@@ -63,8 +80,23 @@ export async function GET(request: NextRequest) {
             );
         }
 
+        // Timeout error
+        if (error instanceof Error && error.name === 'TimeoutError') {
+            return NextResponse.json(
+                {
+                    ...emptyGraphData,
+                    detail: 'Backend yanıt süresi aşıldı.',
+                    hint: 'Backend işlemi çok uzun sürüyor, daha sonra tekrar deneyin.'
+                },
+                { status: 504 }
+            );
+        }
+
         return NextResponse.json(
-            { detail: error instanceof Error ? error.message : 'Bilinmeyen hata' },
+            { 
+                ...emptyGraphData,
+                detail: error instanceof Error ? error.message : 'Bilinmeyen hata' 
+            },
             { status: 500 }
         );
     }

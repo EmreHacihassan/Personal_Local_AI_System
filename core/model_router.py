@@ -101,35 +101,35 @@ class FeedbackStatus(str, Enum):
     CANCELLED = "cancelled"         # Karşılaştırma sonrası iptal edildi
 
 
-# Model configuration
+# Model configuration - dynamically loaded from settings
 MODEL_CONFIG = {
     ModelSize.SMALL: {
-        "name": "qwen3:4b",
-        "display_name": "Qwen 4B",
-        "icon": "🟢",
+        "name": settings.ROUTING_SMALL_MODEL,
+        "display_name": settings.ROUTING_SMALL_MODEL_DISPLAY,
+        "icon": settings.ROUTING_SMALL_MODEL_ICON,
         "description": "Hızlı yanıtlar, basit sorgular",
-        "avg_tokens_per_second": 80,
+        "avg_tokens_per_second": settings.ROUTING_SMALL_MODEL_TOKENS_PER_SEC,
     },
     ModelSize.LARGE: {
-        "name": "qwen3-vl:8b", 
-        "display_name": "Qwen 8B",
-        "icon": "🔵",
+        "name": settings.ROUTING_LARGE_MODEL,
+        "display_name": settings.ROUTING_LARGE_MODEL_DISPLAY,
+        "icon": settings.ROUTING_LARGE_MODEL_ICON,
         "description": "Kapsamlı yanıtlar, karmaşık sorgular",
-        "avg_tokens_per_second": 40,
+        "avg_tokens_per_second": settings.ROUTING_LARGE_MODEL_TOKENS_PER_SEC,
     },
 }
 
 # Default model for uncertain cases
 DEFAULT_MODEL = ModelSize.LARGE
 
-# Confidence thresholds
-CONFIDENCE_HIGH = 0.85      # Auto-route without indicator
-CONFIDENCE_MEDIUM = 0.60    # Route with "uncertain" indicator
-CONFIDENCE_LOW = 0.40       # Use default model
+# Confidence thresholds - from settings
+CONFIDENCE_HIGH = settings.ROUTING_CONFIDENCE_HIGH      # Auto-route without indicator
+CONFIDENCE_MEDIUM = settings.ROUTING_CONFIDENCE_MEDIUM  # Route with "uncertain" indicator
+CONFIDENCE_LOW = settings.ROUTING_CONFIDENCE_LOW        # Use default model
 
-# Learning thresholds
-MIN_FEEDBACKS_TO_LEARN = 2  # Minimum feedback count to create a rule
-SIMILARITY_THRESHOLD = 0.85  # Minimum similarity for learned routing
+# Learning thresholds - from settings
+MIN_FEEDBACKS_TO_LEARN = settings.ROUTING_MIN_FEEDBACKS_TO_LEARN  # Minimum feedback count
+SIMILARITY_THRESHOLD = settings.ROUTING_SIMILARITY_THRESHOLD       # Minimum similarity
 
 
 # =============================================================================

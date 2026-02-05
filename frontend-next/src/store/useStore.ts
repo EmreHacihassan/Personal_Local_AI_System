@@ -156,6 +156,7 @@ interface AppState {
   sessions: Session[];
   currentSessionId: string | null;
   setCurrentSession: (id: string | null) => void;
+  setNewSessionId: (id: string) => void;  // Sets session ID without clearing messages (for new sessions)
   addSession: (session: Session) => void;
   deleteSession: (id: string) => void;
   loadSessionMessages: (sessionId: string, messages: Message[]) => void;
@@ -293,7 +294,14 @@ export const useStore = create<AppState>()(
       // Sessions
       sessions: [] as Session[],
       currentSessionId: null as string | null,
-      setCurrentSession: (id: string | null) => set({ currentSessionId: id }),
+      setCurrentSession: (id: string | null) => set({ 
+        currentSessionId: id,
+        messages: [],  // Clear messages when switching to existing session from history
+      }),
+      setNewSessionId: (id: string) => set({ 
+        currentSessionId: id,
+        // Don't clear messages - this is for new sessions where messages are already in state
+      }),
       addSession: (session: Session) => set((state) => ({
         sessions: [session, ...state.sessions]
       })),
@@ -520,7 +528,7 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
         theme: state.theme,
         sidebarCollapsed: state.sidebarCollapsed,
         // sessions: state.sessions,  // REMOVED - sessions are now synced from backend API
-        currentSessionId: state.currentSessionId, // Keep current session ID for navigation
+        // currentSessionId: state.currentSessionId,  // REMOVED - Start fresh on each page load
         notes: state.notes,
         noteFolders: state.noteFolders,
         templates: state.templates,
@@ -540,6 +548,17 @@ Kullanıcının yanıt verecek modeli seçebilmesi için üst kısma model seçi
         notificationsEnabled: state.notificationsEnabled,
         showPinnedOnly: state.showPinnedOnly,
       }),
+      // Reset session state on hydration to ensure fresh start
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          // Always start with fresh chat - no auto-loading old sessions
+          state.currentSessionId = null;
+          state.messages = [];
+          state.isStreaming = false;
+          state.isTyping = false;
+          state.streamingContent = '';
+        }
+      },
     }
   )
 );

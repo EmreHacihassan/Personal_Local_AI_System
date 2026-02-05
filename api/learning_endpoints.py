@@ -6,12 +6,15 @@ Learning Workspace API Routes
 """
 
 import asyncio
+import logging
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import json
+
+logger = logging.getLogger(__name__)
 
 from core.learning_workspace import (
     learning_workspace_manager,
@@ -999,8 +1002,8 @@ async def chat_stream(workspace_id: str, request: ChatMessageRequest):
                     context += f"\n[{filename}]:\n{r.get('document', '')[:500]}\n"
                     if filename not in sources_used:
                         sources_used.append(filename)
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"RAG search failed in learning workspace: {e}")
     
     system_prompt = f"""Sen bir öğrenme asistanısın. Kullanıcı "{workspace.name}" çalışma ortamında çalışıyor.
 Konu: {workspace.topic}

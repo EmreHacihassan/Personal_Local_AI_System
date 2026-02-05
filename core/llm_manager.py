@@ -196,6 +196,13 @@ class LLMManager:
         self.client = ollama.Client(host=self.base_url)
         self._current_model = self.primary_model
         
+        # Shared ThreadPoolExecutor for async operations
+        from concurrent.futures import ThreadPoolExecutor
+        self._executor = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="llm_"
+        )
+        
         # Caching
         self._cache_enabled = enable_cache
         self._cache_ttl = cache_ttl
@@ -284,12 +291,12 @@ class LLMManager:
     def pull_model(self, model_name: str) -> bool:
         """Model'i indir."""
         try:
-            print(f"📥 Model indiriliyor: {model_name}")
+            logger.info(f"Model indiriliyor: {model_name}")
             self.client.pull(model_name)
-            print(f"✅ Model indirildi: {model_name}")
+            logger.info(f"Model indirildi: {model_name}")
             return True
         except Exception as e:
-            print(f"❌ Model indirilemedi: {e}")
+            logger.error(f"Model indirilemedi: {e}")
             return False
     
     def ensure_model(self, model_name: str) -> bool:
@@ -387,7 +394,7 @@ class LLMManager:
             self._metrics["errors"] += 1
             # Fallback to backup model
             if self._current_model != self.backup_model:
-                print(f"⚠️ Primary model başarısız, backup deneniyor: {e}")
+                logger.warning(f"Primary model başarısız, backup deneniyor: {e}")
                 self._current_model = self.backup_model
                 self._metrics["failovers"] += 1
                 return self.generate(prompt, system_prompt, temperature, max_tokens, use_cache)
@@ -403,7 +410,7 @@ class LLMManager:
         """Asenkron LLM yanıtı üret."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            None,
+            self._executor,  # Use shared executor
             lambda: self.generate(prompt, system_prompt, temperature, max_tokens)
         )
     
@@ -465,7 +472,7 @@ class LLMManager:
         except Exception as e:
             self._metrics["errors"] += 1
             if self._current_model != self.backup_model:
-                print(f"⚠️ Streaming failed, trying backup: {e}")
+                logger.warning(f"Streaming failed, trying backup: {e}")
                 self._current_model = self.backup_model
                 self._metrics["failovers"] += 1
                 yield from self.generate_stream(prompt, system_prompt, temperature, max_tokens)
@@ -630,10 +637,9 @@ class LLMManager:
                 logger.debug(traceback.format_exc())
                 chunk_queue.put(e)  # Signal error
         
-        # Thread'i başlat
+        # Thread'i başlat - use shared executor
         loop = asyncio.get_event_loop()
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = loop.run_in_executor(executor, stream_in_thread)
+        future = loop.run_in_executor(self._executor, stream_in_thread)
         
         full_response = []
         thinking_chunks = []
@@ -673,7 +679,7 @@ class LLMManager:
         except Exception as e:
             self._metrics["errors"] += 1
             if self._current_model != self.backup_model:
-                print(f"⚠️ Async streaming failed, trying backup: {e}")
+                logger.warning(f"Async streaming failed, trying backup: {e}")
                 self._current_model = self.backup_model
                 self._metrics["failovers"] += 1
                 async for chunk in self.generate_stream_async(prompt, system_prompt, temperature, max_tokens):
@@ -755,6 +761,19 @@ class LLMManager:
         for key in self._metrics:
             self._metrics[key] = 0
     
+    def close(self) -> None:
+        """Cleanup resources - close ThreadPoolExecutor."""
+        if hasattr(self, '_executor') and self._executor:
+            self._executor.shutdown(wait=False)
+            logger.info("LLM Manager executor shutdown")
+    
+    def __del__(self):
+        """Destructor - ensure cleanup."""
+        try:
+            self.close()
+        except Exception:
+            pass  # Destructors should never raise
+    
     def generate_with_image(
         self,
         prompt: str,
@@ -800,7 +819,7 @@ class LLMManager:
             return response["message"]["content"]
         except Exception as e:
             if self._current_model != self.backup_model:
-                print(f"⚠️ Vision model başarısız, backup deneniyor: {e}")
+                logger.warning(f"Vision model başarısız, backup deneniyor: {e}")
                 self._current_model = self.backup_model
                 return self.generate_with_image(prompt, image_path, system_prompt, temperature, max_tokens)
             raise
@@ -847,7 +866,7 @@ class LLMManager:
                     
         except Exception as e:
             if self._current_model != self.backup_model:
-                print(f"⚠️ Vision streaming failed, trying backup: {e}")
+                logger.warning(f"Vision streaming failed, trying backup: {e}")
                 self._current_model = self.backup_model
                 yield from self.generate_stream_with_image(prompt, image_path, system_prompt, temperature, max_tokens)
             else:

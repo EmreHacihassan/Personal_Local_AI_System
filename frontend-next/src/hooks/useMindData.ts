@@ -165,12 +165,29 @@ const fetchChatSessions = async (): Promise<UnifiedMindNode[]> => {
 const fetchCalendarEvents = async (): Promise<UnifiedMindNode[]> => {
   try {
     // Calendar events are stored in localStorage for TimelinePlanner
+    // Ensure we're on client side
     if (typeof window === 'undefined') return [];
     
-    const storedEvents = localStorage.getItem('timeline-events');
+    // Use try-catch to handle any localStorage access errors
+    let storedEvents: string | null = null;
+    try {
+      storedEvents = localStorage.getItem('timeline-events');
+    } catch (storageError) {
+      console.warn('localStorage access denied:', storageError);
+      return [];
+    }
+    
     if (!storedEvents) return [];
     
-    const events = JSON.parse(storedEvents);
+    let events;
+    try {
+      events = JSON.parse(storedEvents);
+    } catch (parseError) {
+      console.warn('Failed to parse calendar events:', parseError);
+      return [];
+    }
+    
+    if (!Array.isArray(events)) return [];
     
     return events.map((event: any) => ({
       id: `cal-${event.id}`,
@@ -390,6 +407,12 @@ export function useMindData({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sourceCounts, setSourceCounts] = useState<Record<string, number>>({});
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure we're mounted (client-side) before fetching
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const activeSourceIds = useMemo(() => 
     activeSources.filter(s => s.isActive).map(s => s.id),
@@ -397,6 +420,9 @@ export function useMindData({
   );
 
   const fetchData = useCallback(async () => {
+    // Don't fetch if not mounted (SSR safety)
+    if (typeof window === 'undefined') return;
+    
     setLoading(true);
     setError(null);
 
@@ -458,18 +484,20 @@ export function useMindData({
     }
   }, [activeSourceIds]);
 
-  // Initial fetch
+  // Initial fetch - only after mounted
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (mounted) {
+      fetchData();
+    }
+  }, [fetchData, mounted]);
 
   // Auto refresh
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || !mounted) return;
     
     const interval = setInterval(fetchData, refreshInterval);
     return () => clearInterval(interval);
-  }, [autoRefresh, refreshInterval, fetchData]);
+  }, [autoRefresh, refreshInterval, fetchData, mounted]);
 
   return {
     data,

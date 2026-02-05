@@ -78,7 +78,7 @@ data = pickle.loads(user_input)
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/security/status');
+      const res = await fetch('http://localhost:8001/api/security/status');
       const data = await res.json();
       setStatus(data);
     } catch (error) {
@@ -91,7 +91,7 @@ data = pickle.loads(user_input)
     setResult(null);
 
     try {
-      const res = await fetch('http://localhost:8000/api/security/scan/code', {
+      const res = await fetch('http://localhost:8001/api/security/scan/code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, language }),
@@ -115,7 +115,7 @@ data = pickle.loads(user_input)
       const formData = new FormData();
       formData.append('filepath', filePath);
 
-      const res = await fetch('http://localhost:8000/api/security/scan/file', {
+      const res = await fetch('http://localhost:8001/api/security/scan/file', {
         method: 'POST',
         body: formData,
       });
@@ -135,7 +135,7 @@ data = pickle.loads(user_input)
     setResult(null);
 
     try {
-      const res = await fetch('http://localhost:8000/api/security/scan/directory', {
+      const res = await fetch('http://localhost:8001/api/security/scan/directory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ directory: directoryPath }),

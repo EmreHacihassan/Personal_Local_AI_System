@@ -66,17 +66,47 @@ from api.websocket import websocket_endpoint, manager
 from tools.web_search_engine import PremiumWebSearchEngine, get_search_engine, WebSearchTool
 from tools.research_synthesizer import get_synthesizer, ResearchSynthesizer
 
+# ============ PREMIUM LLM QUALITY MODULES ============
+try:
+    from core.prompt_builder import prompt_builder, query_analyzer
+    from core.token_manager import token_manager
+    from core.reasoning.cot_engine import cot_engine
+    from core.quality import (
+        response_validator,
+        confidence_scorer,
+        hallucination_detector,
+        feedback_learner,
+        conversation_summarizer,
+    )
+    from rag.adaptive_threshold import adaptive_threshold, adaptive_retriever
+    from rag.context_optimizer import context_optimizer, context_builder
+    PREMIUM_LLM_ENABLED = True
+except ImportError as e:
+    logger.warning(f"Premium LLM modules not fully available: {e}")
+    PREMIUM_LLM_ENABLED = False
+
 from api.routers import (
     notes_router,
     upload, # Keep existing upload module import if used elsewhere, but we prefer router
     documents_router,
     voice_router,
     screen_router,
-    premium_router
+    premium_router,
+    sessions_router,
+    services_router,
+    tiers_router,
 )
 
 # Learning module router
 from api.learning_endpoints import router as learning_router
+
+# Premium Research 3.0 router (Industry-level features)
+try:
+    from api.premium_research_router import router as premium_research_router
+    PREMIUM_RESEARCH_ENABLED = True
+except ImportError as e:
+    logger.warning(f"Premium Research router not available: {e}")
+    PREMIUM_RESEARCH_ENABLED = False
 
 
 # ============ PYDANTIC MODELS ============
@@ -95,7 +125,7 @@ class ChatRequest(BaseModel):
 class WebSearchRequest(BaseModel):
     """Web arama isteği modeli."""
     query: str = Field(..., min_length=1, max_length=1000)
-    num_results: int = Field(default=8, ge=1, le=15)
+    num_results: int = Field(default=30, ge=1, le=100)
     search_type: str = Field(default="general", pattern="^(general|news|academic)$")
     extract_content: bool = Field(default=True, description="İçerik çıkarsın mı")
     include_wikipedia: bool = Field(default=True, description="Wikipedia dahil edilsin mi")
@@ -122,7 +152,7 @@ class DocumentUploadResponse(BaseModel):
 class SearchRequest(BaseModel):
     """Arama isteği modeli."""
     query: str = Field(..., min_length=1, max_length=1000)
-    top_k: int = Field(default=5, ge=1, le=20)
+    top_k: int = Field(default=30, ge=1, le=100)
     filter_metadata: Optional[Dict[str, Any]] = None
 
 
@@ -401,6 +431,13 @@ app.include_router(voice_router)
 app.include_router(screen_router)
 app.include_router(premium_router)
 app.include_router(learning_router)
+app.include_router(sessions_router)  # 📋 Session management
+app.include_router(services_router)  # 🔧 Service management
+app.include_router(tiers_router)  # 💎 Premium Tiers
+
+# 🚀 Premium Research 3.0 (Industry-level Deep Research, Multi-Provider Search, Reasoning)
+if PREMIUM_RESEARCH_ENABLED:
+    app.include_router(premium_research_router)
 # computer_use_router is added later at line ~5273 after import
 
 # Mount static files
@@ -545,8 +582,49 @@ class RateLimitMiddleware:
 rate_limiter_middleware = RateLimitMiddleware()
 
 
-# Session storage (in-memory for simplicity)
+# Session storage with persistence sync
+# In-memory cache backed by file-based session_manager
 sessions: Dict[str, List[Dict[str, Any]]] = {}
+
+def get_session_history(session_id: str) -> List[Dict[str, Any]]:
+    """
+    Session geçmişini al - önce memory'den, yoksa disk'ten yükle.
+    Bu fonksiyon memory ve disk arasında senkronizasyonu sağlar.
+    """
+    # Memory'de varsa direkt dön
+    if session_id in sessions:
+        return sessions[session_id]
+    
+    # Disk'ten yükle
+    session = session_manager.get_session(session_id)
+    if session:
+        history = session.get_history(limit=100)  # Daha fazla geçmiş tut
+        sessions[session_id] = history
+        return history
+    
+    # Yoksa boş liste döndür
+    return []
+
+
+def sync_session_to_disk(session_id: str) -> None:
+    """Session'ı disk'e kaydet (background'da çağrılabilir)."""
+    if session_id in sessions:
+        # Memory'deki güncel geçmişi al
+        history = sessions[session_id]
+        # Disk'teki session'ı güncelle
+        session = session_manager.get_session(session_id)
+        if session:
+            # Mesaj sayısını kontrol et ve gerekirse güncelle
+            disk_count = len(session.messages)
+            memory_count = len(history)
+            if memory_count > disk_count:
+                # Yeni mesajları ekle
+                for msg in history[disk_count:]:
+                    session_manager.add_message(
+                        session_id, 
+                        msg.get("role", "user"), 
+                        msg.get("content", "")
+                    )
 
 
 # ============ HELPER FUNCTIONS ============
@@ -1879,7 +1957,7 @@ async def chat_stream(request: ChatRequest):
             if is_simple_message:
                 knowledge_text, reference_list, source_map = "", "", {}
             else:
-                knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=8, strategy="fusion")
+                knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=30, strategy="fusion")
             
             # === SİSTEM HAKKINDA SORU TESPİTİ ===
             # SELF_KNOWLEDGE_PROMPT sadece kullanıcı sistem hakkında soru sorduğunda eklenir
@@ -2062,6 +2140,337 @@ Yukarıdaki konuşma geçmişini, kullanıcının notlarını ve bilgi tabanı i
     )
 
 
+# ============ PREMIUM LLM QUALITY ENDPOINT ============
+
+class PremiumChatRequest(BaseModel):
+    """Premium chat isteği modeli."""
+    message: str = Field(..., min_length=1, max_length=10000)
+    session_id: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+    enable_cot: bool = Field(default=True, description="Chain-of-Thought düşünme aktif")
+    enable_validation: bool = Field(default=True, description="Yanıt doğrulama aktif")
+    enable_hallucination_check: bool = Field(default=False, description="Halüsinasyon kontrolü")
+    temperature_mode: str = Field(default="auto", description="Sıcaklık: auto, creative, precise, balanced")
+
+
+@app.post("/api/chat/premium/stream", tags=["Premium Chat"])
+async def premium_chat_stream(request: PremiumChatRequest):
+    """
+    🌟 Premium Chat Endpoint - Gelişmiş LLM kalite özellikleri.
+    
+    Features:
+    - Query analysis ve otomatik tür tespiti
+    - Chain-of-Thought reasoning
+    - Dynamic temperature
+    - Modular prompt building
+    - Response validation
+    - Hallucination detection (opsiyonel)
+    - Confidence scoring
+    """
+    import json
+    import time
+    
+    if not PREMIUM_LLM_ENABLED:
+        async def fallback_generate():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Premium modules not available'})}\n\n"
+        return StreamingResponse(fallback_generate(), media_type="text/event-stream")
+    
+    async def generate():
+        try:
+            start_time = time.time()
+            
+            # Get or create session
+            session_id = request.session_id or str(uuid.uuid4())
+            
+            session = session_manager.get_session(session_id)
+            if session is None:
+                session = session_manager.create_session()
+                session_id = session.id
+            
+            if session_id not in sessions:
+                sessions[session_id] = session.get_history(limit=50)
+            
+            # Add user message
+            user_msg = {
+                "role": "user",
+                "content": request.message,
+                "timestamp": datetime.now().isoformat(),
+            }
+            sessions[session_id].append(user_msg)
+            session_manager.add_message(session_id, "user", request.message)
+            
+            # Send session_id
+            yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n"
+            
+            # ========== 1. QUERY ANALYSIS ==========
+            analysis = query_analyzer.analyze(request.message)
+            
+            yield f"data: {json.dumps({'type': 'analysis', 'query_type': analysis.query_type.value, 'complexity': analysis.complexity_level.value, 'suggested_temp': analysis.suggested_temperature})}\n\n"
+            
+            # ========== 2. TEMPERATURE SELECTION ==========
+            if request.temperature_mode == "auto":
+                temperature = analysis.suggested_temperature
+            elif request.temperature_mode == "creative":
+                temperature = 0.8
+            elif request.temperature_mode == "precise":
+                temperature = 0.2
+            else:
+                temperature = 0.5
+            
+            # ========== 3. CHAT HISTORY CONTEXT ==========
+            recent_history = sessions[session_id][-15:]
+            
+            history_messages = []
+            for msg in recent_history[:-1]:
+                history_messages.append({
+                    "role": msg["role"],
+                    "content": msg.get("content", "")
+                })
+            
+            # ========== 4. RAG SEARCH (if not simple) ==========
+            rag_context = ""
+            source_map = {}
+            
+            simple_greetings = ["merhaba", "selam", "hi", "hello", "teşekkür", "thanks"]
+            is_simple = len(request.message.split()) <= 3 and any(g in request.message.lower() for g in simple_greetings)
+            
+            if not is_simple:
+                try:
+                    # Use adaptive threshold for RAG
+                    threshold_result = adaptive_threshold.calculate_threshold(request.message)
+                    knowledge_text, reference_list, source_map = search_knowledge_base(
+                        request.message, 
+                        top_k=threshold_result.suggest_retrieval_count(threshold_result.final_threshold)
+                    )
+                    if knowledge_text:
+                        rag_context = f"\n\n### Bilgi Tabanı:\n{knowledge_text}"
+                except Exception as e:
+                    logger.warning(f"RAG search error: {e}")
+            
+            # ========== 5. BUILD MODULAR PROMPT ==========
+            system_prompt = prompt_builder.build_prompt(
+                query=request.message,
+                query_type=analysis.query_type,
+                complexity=analysis.complexity_level,
+                context={
+                    "history": history_messages[-5:],
+                    "notes": "",  # Can be extended
+                    "rag_context": rag_context,
+                }
+            )
+            
+            # ========== 6. ADD CHAIN-OF-THOUGHT ==========
+            final_query = request.message
+            if request.enable_cot and analysis.complexity_level.value in ["advanced", "expert"]:
+                cot_result = cot_engine.apply_cot(request.message, analysis.query_type)
+                if cot_result.enhanced_prompt:
+                    final_query = cot_result.enhanced_prompt
+                    yield f"data: {json.dumps({'type': 'cot', 'thinking_template': cot_result.template_used})}\n\n"
+            
+            # ========== 7. GENERATE RESPONSE ==========
+            full_response = ""
+            
+            for token in llm_manager.generate_stream(final_query, system_prompt, temperature=temperature):
+                full_response += token
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            
+            # ========== 8. RESPONSE VALIDATION ==========
+            validation_results = {}
+            if request.enable_validation:
+                try:
+                    validation = response_validator.validate(
+                        query=request.message,
+                        response=full_response,
+                        context=rag_context
+                    )
+                    validation_results = {
+                        "overall_valid": validation.is_valid,
+                        "score": validation.overall_score,
+                        "checks": {c.dimension.value: c.passed for c in validation.checks}
+                    }
+                    
+                    # Confidence scoring
+                    sources = [source_map[k]["filename"] for k in source_map] if source_map else []
+                    confidence = confidence_scorer.calculate(
+                        query=request.message,
+                        response=full_response,
+                        sources=sources
+                    )
+                    validation_results["confidence"] = confidence.score
+                    
+                except Exception as e:
+                    logger.warning(f"Validation error: {e}")
+            
+            # ========== 9. HALLUCINATION CHECK ==========
+            hallucination_results = {}
+            if request.enable_hallucination_check and source_map:
+                try:
+                    sources_text = [knowledge_text] if knowledge_text else []
+                    report = hallucination_detector.detect(full_response, sources_text)
+                    hallucination_results = {
+                        "score": report.overall_score,
+                        "issues": report.total_hallucinations,
+                        "flagged": report.flagged_sections[:3]
+                    }
+                except Exception as e:
+                    logger.warning(f"Hallucination check error: {e}")
+            
+            # ========== 10. SAVE & ANALYTICS ==========
+            assistant_msg = {
+                "role": "assistant",
+                "content": full_response,
+                "timestamp": datetime.now().isoformat(),
+            }
+            sessions[session_id].append(assistant_msg)
+            session_manager.add_message(session_id, "assistant", full_response)
+            
+            processing_time = int((time.time() - start_time) * 1000)
+            
+            analytics.track_chat(
+                query=request.message[:100],
+                response_length=len(full_response),
+                duration_ms=processing_time,
+                agent="premium_streaming",
+                session_id=session_id,
+            )
+            
+            # ========== 11. SEND END EVENT ==========
+            end_data = {
+                'type': 'end',
+                'session_id': session_id,
+                'processing_time_ms': processing_time,
+                'query_analysis': {
+                    'type': analysis.query_type.value,
+                    'complexity': analysis.complexity_level.value,
+                    'temperature_used': temperature
+                }
+            }
+            
+            if validation_results:
+                end_data['validation'] = validation_results
+            
+            if hallucination_results:
+                end_data['hallucination'] = hallucination_results
+            
+            if source_map:
+                end_data['sources'] = [
+                    {'ref': info['letter'], 'filename': info['filename']}
+                    for info in source_map.values()
+                ]
+            
+            yield f"data: {json.dumps(end_data)}\n\n"
+            
+        except Exception as e:
+            logger.error(f"Premium chat error: {e}")
+            analytics.track_error("premium_chat_stream", str(e))
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.get("/api/chat/premium/status", tags=["Premium Chat"])
+async def premium_chat_status():
+    """Premium chat modüllerinin durumunu kontrol et."""
+    return {
+        "enabled": PREMIUM_LLM_ENABLED,
+        "modules": {
+            "query_analyzer": PREMIUM_LLM_ENABLED,
+            "prompt_builder": PREMIUM_LLM_ENABLED,
+            "token_manager": PREMIUM_LLM_ENABLED,
+            "cot_engine": PREMIUM_LLM_ENABLED,
+            "response_validator": PREMIUM_LLM_ENABLED,
+            "hallucination_detector": PREMIUM_LLM_ENABLED,
+            "feedback_learner": PREMIUM_LLM_ENABLED,
+            "adaptive_threshold": PREMIUM_LLM_ENABLED,
+            "context_optimizer": PREMIUM_LLM_ENABLED,
+        }
+    }
+
+
+@app.post("/api/chat/feedback", tags=["Premium Chat"])
+async def submit_chat_feedback(
+    session_id: str = Form(...),
+    message_index: int = Form(...),
+    feedback_type: str = Form(...),  # positive, negative
+    comment: Optional[str] = Form(None),
+    dimensions: Optional[str] = Form(None),  # JSON string
+):
+    """
+    Chat feedback endpoint - Kullanıcı geri bildirimi kaydet.
+    """
+    if not PREMIUM_LLM_ENABLED:
+        raise HTTPException(status_code=503, detail="Premium modules not available")
+    
+    import json
+    
+    try:
+        from core.quality.feedback_learner import FeedbackType
+        
+        # Get the message
+        if session_id not in sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        history = sessions[session_id]
+        if message_index >= len(history):
+            raise HTTPException(status_code=404, detail="Message not found")
+        
+        msg = history[message_index]
+        
+        # Parse feedback type
+        fb_type = FeedbackType.EXPLICIT_POSITIVE if feedback_type == "positive" else FeedbackType.EXPLICIT_NEGATIVE
+        
+        # Parse dimensions
+        dims = {}
+        if dimensions:
+            try:
+                dims = json.loads(dimensions)
+            except:
+                pass
+        
+        # Record feedback
+        query = history[message_index - 1]["content"] if message_index > 0 else ""
+        feedback_id = feedback_learner.record_feedback(
+            query=query,
+            response=msg.get("content", ""),
+            feedback_type=fb_type,
+            dimensions=dims,
+            comment=comment,
+            session_id=session_id
+        )
+        
+        return {"success": True, "feedback_id": feedback_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Feedback error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/chat/insights", tags=["Premium Chat"])
+async def get_chat_insights():
+    """
+    Öğrenme çıkarımlarını ve feedback istatistiklerini al.
+    """
+    if not PREMIUM_LLM_ENABLED:
+        raise HTTPException(status_code=503, detail="Premium modules not available")
+    
+    try:
+        insights = feedback_learner.get_insights()
+        return insights
+    except Exception as e:
+        logger.error(f"Insights error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============ WEB SEARCH ENDPOINTS ============
 
 @app.post("/api/web-search", tags=["Web Search"])
@@ -2136,6 +2545,193 @@ async def clear_web_search_cache():
     return {"success": True, "message": "Cache temizlendi"}
 
 
+# ============ PREMIUM URL SCRAPING ============
+
+class URLScrapeRequest(BaseModel):
+    """URL scraping isteği"""
+    url: str = Field(..., description="Scrape edilecek URL")
+    use_javascript: bool = Field(default=False, description="JavaScript rendering kullan (Playwright)")
+    extract_tables: bool = Field(default=True, description="Tabloları çıkar")
+    extract_code: bool = Field(default=True, description="Kod bloklarını çıkar")
+    max_content_length: int = Field(default=50000, description="Maksimum içerik uzunluğu")
+
+
+class BatchScrapeRequest(BaseModel):
+    """Toplu URL scraping isteği"""
+    urls: List[str] = Field(..., description="Scrape edilecek URL listesi", max_items=10)
+    use_javascript: bool = Field(default=False, description="JavaScript rendering kullan")
+    max_concurrent: int = Field(default=5, description="Paralel işlem sayısı")
+
+
+@app.post("/api/scrape/url", tags=["Web Scraping"])
+async def scrape_url(request: URLScrapeRequest):
+    """
+    🔍 Premium URL Scraper - Tek URL İçerik Çıkarma
+    
+    Trafilatura + Newspaper3k + Playwright ile enterprise-grade scraping:
+    - Article extraction (makale çıkarma)
+    - JavaScript rendering (SPA desteği)
+    - Anti-bot bypass
+    - Structured data extraction
+    - Quality scoring
+    """
+    try:
+        from tools.premium_scraper import get_premium_scraper, ExtractionMethod
+        import time
+        
+        start_time = time.time()
+        scraper = get_premium_scraper()
+        
+        result = await scraper.extract(
+            url=request.url,
+            method=ExtractionMethod.AUTO,
+            use_javascript=request.use_javascript
+        )
+        
+        extraction_time = int((time.time() - start_time) * 1000)
+        
+        return {
+            "success": True,
+            "url": result.url,
+            "title": result.title,
+            "content": result.content[:request.max_content_length],
+            "summary": result.summary,
+            "author": result.author,
+            "publish_date": result.publish_date,
+            "language": result.language,
+            "word_count": result.word_count,
+            "reading_time_minutes": result.reading_time_minutes,
+            "headings": result.headings[:20],
+            "images": result.images[:10],
+            "tables": result.tables[:5] if request.extract_tables else [],
+            "code_blocks": result.code_blocks[:10] if request.extract_code else [],
+            "content_type": result.content_type.value,
+            "extraction_method": result.extraction_method.value,
+            "quality_score": result.quality_score,
+            "extraction_time_ms": extraction_time,
+            "metadata": result.metadata
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
+            "url": request.url,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+@app.post("/api/scrape/batch", tags=["Web Scraping"])
+async def scrape_batch(request: BatchScrapeRequest):
+    """
+    🔍 Premium Batch Scraper - Paralel URL İçerik Çıkarma
+    
+    Birden fazla URL'yi aynı anda scrape eder.
+    """
+    try:
+        from tools.premium_scraper import get_premium_scraper, ExtractionMethod
+        import time
+        
+        start_time = time.time()
+        scraper = get_premium_scraper()
+        
+        results = await scraper.extract_batch(
+            urls=request.urls,
+            method=ExtractionMethod.AUTO,
+            max_concurrent=request.max_concurrent
+        )
+        
+        total_time = int((time.time() - start_time) * 1000)
+        
+        scraped = []
+        for r in results:
+            scraped.append({
+                "url": r.url,
+                "title": r.title,
+                "content": r.content[:10000],  # Shorter for batch
+                "word_count": r.word_count,
+                "quality_score": r.quality_score,
+                "extraction_method": r.extraction_method.value,
+                "extraction_time_ms": r.extraction_time_ms
+            })
+        
+        return {
+            "success": True,
+            "total_urls": len(request.urls),
+            "scraped_count": len(scraped),
+            "results": scraped,
+            "total_time_ms": total_time
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@app.get("/api/scrape/capabilities", tags=["Web Scraping"])
+async def get_scraping_capabilities():
+    """Mevcut scraping yeteneklerini döndür"""
+    try:
+        # Check available libraries
+        capabilities = {
+            "trafilatura": False,
+            "newspaper3k": False,
+            "playwright": False,
+            "keybert": False,
+            "pdfplumber": False,
+        }
+        
+        try:
+            import trafilatura
+            capabilities["trafilatura"] = True
+        except ImportError:
+            pass
+        
+        try:
+            from newspaper import Article
+            capabilities["newspaper3k"] = True
+        except ImportError:
+            pass
+        
+        try:
+            from playwright.async_api import async_playwright
+            capabilities["playwright"] = True
+        except ImportError:
+            pass
+        
+        try:
+            from keybert import KeyBERT
+            capabilities["keybert"] = True
+        except ImportError:
+            pass
+        
+        try:
+            import pdfplumber
+            capabilities["pdfplumber"] = True
+        except ImportError:
+            pass
+        
+        enabled_count = sum(capabilities.values())
+        
+        return {
+            "success": True,
+            "capabilities": capabilities,
+            "enabled_count": enabled_count,
+            "total_capabilities": len(capabilities),
+            "status": "premium" if enabled_count >= 3 else "standard",
+            "features": {
+                "article_extraction": capabilities["trafilatura"],
+                "news_parsing": capabilities["newspaper3k"],
+                "javascript_rendering": capabilities["playwright"],
+                "keyword_extraction": capabilities["keybert"],
+                "pdf_extraction": capabilities["pdfplumber"]
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @app.post("/api/chat/web-stream", tags=["Chat"])
 async def chat_web_stream(request: ChatRequest):
     """
@@ -2197,7 +2793,7 @@ async def chat_web_stream(request: ChatRequest):
                 # Arama yap
                 search_response = engine.search(
                     query=request.message,
-                    num_results=8,
+                    num_results=30,
                     extract_content=True,
                     include_wikipedia=True
                 )
@@ -2324,7 +2920,7 @@ async def chat_web_stream(request: ChatRequest):
             if is_simple_message:
                 knowledge_text, reference_list, source_map = "", "", {}
             else:
-                knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=8, strategy="rerank")
+                knowledge_text, reference_list, source_map = search_knowledge_base(request.message, top_k=30, strategy="rerank")
             
             # === SİSTEM HAKKINDA SORU TESPİTİ (Web Search için de) ===
             # SELF_KNOWLEDGE_PROMPT sadece kullanıcı sistem hakkında soru sorduğunda eklenir
@@ -5284,6 +5880,12 @@ from api.routers import (
 # Model Routing & Feedback router
 from api.routing_endpoints import router as routing_router
 
+# Notifications router (Real-time WebSocket notifications)
+from api.routers.notifications import router as notifications_router
+
+# Models router (Model management & routing config)
+from api.routers.models import router as models_router
+
 # Autonomous Agent router
 from api.agent_endpoints import router as agent_router
 
@@ -5380,6 +5982,8 @@ app.include_router(voice_router)  # 🎤🔊🖼️ Voice & Multimodal
 app.include_router(screen_router)  # 📸 Screen Capture & Vision
 app.include_router(premium_router)  # 💎 Premium Features
 app.include_router(routing_router)  # 🧠 Model Routing & Feedback
+app.include_router(notifications_router)  # 🔔 Real-time Notifications (NEW)
+app.include_router(models_router)  # 🤖 Model Management (NEW)
 app.include_router(agent_router)    # 🤖 Autonomous Agent
 app.include_router(premium_integrations_router)  # 🚀 Premium Integrations (Task Queue, Workflows, etc.)
 app.include_router(vision_router)   # 👁️ Realtime Vision (Screen Sharing + AI Analysis)

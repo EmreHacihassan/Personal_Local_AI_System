@@ -427,6 +427,12 @@ export default function MindPage() {
     // Store - for navigation
     const { navigateToNote, setCurrentPage } = useStore();
 
+    // SSR Safety - ensure component is mounted before rendering
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     // State
     const [graphData, setGraphData] = useState<GraphData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -915,7 +921,12 @@ export default function MindPage() {
         if (nodeId) {
             e.stopPropagation();
             draggedNode.current = nodeId;
-            setSelectedNode(graphData?.nodes.find(n => n.id === nodeId) || null);
+            const node = graphData?.nodes.find(n => n.id === nodeId) || null;
+            setSelectedNode(node);
+            // Otomatik olarak sağ paneli aç
+            if (node) {
+                setShowSettings(true);
+            }
         } else if (e.button === 0) {
             isDragging.current = true;
         }
@@ -991,6 +1002,29 @@ export default function MindPage() {
 
         return `M ${sourceNode.position.x} ${sourceNode.position.y} Q ${midX + perpX} ${midY + perpY} ${targetNode.position.x} ${targetNode.position.y}`;
     };
+
+    // SSR Safety - render loading skeleton until mounted
+    if (!mounted) {
+        return (
+            <div className="flex flex-col h-full bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 overflow-hidden">
+                <div className="flex-shrink-0 px-6 py-4 border-b border-white/10 backdrop-blur-2xl bg-black/20">
+                    <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 rounded-2xl bg-purple-500/20 animate-pulse" />
+                        <div className="space-y-2">
+                            <div className="h-6 w-20 bg-purple-500/20 rounded animate-pulse" />
+                            <div className="h-4 w-32 bg-slate-500/20 rounded animate-pulse" />
+                        </div>
+                    </div>
+                </div>
+                <div className="flex-1 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-4">
+                        <div className="w-16 h-16 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
+                        <p className="text-slate-400">Yükleniyor...</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 overflow-hidden">
@@ -1577,6 +1611,7 @@ export default function MindPage() {
                                                     e.stopPropagation();
                                                     handleNodeClick(node.id);
                                                     setSelectedNode(node);
+                                                    setShowSettings(true); // Sağ paneli aç
                                                 }}
                                                 className="cursor-pointer"
                                                 style={{

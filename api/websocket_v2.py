@@ -50,16 +50,40 @@ from typing import Optional, Dict, Any, List, Set
 from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
 
-# Python 3.10 ve altı için async_timeout uyumluluğu
+# Python 3.10 ve altı için async_timeout uyumluluğu - GERÇEK TIMEOUT İMPLEMENTASYONU
 if sys.version_info < (3, 11):
     try:
         from async_timeout import timeout as asyncio_timeout
     except ImportError:
-        # async_timeout yoksa, basit bir wrapper kullan
+        # async_timeout yoksa, GERÇEK timeout implementasyonu - BU KRİTİK!
         @asynccontextmanager
-        async def asyncio_timeout(seconds):
-            """Basit timeout wrapper - Python 3.10 uyumlu."""
-            yield
+        async def asyncio_timeout(seconds: float):
+            """
+            Gerçek timeout wrapper - Python 3.10 uyumlu.
+            
+            Bu implementasyon GERÇEKTEN timeout uygular!
+            Eski versiyon sadece 'yield' yapıyordu ve timeout ÇALIŞMIYORDU.
+            """
+            loop = asyncio.get_running_loop()
+            task = asyncio.current_task()
+            timed_out = False
+            
+            def timeout_handler():
+                nonlocal timed_out
+                timed_out = True
+                if task and not task.done():
+                    task.cancel()
+            
+            # Timeout timer'ı başlat
+            handle = loop.call_later(seconds, timeout_handler)
+            try:
+                yield
+            except asyncio.CancelledError:
+                if timed_out:
+                    raise asyncio.TimeoutError(f"Operation timed out after {seconds} seconds")
+                raise
+            finally:
+                handle.cancel()
 else:
     asyncio_timeout = asyncio.timeout
 
@@ -80,17 +104,168 @@ from core.model_router import (
     MODEL_CONFIG,
 )
 
+# Intent classifier import
+try:
+    from core.intent_classifier import intent_classifier, QueryIntent, ResponseStrategy
+except ImportError:
+    intent_classifier = None
+    QueryIntent = None
+    ResponseStrategy = None
+
+# Web search import
+try:
+    from tools.web_search_engine import get_search_engine
+    web_search_engine = get_search_engine()
+except ImportError:
+    web_search_engine = None
+
+# Premium modules import
+try:
+    from core.response_length_manager import ResponseLengthManager
+    response_length_manager = ResponseLengthManager()
+except ImportError:
+    response_length_manager = None
+
+try:
+    from core.source_quality_scorer import SourceQualityScorer
+    source_quality_scorer = SourceQualityScorer()
+except ImportError:
+    source_quality_scorer = None
+
+try:
+    from core.semantic_query_expander import SemanticQueryExpander
+    semantic_query_expander = SemanticQueryExpander()
+except ImportError:
+    semantic_query_expander = None
+
+try:
+    from core.smart_title_generator import SmartTitleGenerator
+    smart_title_generator = SmartTitleGenerator()
+except ImportError:
+    smart_title_generator = None
+
+# === PREMIUM FULL QUALITY MODULES ===
+
+# CRAG - Corrective RAG System
+try:
+    from core.crag_system import (
+        CRAGPipeline, RelevanceGrader, QueryTransformer, HallucinationDetector,
+        RelevanceGrade, CorrectionAction, HallucinationRisk, GradedDocument, CRAGResult
+    )
+    # Lazy initialization - CRAGPipeline requires retriever/generator
+    crag_pipeline = None  # Will be initialized when needed
+    relevance_grader = RelevanceGrader()
+    query_transformer = QueryTransformer()
+    hallucination_detector = HallucinationDetector()
+    CRAG_AVAILABLE = True
+    logging.info("✅ CRAG System loaded")
+except ImportError as e:
+    crag_pipeline = None
+    relevance_grader = None
+    query_transformer = None
+    hallucination_detector = None
+    CRAG_AVAILABLE = False
+    logging.warning(f"⚠️ CRAG System not available: {e}")
+
+# MoE Router - Mixture of Experts
+try:
+    from core.moe_router import (
+        MoERouter, AdaptiveMoERouter, QueryAnalyzer as MoEQueryAnalyzer,
+        ExpertType, QueryComplexity as MoEComplexity, RoutingStrategy,
+        RoutingDecision, RoutingResult
+    )
+    moe_router = AdaptiveMoERouter(strategy=RoutingStrategy.BALANCED)
+    moe_query_analyzer = MoEQueryAnalyzer()
+    MOE_AVAILABLE = True
+    logging.info("✅ MoE Router loaded")
+except ImportError as e:
+    moe_router = None
+    moe_query_analyzer = None
+    MOE_AVAILABLE = False
+    logging.warning(f"⚠️ MoE Router not available: {e}")
+
+# Multi-Agent Debate System
+try:
+    from core.multi_agent_debate import (
+        DebateOrchestrator, DebateAgent,
+        AgentRole, DebatePhase, VoteType, Argument, DebateResult,
+        multi_agent_debate
+    )
+    # Lazy initialization - DebateOrchestrator requires llm_factory
+    debate_orchestrator = None  # Will be initialized when needed
+    DEBATE_AVAILABLE = True
+    logging.info("✅ Multi-Agent Debate loaded")
+except ImportError as e:
+    debate_orchestrator = None
+    DEBATE_AVAILABLE = False
+    logging.warning(f"⚠️ Multi-Agent Debate not available: {e}")
+
+# MemGPT-Style Tiered Memory
+try:
+    from core.memgpt_memory import (
+        TieredMemoryManager, CoreMemory, MemoryBlock,
+        MemoryType, MemoryPriority
+    )
+    # Lazy initialization - TieredMemoryManager requires storage
+    memory_manager = None  # Will be initialized when needed
+    MEMGPT_AVAILABLE = True
+    logging.info("✅ MemGPT Memory loaded")
+except ImportError as e:
+    memory_manager = None
+    MEMGPT_AVAILABLE = False
+    logging.warning(f"⚠️ MemGPT Memory not available: {e}")
+
+# RAGAS Evaluation System
+try:
+    from core.ragas_evaluation import (
+        RAGASEvaluator, quick_evaluate,
+        MetricType, EvaluationSample, EvaluationResult
+    )
+    ragas_evaluator = RAGASEvaluator()
+    RAGAS_AVAILABLE = True
+    logging.info("✅ RAGAS Evaluation loaded")
+except ImportError as e:
+    ragas_evaluator = None
+    RAGAS_AVAILABLE = False
+    logging.warning(f"⚠️ RAGAS Evaluation not available: {e}")
+
+# Feature Flags System
+try:
+    from core.config import FeatureFlags, feature_enabled
+    FEATURE_FLAGS_AVAILABLE = True
+except ImportError:
+    FEATURE_FLAGS_AVAILABLE = False
+    def feature_enabled(flag): return True
+
+# Services import
+try:
+    from services.query_analyzer import query_analyzer, QueryComplexity, QueryType
+    from services.rag_service import rag_service, EnrichedContext
+    from services.websocket_service import ws_service, WSPhase, WSMessageType, WSErrorCode, MessageBuilder
+    from services.routing_service import routing_service
+    SERVICES_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"Services not available: {e}")
+    query_analyzer = None
+    rag_service = None
+    ws_service = None
+    routing_service = None
+    SERVICES_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION (from settings)
 # =============================================================================
 
-PING_INTERVAL: int = 25          # Keepalive ping aralığı (saniye)
-STREAM_TIMEOUT: int = 800        # Maksimum yanıt süresi (saniye)
+PING_INTERVAL: int = settings.WS_PING_INTERVAL      # Keepalive ping aralığı (saniye)
+STREAM_TIMEOUT: int = settings.WS_STREAM_TIMEOUT    # Maksimum yanıt süresi (saniye)
+RAG_SEARCH_TIMEOUT: int = settings.WS_RAG_SEARCH_TIMEOUT  # RAG search timeout
+WEB_SEARCH_TIMEOUT: int = settings.WS_WEB_SEARCH_TIMEOUT  # Web search timeout
+MODEL_ROUTING_TIMEOUT: int = settings.WS_MODEL_ROUTING_TIMEOUT  # Model routing timeout
 RATE_LIMIT_WINDOW: int = 5       # Rate limit penceresi (saniye)
 RATE_LIMIT_MAX: int = 10         # Pencere içinde maksimum istek
-MAX_MESSAGE_SIZE: int = 100000   # 100KB maksimum mesaj boyutu
+MAX_MESSAGE_SIZE: int = settings.WS_MAX_MESSAGE_SIZE  # Maksimum mesaj boyutu
 MAX_CONNECTIONS: int = 100       # Maksimum eşzamanlı bağlantı
 
 
@@ -543,6 +718,13 @@ class WebSocketHandlerV2:
         
         session_id = data.get("session_id") or str(uuid.uuid4())
         self.conn.session_id = session_id
+        
+        # 🔍 DEBUG: Log incoming chat request
+        logger.info(f"📨 [CHAT DEBUG] Received chat request:")
+        logger.info(f"   - session_id from frontend: {data.get('session_id')}")
+        logger.info(f"   - effective session_id: {session_id}")
+        logger.info(f"   - message preview: {message[:50]}...")
+        logger.info(f"   - use_routing: {data.get('use_routing')}")
         
         # Model routing modu - frontend'den gelen use_routing parametresini kontrol et
         use_routing = data.get("use_routing", False)
@@ -1171,15 +1353,8 @@ class WebSocketHandlerV2:
                 "stream_id": stream_id,
             })
             
-            # ⚡ Basit sorgu tespiti - ROUTING'DEN ÖNCE kontrol et
-            simple_query_patterns = [
-                "merhaba", "selam", "nasılsın", "naber", "günaydın", "iyi akşamlar",
-                "hello", "hi", "hey", "good morning", "good evening",
-                "bugün nasılsın", "ne yapıyorsun", "ne haber", "teşekkür",
-                "sağol", "thanks", "thank you"
-            ]
-            message_lower = message.lower().strip()
-            is_simple_query = any(pattern in message_lower for pattern in simple_query_patterns) or len(message) < 20
+            # ⚡ Basit sorgu tespiti - ROUTING'DEN ÖNCE kontrol et (query_analyzer service)
+            is_simple_query = query_analyzer.is_simple_query(message)
             
             # Complexity override - simple mode forced
             if complexity_level == "simple":
@@ -1254,6 +1429,48 @@ class WebSocketHandlerV2:
             # === RAG ARAŞI (Karmaşık sorgular için) ===
             knowledge_context = ""
             sources = []
+            web_context = ""
+            web_sources = []
+            
+            # === PREMIUM: MoE Router - Sorgu Analizi ===
+            moe_analysis = None
+            selected_expert = None
+            if MOE_AVAILABLE and moe_query_analyzer and not is_simple_query and feature_enabled('moe_router'):
+                try:
+                    moe_analysis = moe_query_analyzer.analyze(message)
+                    routing_decision = moe_router.route(message)
+                    selected_expert = routing_decision.selected_expert
+                    
+                    # MoE bilgisini gönder
+                    await self._send({
+                        "type": "moe_routing",
+                        "complexity": moe_analysis.complexity.value if moe_analysis else "unknown",
+                        "expert": selected_expert.value if selected_expert else "default",
+                        "confidence": routing_decision.confidence if routing_decision else 0.5,
+                        "reasoning": routing_decision.reasoning if routing_decision else ""
+                    })
+                    logger.info(f"🔀 MoE: {moe_analysis.complexity.value if moe_analysis else 'N/A'} -> {selected_expert}")
+                except Exception as e:
+                    logger.warning(f"MoE analysis error: {e}")
+            
+            # === PREMIUM: MemGPT Memory - Konuşma Geçmişi ===
+            memory_context = ""
+            if MEMGPT_AVAILABLE and memory_manager and session_id and feature_enabled('memgpt_memory'):
+                try:
+                    # Session için bellek getir
+                    relevant_memories = memory_manager.recall(
+                        query=message,
+                        session_id=session_id,
+                        limit=5
+                    )
+                    if relevant_memories:
+                        memory_parts = []
+                        for mem in relevant_memories:
+                            memory_parts.append(f"[Önceki Konuşma]: {mem.content[:300]}")
+                        memory_context = "\n".join(memory_parts)
+                        logger.info(f"🧠 MemGPT: {len(relevant_memories)} ilgili bellek bulundu")
+                except Exception as e:
+                    logger.warning(f"MemGPT recall error: {e}")
             
             if is_simple_query:
                 # === PHASE 2: SEARCH (skipped) ===
@@ -1276,52 +1493,265 @@ class WebSocketHandlerV2:
                     "phase": "search"
                 })
                 
-                # RAG Search - karmaşık sorgular için bilgi tabanını ara
-                try:
-                    # Arama sonuç sayısını complexity'ye göre ayarla
-                    n_results = 3 if complexity_level == "normal" else 5 if complexity_level == "comprehensive" else 7
-                    score_threshold = 0.25 if complexity_level in ["comprehensive", "research"] else 0.35
-                    
-                    results = vector_store.search_with_scores(
-                        query=message, 
-                        n_results=n_results, 
-                        score_threshold=score_threshold
-                    )
-                    
-                    if results:
-                        knowledge_context = "\n\n".join([
-                            f"[Kaynak: {r.get('metadata', {}).get('filename', 'unknown')}]\n{r.get('document', '')}"
-                            for r in results[:5]
-                        ])
-                        
-                        # Frontend için sources formatı
-                        for r in results:
-                            meta = r.get('metadata', {})
-                            doc_text = r.get('document', '')[:200]
-                            sources.append({
-                                "title": meta.get('filename', 'Kaynak'),
-                                "url": meta.get('source', '#'),
-                                "domain": "📄 Yerel Dosya",
-                                "snippet": doc_text,
-                                "type": "document",
-                                "reliability": r.get('score', 0.5),
+                # === PREMIUM CRAG: Query Transformation ===
+                search_message = message
+                query_variations = [message]
+                crag_metadata = {}
+                
+                if CRAG_AVAILABLE and query_transformer and complexity_level in ["comprehensive", "research"] and feature_enabled('crag_full'):
+                    try:
+                        # Sorguyu analiz et ve dönüştür
+                        transformed = query_transformer.transform(message)
+                        if transformed and transformed.reformulated != message:
+                            search_message = transformed.reformulated
+                            query_variations = [message, transformed.reformulated]
+                            if transformed.sub_queries:
+                                query_variations.extend(transformed.sub_queries[:3])
+                            
+                            crag_metadata["original_query"] = message
+                            crag_metadata["transformed_query"] = transformed.reformulated
+                            crag_metadata["sub_queries"] = transformed.sub_queries[:3] if transformed.sub_queries else []
+                            
+                            await self._send({
+                                "type": "crag_transform",
+                                "original": message,
+                                "transformed": transformed.reformulated,
+                                "sub_queries": transformed.sub_queries[:3] if transformed.sub_queries else []
                             })
+                            logger.info(f"🔄 CRAG: Query transformed -> {len(query_variations)} variations")
+                    except Exception as e:
+                        logger.warning(f"CRAG transform error: {e}")
+                
+                # RAG Search - rag_service ile CRAG entegrasyonu
+                try:
+                    # Arama sonuç sayısını complexity'ye göre ayarla - PREMIUM: Daha fazla sonuç
+                    n_results = 5 if complexity_level == "normal" else 10 if complexity_level == "comprehensive" else 15
+                    score_threshold = 0.2 if complexity_level in ["comprehensive", "research"] else 0.3
+                    
+                    # Use rag_service if available (with CRAG), fallback to direct vector_store
+                    if rag_service and SERVICES_AVAILABLE:
+                        # Use CRAG for comprehensive/research queries
+                        if complexity_level in ["comprehensive", "research"]:
+                            enriched_context = await rag_service.search_with_crag(
+                                query=search_message,
+                                include_web=web_search,
+                            )
+                        else:
+                            enriched_context = await rag_service.search(
+                                query=search_message,
+                                include_documents=True,
+                                include_web=False,
+                                n_results=n_results,
+                                score_threshold=score_threshold,
+                            )
+                        
+                        # Extract results from enriched context
+                        if enriched_context.document_context:
+                            knowledge_context = enriched_context.document_context
+                        
+                        # Convert to frontend sources format
+                        for src in enriched_context.document_sources:
+                            sources.append(src.to_frontend_format())
+                        
+                        # Web sources (if CRAG included them)
+                        for src in enriched_context.web_sources:
+                            web_sources.append(src.to_frontend_format())
+                        
+                        if enriched_context.web_context:
+                            web_context = enriched_context.web_context
+                        
+                        # === PREMIUM CRAG: Relevance Grading ===
+                        if CRAG_AVAILABLE and relevance_grader and sources and feature_enabled('crag_full'):
+                            try:
+                                graded_sources = []
+                                high_relevance_count = 0
+                                
+                                for src in sources:
+                                    grade = relevance_grader.grade(
+                                        query=message,
+                                        document=src.get("snippet", ""),
+                                        metadata=src
+                                    )
+                                    src["relevance_grade"] = grade.grade.value
+                                    src["relevance_score"] = grade.score
+                                    graded_sources.append(src)
+                                    
+                                    if grade.grade in [RelevanceGrade.HIGHLY_RELEVANT, RelevanceGrade.RELEVANT]:
+                                        high_relevance_count += 1
+                                
+                                sources = sorted(graded_sources, key=lambda x: x.get("relevance_score", 0), reverse=True)
+                                crag_metadata["graded_sources"] = len(graded_sources)
+                                crag_metadata["high_relevance"] = high_relevance_count
+                                
+                                logger.info(f"⭐ CRAG Grading: {high_relevance_count}/{len(sources)} highly relevant")
+                            except Exception as e:
+                                logger.warning(f"CRAG grading error: {e}")
+                    else:
+                        # Fallback: use direct vector_store with multiple queries
+                        all_results = []
+                        seen_docs = set()
+                        
+                        for q_var in query_variations[:3]:
+                            results = vector_store.search_with_scores(
+                                query=q_var, 
+                                n_results=n_results, 
+                                score_threshold=score_threshold
+                            )
+                            if results:
+                                for r in results:
+                                    doc_id = hash(r.get('document', '')[:100])
+                                    if doc_id not in seen_docs:
+                                        seen_docs.add(doc_id)
+                                        all_results.append(r)
+                        
+                        if all_results:
+                            # En iyi 30 sonucu al
+                            all_results = sorted(all_results, key=lambda x: x.get('score', 0), reverse=True)[:30]
+                            
+                            knowledge_context = "\n\n".join([
+                                f"[Kaynak: {r.get('metadata', {}).get('filename', 'unknown')}]\n{r.get('document', '')}"
+                                for r in all_results
+                            ])
+                            
+                            # Frontend için sources formatı
+                            for r in all_results:
+                                meta = r.get('metadata', {})
+                                doc_text = r.get('document', '')[:200]
+                                sources.append({
+                                    "title": meta.get('filename', 'Kaynak'),
+                                    "url": meta.get('source', '#'),
+                                    "domain": "📄 Yerel Dosya",
+                                    "snippet": doc_text,
+                                    "type": "document",
+                                    "reliability": r.get('score', 0.5),
+                                })
                 except Exception as e:
                     logger.warning(f"RAG search error: {e}")
                 
-                # === PHASE 3: ANALYZE ===
-                if sources:
+                # === WEB SEARCH (if enabled) ===
+                if web_search and web_search_engine:
                     await self._send({
                         "type": "status",
-                        "message": f"{len(sources)} kaynak bulundu, analiz ediliyor...",
+                        "message": "🌐 Web'de aranıyor...",
+                        "phase": "search"
+                    })
+                    
+                    try:
+                        import asyncio
+                        
+                        # === PREMIUM: Semantic Query Expansion ===
+                        search_queries = [message]  # Ana sorgu
+                        if semantic_query_expander and feature_enabled('semantic_expansion'):
+                            try:
+                                expansion_result = await semantic_query_expander.expand_query(message, max_variations=5)
+                                if expansion_result and expansion_result.expanded_queries:
+                                    search_queries = [eq.query for eq in expansion_result.expanded_queries[:5]]
+                                    if message not in search_queries:
+                                        search_queries.insert(0, message)
+                                    logger.info(f"🔄 Query expanded to {len(search_queries)} variations")
+                            except Exception as e:
+                                logger.warning(f"Query expansion error: {e}")
+                        
+                        # Tüm sorgular için paralel search
+                        all_web_results = []
+                        seen_urls = set()
+                        
+                        for query in search_queries:
+                            loop = asyncio.get_event_loop()
+                            web_response = await loop.run_in_executor(
+                                None, 
+                                lambda q=query: web_search_engine.search(
+                                    query=q,
+                                    num_results=15 if len(search_queries) > 1 else 30,
+                                    extract_content=True,
+                                    include_wikipedia=True
+                                )
+                            )
+                            
+                            if web_response and web_response.results:
+                                for wr in web_response.results:
+                                    if wr.url not in seen_urls:
+                                        seen_urls.add(wr.url)
+                                        all_web_results.append(wr)
+                        
+                        if all_web_results:
+                            # Web context oluştur - Premium: 30 kaynak
+                            web_parts = []
+                            for i, wr in enumerate(all_web_results[:30]):
+                                # Her kaynak için daha fazla content
+                                content_preview = wr.full_content[:1500] if wr.full_content else wr.snippet or ''
+                                web_parts.append(f"[Web Kaynak {i+1}: {wr.title}]\nURL: {wr.url}\n{content_preview}")
+                                
+                                # Frontend için web source formatı
+                                web_sources.append({
+                                    "title": wr.title,
+                                    "url": wr.url,
+                                    "domain": f"🌐 {wr.domain}",
+                                    "snippet": wr.snippet or wr.full_content[:200] if wr.full_content else "",
+                                    "type": "web",
+                                    "reliability": wr.reliability_score if hasattr(wr, 'reliability_score') else 0.6,
+                                })
+                            
+                            web_context = "\n\n".join(web_parts)
+                            logger.info(f"🌐 Web search: {len(all_web_results)} sonuç bulundu ({len(search_queries)} sorgu)")
+                            
+                            # === PREMIUM: Smart Title Generator ===
+                            if smart_title_generator and web_sources and feature_enabled('smart_titles'):
+                                try:
+                                    improved_sources = []
+                                    for src in web_sources:
+                                        result = smart_title_generator.generate_title_sync(
+                                            url=src["url"],
+                                            raw_title=src["title"],
+                                            query=message,
+                                            content_snippet=src.get("snippet", "")
+                                        )
+                                        src["title"] = result.smart_title
+                                        improved_sources.append(src)
+                                    web_sources = improved_sources
+                                    logger.info(f"📝 Titles improved for {len(web_sources)} sources")
+                                except Exception as e:
+                                    logger.warning(f"Smart title generator error: {e}")
+                            
+                            # === PREMIUM: Source Quality Scorer ===
+                            if source_quality_scorer and web_sources and feature_enabled('source_scoring'):
+                                try:
+                                    scored_sources = source_quality_scorer.rank_sources(
+                                        sources=web_sources,
+                                        query=message,
+                                        top_k=50
+                                    )
+                                    web_sources = scored_sources
+                                    logger.info(f"⭐ Sources ranked by quality")
+                                except Exception as e:
+                                    logger.warning(f"Source quality scorer error: {e}")
+                    except Exception as e:
+                        logger.warning(f"Web search error: {e}")
+                
+                # Tüm kaynakları birleştir
+                all_sources = sources + web_sources
+                
+                # === PHASE 3: ANALYZE ===
+                if all_sources:
+                    doc_count = len(sources)
+                    web_count = len(web_sources)
+                    status_msg = []
+                    if doc_count > 0:
+                        status_msg.append(f"📄 {doc_count} dosya")
+                    if web_count > 0:
+                        status_msg.append(f"🌐 {web_count} web")
+                    
+                    await self._send({
+                        "type": "status",
+                        "message": f"{' + '.join(status_msg)} bulundu, analiz ediliyor...",
                         "phase": "analyze"
                     })
                     
                     # Kaynakları buffer'a ve frontend'e gönder
-                    stream_buffer.set_sources(stream_id, sources[:5])
+                    stream_buffer.set_sources(stream_id, all_sources[:50])
                     await self._send({
                         "type": "sources",
-                        "sources": sources[:5]
+                        "sources": all_sources[:50]
                     })
                 else:
                     await self._send({
@@ -1347,44 +1777,192 @@ class WebSocketHandlerV2:
             # LLM'DEN STREAMING YANIT
             from core.system_knowledge import SELF_KNOWLEDGE_PROMPT
             
-            # Sistem hakkında mı soruyor kontrolü
-            system_about_keywords = [
-                "sen kimsin", "seni kim yaptı", "enterprise ai", "kimsin", 
-                "kendini tanıt", "hakkında bilgi", "ne yapabilirsin",
-                "what can you do", "who are you", "who made you",
-                "mcp nedir", "multi-agent", "teknolojilerin", "yeteneklerin"
-            ]
-            is_about_system = any(kw in message_lower for kw in system_about_keywords)
+            # Sistem hakkında mı soruyor kontrolü (query_analyzer service)
+            is_about_system = query_analyzer.analyze(message).is_system_query
             
-            # System prompt oluştur
+            # System prompt oluştur - PREMIUM EDUCATOR MODE
             if is_simple_query and not is_about_system:
-                system_prompt = "Sen yardımcı bir AI asistanısın. Samimi ve kısa yanıt ver."
+                system_prompt = """Sen yardımcı ve öğretici bir AI asistanısın. Kısa ama bilgilendirici yanıtlar ver."""
             elif is_about_system:
                 system_prompt = SELF_KNOWLEDGE_PROMPT
             else:
-                # Karmaşık sorgular için zengin system prompt
-                system_prompt = "Sen Enterprise AI Asistan'sın. Kullanıcının sorusuna odaklan ve yardımcı ol."
+                # Karmaşık sorgular için PREMIUM EDUCATOR PROMPT
+                system_prompt = """Sen dünya standartlarında bir AI Eğitmenisin. Görevin kullanıcıya konuyu GERÇEKTEN ÖĞRETMEK.
+
+## TEMEL PRENSİPLER:
+1. **Derinlemesine Açıklama**: Her kavramı "neden" ve "nasıl" boyutlarıyla açıkla
+2. **Pratik Örnekler**: Soyut kavramları somut örneklerle destekle
+3. **Kod Öğretimi**: Sadece kod gösterme - her satırı açıkla, alternatiflerini sun
+4. **Kritik Noktalar**: Yaygın hatalar, best practice'ler ve edge case'leri vurgula
+5. **Bağlam**: Konunun büyük resimde nereye oturduğunu açıkla
+
+## YANITLAMA FORMATI:
+### 📚 Konu Başlığı
+- Konunun tanımı ve önemi
+- Neden öğrenilmeli?
+
+### 🎯 Temel Kavramlar
+- Her kavram detaylı açıklama ile
+- Gerçek dünya analojileri
+
+### 💻 Kod Örnekleri (varsa)
+```language
+# Her satır için yorum
+code_line  # Bu ne yapıyor ve NEDEN
+```
+**Kod Açıklaması:**
+- Satır satır ne yaptığını açıkla
+- Alternatif yaklaşımları belirt
+- Yaygın hataları ve çözümlerini göster
+
+### ⚠️ Dikkat Edilmesi Gerekenler
+- Yaygın hatalar ve nasıl kaçınılır
+- Best practice'ler
+- Edge case'ler
+
+### 🔗 İlişkili Konular
+- Bu konuyla bağlantılı kavramlar
+- Sonraki öğrenme adımları
+
+### 📝 Özet
+- Kilit noktaların listesi
+"""
                 
                 # Response mode'a göre ek talimatlar
                 if response_mode == "analytical":
-                    system_prompt += "\n\nAnalitik ve detaylı yanıt ver. Karşılaştırma, analiz ve değerlendirme yap."
+                    system_prompt += "\n\n## EXTRA: ANALİTİK MOD\n- Karşılaştırmalı analiz yap\n- Avantaj/dezavantaj tabloları kullan\n- Metrikler ve ölçütlerle destekle"
                 elif response_mode == "creative":
-                    system_prompt += "\n\nYaratıcı ve özgün yanıt ver. Farklı perspektifler sun."
+                    system_prompt += "\n\n## EXTRA: YARATICI MOD\n- Farklı perspektifler sun\n- İlham verici örnekler kullan\n- Benzersiz çözümler öner"
                 elif response_mode == "technical":
-                    system_prompt += "\n\nTeknik ve ayrıntılı yanıt ver. Kod örnekleri, teknik terimler kullan."
+                    system_prompt += "\n\n## EXTRA: TEKNİK MOD\n- Low-level detaylar ver\n- Performans optimizasyonlarını açıkla\n- Mimari kararları tartış"
+                elif response_mode == "debate":
+                    system_prompt += "\n\n## EXTRA: TARTIŞMA MOD\n- Farklı bakış açılarını sun\n- Her görüşün güçlü/zayıf yanlarını analiz et\n- Sonunda dengeli bir sonuç çıkar"
             
-            # RAG context'i prompt'a ekle
+            # === PREMIUM: Multi-Agent Debate (Research Mode) ===
+            debate_result = None
+            if DEBATE_AVAILABLE and debate_orchestrator and complexity_level == "research" and response_mode in ["debate", "analytical"] and feature_enabled('multi_agent_debate'):
+                try:
+                    await self._send({
+                        "type": "status",
+                        "message": "🤖 Multi-agent tartışma başlıyor...",
+                        "phase": "debate"
+                    })
+                    
+                    # LLM factory for debate agents
+                    def create_debate_llm():
+                        def llm_fn(prompt):
+                            import asyncio
+                            loop = asyncio.get_event_loop()
+                            result = loop.run_until_complete(
+                                llm_manager.generate_async(prompt, system_prompt="You are a debate participant.", temperature=0.7)
+                            )
+                            return result
+                        return llm_fn
+                    
+                    # Run multi-agent debate
+                    from core.multi_agent_debate import multi_agent_debate
+                    debate_result = await multi_agent_debate(
+                        question=message,
+                        llm=create_debate_llm(),
+                        context=knowledge_context + "\n\n" + web_context if (knowledge_context or web_context) else "",
+                        num_agents=3,
+                        max_rounds=2
+                    )
+                    
+                    if debate_result:
+                        # Debate sonuçlarını system prompt'a ekle
+                        system_prompt += f"""
+
+## 🤖 MULTI-AGENT DEBATE SONUÇLARI
+**Konsensüs Seviyesi:** {debate_result.consensus_level:.0%}
+**Kazanan Pozisyon:** {debate_result.winning_position}
+**Güven:** {debate_result.confidence:.0%}
+
+Bu debate sonuçlarını kullanarak kapsamlı ve dengeli bir yanıt oluştur.
+Farklı perspektifleri de yansıt."""
+                        
+                        await self._send({
+                            "type": "debate_result",
+                            "consensus": debate_result.consensus_level,
+                            "winning_position": debate_result.winning_position,
+                            "confidence": debate_result.confidence,
+                            "dissenting_views": debate_result.dissenting_views if hasattr(debate_result, 'dissenting_views') else []
+                        })
+                        logger.info(f"🤖 Debate completed: consensus={debate_result.consensus_level:.0%}")
+                except Exception as e:
+                    logger.warning(f"Multi-agent debate error: {e}")
+            
+            # === PREMIUM: Response Length Manager ===
+            if response_length_manager and not is_simple_query and feature_enabled('response_length'):
+                try:
+                    # Sorgu için uygun yanıt modunu belirle
+                    source_count = len(sources) + len(web_sources) if 'sources' in dir() else 0
+                    suggested_mode = response_length_manager.suggest_mode_for_query(message, source_count)
+                    
+                    # System prompt'a uzunluk talimatları ekle
+                    length_enhancement = response_length_manager.get_system_prompt_enhancement(suggested_mode, source_count)
+                    system_prompt += f"\n\n{length_enhancement}"
+                    logger.info(f"📏 Response mode: {suggested_mode}, sources: {source_count}")
+                except Exception as e:
+                    logger.warning(f"Response length manager error: {e}")
+            
+            # RAG context ve web context'i prompt'a ekle
             final_prompt = message
-            if knowledge_context:
-                final_prompt = f"""Aşağıdaki bilgiler kullanarak soruyu yanıtla:
-
-=== KAYNAKLARDAN BİLGİ ===
+            has_doc_sources = bool(knowledge_context)
+            has_web_sources = bool(web_context)
+            
+            if has_doc_sources or has_web_sources:
+                context_parts = []
+                
+                if has_doc_sources:
+                    context_parts.append(f"""=== 📄 DOSYA KAYNAKLARI ===
 {knowledge_context}
-=== KAYNAKLARDAN BİLGİ SONU ===
+=== DOSYA KAYNAKLARI SONU ===""")
+                
+                if has_web_sources:
+                    context_parts.append(f"""=== 🌐 WEB KAYNAKLARI ===
+{web_context}
+=== WEB KAYNAKLARI SONU ===""")
+                
+                combined_context = "\n\n".join(context_parts)
+                
+                final_prompt = f"""## 📚 ARAŞTIRMA KAYNAKLARI
+{combined_context}
 
-Kullanıcı sorusu: {message}
+## ❓ KULLANICI SORUSU
+{message}
 
-Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkça belirt."""
+## 📝 YANITLAMA TALİMATLARI
+
+### Kaynak Kullanımı:
+- Yukarıdaki kaynaklardan BİLGİ SENTEZİ yap - sadece kopyalama değil
+- Her kaynaktan aldığın bilgiyi kendi cümlelerinle açıkla
+- Farklı kaynaklardan gelen bilgileri birleştirerek kapsamlı yanıt oluştur
+
+### Format Gereksinimleri:
+1. **Giriş**: Konunun ne olduğunu ve neden önemli olduğunu açıkla
+2. **Ana İçerik**: Konuyu sistematik ve detaylı işle
+   - Her kavramı derinlemesine açıkla (sadece tanım değil, NEDEN ve NASIL)
+   - Kod varsa: Her satırı açıkla, alternatiflerini göster, yaygın hataları belirt
+   - Pratik örnekler ve analojiler kullan
+3. **Kritik Noktalar**: Dikkat edilmesi gerekenler, yaygın hatalar, best practice'ler
+4. **Özet**: Kilit noktaları listele
+
+### Uzunluk:
+- KAPSAMLI ve DETAYLI yanıt ver - kısa kesme
+- Her önemli kavramı tam olarak açıkla, yüzeysel geçme
+- Minimum 1500 kelime hedefle (karmaşık konularda daha fazla)
+
+### Kaynak Gösterimi:
+- Yanıtın sonunda kullanılan web kaynaklarını listele:
+  🔗 **Kaynaklar:**
+  - [Kaynak Adı](URL)"""
+            elif not is_simple_query:
+                # Kaynak yok ama karmaşık sorgu - genel bilgi kullan
+                final_prompt = f"""{message}
+
+NOT: Bu soru için bilgi tabanında veya web'de spesifik kaynak bulunamadı. 
+Lütfen genel bilginle kapsamlı yanıt ver ve yanıtının başına "💡 Genel Bilgi:" ekle."""
             
             full_response = ""
             token_index = 0
@@ -1460,6 +2038,77 @@ Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkç
             stats.end_time = time.time()
             self.conn.total_tokens += stats.token_count
             
+            # === PREMIUM: Hallucination Detection ===
+            hallucination_risk = "low"
+            if CRAG_AVAILABLE and hallucination_detector and full_response and (sources or web_sources) and feature_enabled('crag_full'):
+                try:
+                    all_contexts = []
+                    for src in sources[:10]:
+                        all_contexts.append(src.get("snippet", ""))
+                    for src in web_sources[:10]:
+                        all_contexts.append(src.get("snippet", ""))
+                    
+                    if all_contexts:
+                        risk = hallucination_detector.detect(
+                            answer=full_response,
+                            contexts=all_contexts,
+                            query=message
+                        )
+                        hallucination_risk = risk.risk_level.value if risk else "unknown"
+                        
+                        if risk and risk.risk_level in [HallucinationRisk.HIGH, HallucinationRisk.CRITICAL]:
+                            await self._send({
+                                "type": "hallucination_warning",
+                                "risk": hallucination_risk,
+                                "confidence": risk.confidence if risk else 0,
+                                "message": "⚠️ Yanıt kaynaklarla tam uyumlu olmayabilir"
+                            })
+                        logger.info(f"🔍 Hallucination check: {hallucination_risk}")
+                except Exception as e:
+                    logger.warning(f"Hallucination detection error: {e}")
+            
+            # === PREMIUM: RAGAS Evaluation ===
+            ragas_score = None
+            if RAGAS_AVAILABLE and ragas_evaluator and full_response and not is_simple_query and feature_enabled('ragas_evaluation'):
+                try:
+                    contexts = [src.get("snippet", "") for src in (sources + web_sources)[:15]]
+                    if contexts:
+                        eval_result = await ragas_evaluator.evaluate_async(
+                            question=message,
+                            answer=full_response,
+                            contexts=contexts
+                        )
+                        if eval_result:
+                            ragas_score = eval_result.overall_score
+                            await self._send({
+                                "type": "quality_score",
+                                "overall": ragas_score,
+                                "faithfulness": eval_result.metrics.get(MetricType.FAITHFULNESS, {}).score if hasattr(eval_result, 'metrics') else None,
+                                "relevancy": eval_result.metrics.get(MetricType.ANSWER_RELEVANCY, {}).score if hasattr(eval_result, 'metrics') else None
+                            })
+                            logger.info(f"📊 RAGAS score: {ragas_score:.2f}")
+                except Exception as e:
+                    logger.warning(f"RAGAS evaluation error: {e}")
+            
+            # === PREMIUM: MemGPT Memory - Konuşmayı Kaydet ===
+            if MEMGPT_AVAILABLE and memory_manager and session_id and full_response and feature_enabled('memgpt_memory'):
+                try:
+                    # Konuşmayı working memory'ye kaydet
+                    memory_manager.store(
+                        content=f"User: {message}\nAssistant: {full_response[:500]}",
+                        session_id=session_id,
+                        memory_type=MemoryType.WORKING,
+                        priority=MemoryPriority.MEDIUM
+                    )
+                    
+                    # Önemli bilgileri archival memory'ye taşı (uzun yanıtlar için)
+                    if len(full_response) > 1000 and not is_simple_query:
+                        memory_manager.consolidate(session_id=session_id)
+                    
+                    logger.info(f"🧠 MemGPT: Conversation stored")
+                except Exception as e:
+                    logger.warning(f"MemGPT store error: {e}")
+            
             # === PHASE 6: COMPLETE ===
             await self._send({
                 "type": "status",
@@ -1488,24 +2137,47 @@ Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkç
                 })
             
             # Session'a kaydet
+            logger.info(f"🔍 [SESSION DEBUG] About to save session:")
+            logger.info(f"   - session_id: {session_id}")
+            logger.info(f"   - full_response length: {len(full_response) if full_response else 0}")
+            logger.info(f"   - message preview: {message[:50]}...")
+            
             if full_response:
                 try:
-                    # Session yoksa oluştur
+                    # Session yoksa oluştur - create_session_with_id kullan
+                    logger.info(f"   - Checking if session exists...")
                     session = session_manager.get_session(session_id)
-                    if not session:
-                        # Yeni session oluştur - ID'yi koruyarak
-                        from core.session_manager import Session
-                        session = Session(id=session_id, title=message[:50])
-                        session_manager._cache[session_id] = session
+                    logger.info(f"   - Session found: {session is not None}")
                     
+                    if not session:
+                        # Yeni session oluştur - belirli ID ile
+                        title = message[:50] if len(message) > 50 else message
+                        session = session_manager.create_session_with_id(session_id, title=title)
+                        logger.info(f"📝 Created new session with ID: {session_id}")
+                    
+                    logger.info(f"   - Adding user message...")
                     session_manager.add_message(session_id, "user", message)
                     saved_response = full_response
                     if stats.was_stopped:
                         saved_response += "\n\n*[Yanıt durduruldu]*"
+                    logger.info(f"   - Adding assistant message...")
                     session_manager.add_message(session_id, "assistant", saved_response)
-                    logger.info(f"✅ Session saved: {session_id}, messages: {len(session.messages)}")
+                    
+                    # Verify save
+                    updated_session = session_manager.get_session(session_id)
+                    logger.info(f"✅ Session saved: {session_id}, messages: {len(updated_session.messages) if updated_session else 'N/A'}")
+                    
+                    # Check file exists
+                    from core.config import settings
+                    file_path = settings.DATA_DIR / "sessions" / f"{session_id}.json"
+                    logger.info(f"   - File exists: {file_path.exists()}")
+                    
                 except Exception as e:
-                    logger.warning(f"Session save error: {e}")
+                    logger.error(f"❌ Session save error: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            else:
+                logger.warning(f"⚠️ No full_response to save!")
             
         except asyncio.TimeoutError:
             stats.error = "timeout"
@@ -1586,15 +2258,8 @@ Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkç
                 "phase": "routing"
             })
             
-            # Basit sorgu tespiti - selamlama ve kısa sorular için RAG'ı atla
-            simple_query_patterns = [
-                "merhaba", "selam", "nasılsın", "naber", "günaydın", "iyi akşamlar",
-                "hello", "hi", "hey", "good morning", "good evening",
-                "bugün nasılsın", "ne yapıyorsun", "ne haber", "teşekkür",
-                "sağol", "thanks", "thank you"
-            ]
-            message_lower = message.lower().strip()
-            is_simple_greeting = any(pattern in message_lower for pattern in simple_query_patterns)
+            # Basit sorgu tespiti (query_analyzer service kullanıyor)
+            is_simple_greeting = query_analyzer.is_simple_query(message)
             is_short_query = len(message) < 25
             
             # Auto modda basit sorgular için otomatik simple mod kullan
@@ -1617,26 +2282,41 @@ Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkç
                         "phase": "search"
                     })
                     
-                    # RAG search
+                    # RAG search - use rag_service if available
                     try:
-                        results = vector_store.search_with_scores(query=message, n_results=5, score_threshold=0.3)
-                        if results:
-                            knowledge_context = "\n\n".join([
-                                f"[Kaynak: {r.get('metadata', {}).get('filename', 'unknown')}]\n{r.get('document', '')}"
-                                for r in results[:3]
-                            ])
-                            # Frontend'in beklediği dict formatında sources oluştur
-                            for r in results:
-                                meta = r.get('metadata', {})
-                                doc_text = r.get('document', '')[:200]  # snippet
-                                sources.append({
-                                    "title": meta.get('filename', 'Kaynak'),
-                                    "url": meta.get('source', '#'),
-                                    "domain": "📄 Yerel Dosya",
-                                    "snippet": doc_text,
-                                    "type": "unknown",
-                                    "reliability": r.get('score', 0.5),
-                                })
+                        if rag_service and SERVICES_AVAILABLE:
+                            enriched_context = await rag_service.search(
+                                query=message,
+                                include_documents=True,
+                                include_web=False,
+                                n_results=5,
+                                score_threshold=0.3,
+                            )
+                            
+                            if enriched_context.document_context:
+                                knowledge_context = enriched_context.document_context
+                            
+                            for src in enriched_context.document_sources:
+                                sources.append(src.to_frontend_format())
+                        else:
+                            # Fallback to direct vector_store
+                            results = vector_store.search_with_scores(query=message, n_results=5, score_threshold=0.3)
+                            if results:
+                                knowledge_context = "\n\n".join([
+                                    f"[Kaynak: {r.get('metadata', {}).get('filename', 'unknown')}]\n{r.get('document', '')}"
+                                    for r in results[:3]
+                                ])
+                                for r in results:
+                                    meta = r.get('metadata', {})
+                                    doc_text = r.get('document', '')[:200]
+                                    sources.append({
+                                        "title": meta.get('filename', 'Kaynak'),
+                                        "url": meta.get('source', '#'),
+                                        "domain": "📄 Yerel Dosya",
+                                        "snippet": doc_text,
+                                        "type": "document",
+                                        "reliability": r.get('score', 0.5),
+                                    })
                     except Exception as e:
                         logger.warning(f"RAG search error: {e}")
                     
@@ -1649,10 +2329,10 @@ Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkç
                         "phase": "analyze"
                     })
                     
-                    stream_buffer.set_sources(stream_id, sources[:5])
+                    stream_buffer.set_sources(stream_id, sources[:30])
                     await self._send({
                         "type": "sources",
-                        "sources": sources[:5]
+                        "sources": sources[:30]
                     })
                 
                 # === PHASE 4: CONTEXT ===
@@ -1672,14 +2352,8 @@ Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkç
                 # System prompt oluştur
                 from core.system_knowledge import SELF_KNOWLEDGE_PROMPT
                 
-                # Sistem hakkında mı soruyor kontrolü
-                system_about_keywords = [
-                    "sen kimsin", "seni kim yaptı", "enterprise ai", "kimsin", 
-                    "kendini tanıt", "hakkında bilgi", "ne yapabilirsin",
-                    "what can you do", "who are you", "who made you",
-                    "mcp nedir", "multi-agent", "teknolojilerin", "yeteneklerin"
-                ]
-                is_about_system = any(kw in message_lower for kw in system_about_keywords)
+                # Sistem hakkında mı soruyor kontrolü (query_analyzer service)
+                is_about_system = query_analyzer.analyze(message).is_system_query
                 
                 if skip_rag and not is_about_system:
                     # Basit sorular için minimal sistem prompt
@@ -1769,12 +2443,19 @@ Yanıtını kaynaktaki bilgilere dayandır. Kaynaklarda olmayan bilgiyi açıkç
                 # Session'a kaydet (durdurulsa bile kısmi yanıtı kaydet)
                 if full_response:
                     try:
+                        # Session yoksa oluştur
+                        if not session_manager.get_session(session_id):
+                            title = message[:50] if len(message) > 50 else message
+                            session_manager.create_session_with_id(session_id, title=title)
+                            logger.info(f"📝 Created new session: {session_id}")
+                        
                         session_manager.add_message(session_id, "user", message)
                         # Durdurulduysa yanıta işaret ekle
                         saved_response = full_response
                         if stats.was_stopped:
                             saved_response += "\n\n*[Yanıt durduruldu]*"
                         session_manager.add_message(session_id, "assistant", saved_response)
+                        logger.info(f"✅ Session saved: {session_id}")
                     except Exception as e:
                         logger.warning(f"Session save error: {e}")
                 

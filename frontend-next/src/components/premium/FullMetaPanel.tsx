@@ -190,7 +190,7 @@ type ViewState = 'list' | 'wizard' | 'thinking' | 'journey' | 'package' | 'exam'
 // CONSTANTS
 // ============================================================================
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
 const SUBJECTS = [
   { id: 'matematik', name: 'Matematik', icon: '📐', color: '#3B82F6' },

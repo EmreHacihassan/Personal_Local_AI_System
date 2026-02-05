@@ -36,15 +36,15 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*',
+        destination: 'http://localhost:8001/api/:path*',
       },
       {
         source: '/static/:path*',
-        destination: 'http://localhost:8000/static/:path*',
+        destination: 'http://localhost:8001/static/:path*',
       },
       {
         source: '/ws/:path*',
-        destination: 'http://localhost:8000/ws/:path*',
+        destination: 'http://localhost:8001/ws/:path*',
       },
     ];
   },

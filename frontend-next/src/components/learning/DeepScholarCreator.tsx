@@ -219,7 +219,7 @@ export function DeepScholarCreator({
   language: _language,
   onClose,
   onComplete,
-  apiUrl = 'http://localhost:8000',
+  apiUrl = 'http://localhost:8001',
   reconnectDocumentId = null,
   initialTitle = '',
   initialTopic = '',

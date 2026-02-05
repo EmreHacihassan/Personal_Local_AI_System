@@ -45,7 +45,7 @@ import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { useStore, Message } from '@/store/useStore';
-import { sendChatMessage, generateSessionTitle } from '@/lib/api';
+import { sendChatMessage, generateSessionTitle, getSession } from '@/lib/api';
 import { cn, generateId, formatDate } from '@/lib/utils';
 import { useChatWebSocket } from '@/hooks/useWebSocket';
 import { ModelBadge, ComparisonView } from '@/components/chat/ModelBadge';
@@ -148,7 +148,9 @@ export function ChatPage() {
     // Session management - for conversation persistence
     currentSessionId,
     setCurrentSession,
+    setNewSessionId,
     renameSession,
+    loadSessionMessages,
   } = useStore();
 
   // WebSocket hook for real-time streaming with Model Routing
@@ -172,6 +174,8 @@ export function ChatPage() {
     requestComparison: wsRequestComparison,
     confirmFeedback: wsConfirmFeedback,
     resetRoutingState: wsResetRoutingState,
+    // Session ID from backend
+    receivedSessionId: wsReceivedSessionId,
   } = useChatWebSocket(currentSessionId || undefined);
 
   const [inputValue, setInputValue] = useState('');
@@ -209,18 +213,27 @@ export function ChatPage() {
   useEffect(() => {
     const checkLlmHealth = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/health`);
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/health`);
         if (response.ok) {
           const data = await response.json();
-          const ollamaComponent = data.components?.find((c: { name: string }) => c.name === 'ollama');
-          if (ollamaComponent) {
-            setLlmStatus({
-              status: ollamaComponent.status,
-              model: ollamaComponent.details?.models?.[0] || 'unknown',
-              latency: ollamaComponent.latency_ms,
-            });
+          // Check various component formats
+          if (data.components?.llm === 'healthy') {
+            setLlmStatus({ status: 'healthy' });
+          } else if (Array.isArray(data.components)) {
+            const ollamaComponent = data.components.find((c: { name: string }) => c.name === 'ollama' || c.name === 'llm');
+            if (ollamaComponent) {
+              setLlmStatus({
+                status: ollamaComponent.status,
+                model: ollamaComponent.details?.models?.[0] || 'unknown',
+                latency: ollamaComponent.latency_ms,
+              });
+            } else {
+              setLlmStatus({ status: data.status || 'healthy' });
+            }
+          } else if (data.status === 'healthy') {
+            setLlmStatus({ status: 'healthy' });
           } else {
-            setLlmStatus({ status: data.status || 'healthy' });
+            setLlmStatus({ status: 'unhealthy' });
           }
         } else {
           setLlmStatus({ status: 'unhealthy' });
@@ -235,7 +248,62 @@ export function ChatPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Session restoration - Load messages from backend when page loads with existing sessionId
+  const sessionLoadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const loadCurrentSession = async () => {
+      // Only load if we have a session ID and haven't loaded this session yet
+      if (currentSessionId && sessionLoadedRef.current !== currentSessionId && messages.length === 0) {
+        console.log('📥 [SESSION] Loading session from API:', currentSessionId);
+        sessionLoadedRef.current = currentSessionId; // Mark as loading
+        try {
+          const response = await getSession(currentSessionId);
+          console.log('📥 [SESSION] API response:', { success: response.success, hasData: !!response.data, messageCount: response.data?.messages?.length });
+          
+          if (response.success && response.data && response.data.messages && response.data.messages.length > 0) {
+            // Convert API messages to store format
+            const loadedMessages: Message[] = response.data.messages.map((msg, index) => ({
+              id: msg.id || `msg-${index}`,
+              role: msg.role,
+              content: msg.content,
+              timestamp: new Date(msg.timestamp),
+              sources: [],
+              metadata: {},
+            }));
+            loadSessionMessages(currentSessionId, loadedMessages);
+            console.log('✅ [SESSION] Session loaded successfully:', loadedMessages.length, 'messages');
+          } else {
+            // Session exists but has no messages - clear it
+            console.log('⚠️ [SESSION] Session has no messages, clearing:', currentSessionId);
+            setCurrentSession(null);
+            sessionLoadedRef.current = null;
+          }
+        } catch (error) {
+          console.error('❌ [SESSION] Failed to load session:', error);
+          // Clear invalid session
+          console.log('🧹 [SESSION] Clearing invalid session:', currentSessionId);
+          setCurrentSession(null);
+          sessionLoadedRef.current = null;
+        }
+      }
+    };
+
+    loadCurrentSession();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSessionId]);
+
+  // Sync session ID from WebSocket with store (for new sessions created by backend)
+  // Use setNewSessionId to PRESERVE messages - don't clear them when backend assigns ID
+  useEffect(() => {
+    if (wsReceivedSessionId && wsReceivedSessionId !== currentSessionId) {
+      console.log('📌 Setting session from WebSocket:', wsReceivedSessionId);
+      setNewSessionId(wsReceivedSessionId);  // Use setNewSessionId to keep existing messages
+    }
+  }, [wsReceivedSessionId, currentSessionId, setNewSessionId]);
+
   // Timer for elapsed time during response - Tab gizli olduğunda bile doğru çalışsın
+  // Also includes streaming timeout protection (120 seconds max)
+  const STREAMING_TIMEOUT_SECONDS = 120;
   useEffect(() => {
     if (isTyping) {
       // Başlangıç zamanını kaydet
@@ -247,6 +315,29 @@ export function ChatPage() {
         if (streamStartTimeRef.current) {
           const elapsed = (performance.now() - streamStartTimeRef.current) / 1000;
           setElapsedTime(elapsed);
+          
+          // STREAMING TIMEOUT: Force stop if streaming takes too long
+          if (elapsed > STREAMING_TIMEOUT_SECONDS) {
+            console.warn(`⏱️ [TIMEOUT] Streaming exceeded ${STREAMING_TIMEOUT_SECONDS}s, forcing stop`);
+            // Force stop streaming
+            wsStopStream();
+            setIsTyping(false);
+            setIsStreaming(false);
+            
+            // If we have partial response, save it
+            if (wsStreamingResponse && pendingMessageRef.current) {
+              const assistantMessage: Message = {
+                id: generateId(),
+                role: 'assistant',
+                content: wsStreamingResponse + '\n\n*[Yanıt zaman aşımına uğradı]*',
+                timestamp: new Date(),
+                isError: true,
+                errorDetails: { type: 'timeout', suggestion: 'Lütfen tekrar deneyin' },
+              };
+              addMessage(assistantMessage);
+              pendingMessageRef.current = null;
+            }
+          }
         }
       }, 100);
     } else {
@@ -261,7 +352,7 @@ export function ChatPage() {
         clearInterval(timerRef.current);
       }
     };
-  }, [isTyping]);
+  }, [isTyping, wsStopStream, wsStreamingResponse, addMessage, setIsTyping, setIsStreaming]);
 
   // Sync WebSocket streaming response with store
   useEffect(() => {
@@ -271,19 +362,36 @@ export function ChatPage() {
   }, [wsStreamingResponse, setStreamingContent]);
 
   // Sync WebSocket streaming state with store
+  // BUG FIX: wsIsStreaming false olduğunda isTyping de false olmalı
+  // Böylece timer düzgün durur ve durum diğer sayfalara yayılmaz
   useEffect(() => {
     setIsStreaming(wsIsStreaming);
-    if (wsIsStreaming) {
-      setIsTyping(true);
-    }
+    // wsIsStreaming true olduğunda isTyping true, false olduğunda isTyping false
+    setIsTyping(wsIsStreaming);
   }, [wsIsStreaming, setIsStreaming, setIsTyping]);
 
-  // Handle WebSocket errors
+  // Handle WebSocket errors - stop streaming and show error message
   useEffect(() => {
-    if (wsStreamError) {
+    if (wsStreamError && pendingMessageRef.current) {
       console.error('WebSocket Error:', wsStreamError);
+      
+      // Add error message as assistant response
+      const errorMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: `Üzgünüm, bir hata oluştu: ${wsStreamError}`,
+        timestamp: new Date(),
+        isError: true,
+        errorDetails: { type: 'websocket_error', suggestion: 'Lütfen tekrar deneyin' },
+      };
+      
+      addMessage(errorMessage);
+      pendingMessageRef.current = null;
+      setIsTyping(false);
+      setIsStreaming(false);
+      setStreamingContent('');
     }
-  }, [wsStreamError]);
+  }, [wsStreamError, addMessage, setIsTyping, setIsStreaming, setStreamingContent]);
 
   // Auto-hide attachment tooltip after 2 seconds
   useEffect(() => {
@@ -550,9 +658,9 @@ export function ChatPage() {
       if (response.success && response.data) {
         fullContent = response.data.response;
         metadata = response.data.metadata || {};
-        // Capture session_id from response
+        // Capture session_id from response - use setNewSessionId to PRESERVE messages
         if (response.data.session_id) {
-          setCurrentSession(response.data.session_id);
+          setNewSessionId(response.data.session_id);
           console.log('📌 Session ID from HTTP:', response.data.session_id);
         }
       } else {

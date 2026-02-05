@@ -156,6 +156,40 @@ class SessionManager:
         
         return session
     
+    def create_session_with_id(self, session_id: str, title: Optional[str] = None) -> Session:
+        """
+        Belirli bir ID ile yeni session oluştur.
+        WebSocket gibi client-generated ID kullanan durumlar için.
+        
+        Args:
+            session_id: Kullanılacak session ID
+            title: Session başlığı
+            
+        Returns:
+            Oluşturulan Session objesi
+        """
+        # Zaten varsa mevcut olanı döndür
+        existing = self.get_session(session_id)
+        if existing:
+            return existing
+        
+        now = datetime.now().isoformat()
+        
+        session = Session(
+            id=session_id,
+            title=title or f"Konuşma - {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            created_at=now,
+            updated_at=now,
+        )
+        
+        self._cache[session_id] = session
+        # Not: Mesaj eklenene kadar dosyaya yazmayı ertelemiyoruz
+        # Force save için placeholder mesaj kullanılabilir ama şimdilik cache'te tutuyoruz
+        # İlk mesaj eklendiğinde _save_session otomatik çağrılacak
+        self.invalidate_list_cache()
+        
+        return session
+    
     def get_session(self, session_id: str) -> Optional[Session]:
         """Session'ı ID ile getir."""
         # Önce cache'e bak

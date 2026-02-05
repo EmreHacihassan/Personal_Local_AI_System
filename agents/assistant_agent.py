@@ -179,13 +179,22 @@ SINIRLAMALAR:
         """Asistan promptu oluştur."""
         parts = []
         
+        # Check intent for response mode
+        intent_mode = context.get("intent_mode", "hybrid") if context else "hybrid"
+        allow_general = context.get("allow_general_knowledge", True) if context else True
+        
         if context_text:
             parts.extend([
-                "=== BİLGİ TABANINDAN BULUNAN İLGİLİ BİLGİLER ===",
+                "📚 BİLGİ TABANINDAN BULUNAN İLGİLİ BİLGİLER:",
                 context_text,
                 "",
                 "Yukarıdaki bilgileri kullanarak kullanıcının sorusunu yanıtla.",
-                "Bilgi tabanında bulunmayan konularda 'Bu konuda bilgi tabanımızda bilgi bulunamadı' de.",
+                "",
+            ])
+        elif allow_general:
+            parts.extend([
+                "📌 NOT: Bilgi tabanında bu konuyla ilgili spesifik içerik bulunamadı.",
+                "Genel bilginle kapsamlı ve eğitici bir yanıt ver.",
                 "",
             ])
         

@@ -9,23 +9,25 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-    Filter,
-    Palette,
-    Tag,
-    Calendar,
-    Layers,
-    Flame,
-    LayoutGrid,
-    Network,
-    CircleDot,
-    Clock,
-    TreeDeciduous,
-    X,
-    ChevronDown,
-    RotateCcw
-} from 'lucide-react';
+import dynamic from 'next/dynamic';
+import type { ComponentType } from 'react';
 import { cn } from '@/lib/utils';
+
+// Dynamic icon imports to prevent SSR/hydration issues
+const Filter = dynamic(() => import('lucide-react').then(mod => mod.Filter), { ssr: false }) as ComponentType<any>;
+const Palette = dynamic(() => import('lucide-react').then(mod => mod.Palette), { ssr: false }) as ComponentType<any>;
+const Tag = dynamic(() => import('lucide-react').then(mod => mod.Tag), { ssr: false }) as ComponentType<any>;
+const Calendar = dynamic(() => import('lucide-react').then(mod => mod.Calendar), { ssr: false }) as ComponentType<any>;
+const Layers = dynamic(() => import('lucide-react').then(mod => mod.Layers), { ssr: false }) as ComponentType<any>;
+const Flame = dynamic(() => import('lucide-react').then(mod => mod.Flame), { ssr: false }) as ComponentType<any>;
+const LayoutGrid = dynamic(() => import('lucide-react').then(mod => mod.LayoutGrid), { ssr: false }) as ComponentType<any>;
+const Network = dynamic(() => import('lucide-react').then(mod => mod.Network), { ssr: false }) as ComponentType<any>;
+const CircleDot = dynamic(() => import('lucide-react').then(mod => mod.CircleDot), { ssr: false }) as ComponentType<any>;
+const Clock = dynamic(() => import('lucide-react').then(mod => mod.Clock), { ssr: false }) as ComponentType<any>;
+const TreeDeciduous = dynamic(() => import('lucide-react').then(mod => mod.TreeDeciduous), { ssr: false }) as ComponentType<any>;
+const X = dynamic(() => import('lucide-react').then(mod => mod.X), { ssr: false }) as ComponentType<any>;
+const ChevronDown = dynamic(() => import('lucide-react').then(mod => mod.ChevronDown), { ssr: false }) as ComponentType<any>;
+const RotateCcw = dynamic(() => import('lucide-react').then(mod => mod.RotateCcw), { ssr: false }) as ComponentType<any>;
 
 export type LayoutType = 'force' | 'hierarchical' | 'radial' | 'timeline';
 
@@ -62,12 +64,23 @@ const COLORS = [
     { id: 'red', name: 'Kırmızı', class: 'bg-red-400' },
 ];
 
-const LAYOUTS: { id: LayoutType; name: string; nameEn: string; icon: React.ReactNode }[] = [
-    { id: 'force', name: 'Fizik Tabanlı', nameEn: 'Force-Directed', icon: <Network className="w-4 h-4" /> },
-    { id: 'hierarchical', name: 'Hiyerarşik', nameEn: 'Hierarchical', icon: <TreeDeciduous className="w-4 h-4" /> },
-    { id: 'radial', name: 'Dairesel', nameEn: 'Radial', icon: <CircleDot className="w-4 h-4" /> },
-    { id: 'timeline', name: 'Zaman Çizgisi', nameEn: 'Timeline', icon: <Clock className="w-4 h-4" /> },
+const LAYOUTS: { id: LayoutType; name: string; nameEn: string; iconId: 'network' | 'tree' | 'circle' | 'clock' }[] = [
+    { id: 'force', name: 'Fizik Tabanlı', nameEn: 'Force-Directed', iconId: 'network' },
+    { id: 'hierarchical', name: 'Hiyerarşik', nameEn: 'Hierarchical', iconId: 'tree' },
+    { id: 'radial', name: 'Dairesel', nameEn: 'Radial', iconId: 'circle' },
+    { id: 'timeline', name: 'Zaman Çizgisi', nameEn: 'Timeline', iconId: 'clock' },
 ];
+
+// Helper component to render layout icons
+const LayoutIcon = ({ iconId }: { iconId: string }) => {
+    switch (iconId) {
+        case 'network': return <Network className="w-4 h-4" />;
+        case 'tree': return <TreeDeciduous className="w-4 h-4" />;
+        case 'circle': return <CircleDot className="w-4 h-4" />;
+        case 'clock': return <Clock className="w-4 h-4" />;
+        default: return null;
+    }
+};
 
 const translations = {
     filters: { tr: 'Filtreler', en: 'Filters', de: 'Filter' },
@@ -220,7 +233,7 @@ export function FilterPanel({
                                     "p-2 rounded-lg",
                                     layout === l.id ? "bg-primary-500/20 text-primary-500" : "bg-muted text-muted-foreground"
                                 )}>
-                                    {l.icon}
+                                    <LayoutIcon iconId={l.iconId} />
                                 </div>
                                 <span className="text-xs font-medium">
                                     {language === 'tr' ? l.name : l.nameEn}

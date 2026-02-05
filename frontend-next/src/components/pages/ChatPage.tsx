@@ -307,42 +307,34 @@ export function ChatPage() {
 
   // Timer for elapsed time during response - Tab gizli olduğunda bile doğru çalışsın
   // Also includes streaming timeout protection (180 seconds max)
+  // NOTE: Timer is started in handleSend() immediately when message is sent
+  // This effect only handles cleanup and timeout protection
   const STREAMING_TIMEOUT_SECONDS = 180;
   useEffect(() => {
     if (isTyping) {
-      // Başlangıç zamanını kaydet
-      streamStartTimeRef.current = performance.now();
-      setElapsedTime(0);
-      
-      // Her 100ms'de gerçek geçen süreyi hesapla
-      timerRef.current = setInterval(() => {
+      // Timer is already started in handleSend, just add timeout protection
+      // Don't reset the timer here to avoid resetting elapsed time to 0
+      const timeoutChecker = setInterval(() => {
         if (streamStartTimeRef.current) {
           const elapsed = (performance.now() - streamStartTimeRef.current) / 1000;
-          setElapsedTime(elapsed);
           
           // STREAMING TIMEOUT: Force stop if streaming takes too long
           if (elapsed > STREAMING_TIMEOUT_SECONDS) {
             console.warn(`⏱️ [TIMEOUT] Streaming exceeded ${STREAMING_TIMEOUT_SECONDS}s, calling wsStopStream`);
-            // Use wsStopStream to properly signal backend - this will trigger "stopped" message
-            // which will set wsIsStreaming=false and let the completion effect handle cleanup
             wsStopStream();
-            // Don't manually set isTyping/isStreaming or clear pendingMessageRef here
-            // The stopped/end message handler will do proper cleanup
           }
         }
-      }, 100);
+      }, 1000); // Check every second for timeout
+      
+      return () => clearInterval(timeoutChecker);
     } else {
+      // Cleanup when streaming ends
       streamStartTimeRef.current = null;
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
     }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
   }, [isTyping, wsStopStream]);
 
   // Sync WebSocket streaming response with store
@@ -609,6 +601,21 @@ export function ChatPage() {
     // Store pending message for when streaming completes
     pendingMessageRef.current = { userMessage, startTime };
     console.log('📤 [SEND] Message sent, pendingMessageRef SET, startTime:', startTime);
+
+    // START TIMER IMMEDIATELY when message is sent (don't wait for effect)
+    // This ensures timer starts counting from the moment user sends message
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    streamStartTimeRef.current = performance.now();
+    setElapsedTime(0);
+    timerRef.current = setInterval(() => {
+      if (streamStartTimeRef.current) {
+        const elapsed = (performance.now() - streamStartTimeRef.current) / 1000;
+        setElapsedTime(elapsed);
+      }
+    }, 100);
+    console.log('⏱️ [TIMER] Started immediately on send');
 
     // Try WebSocket first if connected
     if (wsConnected) {

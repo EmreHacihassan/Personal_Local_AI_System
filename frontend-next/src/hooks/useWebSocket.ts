@@ -485,9 +485,11 @@ export function useChatWebSocket(
 
       case 'start':
         // Backend'den gelen session_id'yi yakala (yeni session oluşturulduğunda)
-        if (message.session_id) {
-          console.log('📌 [WS] Received session_id from backend:', message.session_id);
-        }
+        console.log('🚀 [WS] Received START message:', { 
+          session_id: message.session_id, 
+          stream_id: message.stream_id,
+          ts: message.ts 
+        });
         setStreamState(prev => ({
           ...prev,
           streamingResponse: '',
@@ -518,12 +520,21 @@ export function useChatWebSocket(
       
       case 'token':
       case 'chunk':  // Backend 'chunk' olarak da gönderebilir
-        setStreamState(prev => ({
-          ...prev,
-          streamingResponse: prev.streamingResponse + (message.content || ''),
-          statusMessage: null,
-          currentPhase: 'generate',  // Tokens mean we're generating
-        }));
+        // Debug: Log first few tokens and every 10th token
+        const newContent = message.content || '';
+        setStreamState(prev => {
+          const newResponse = prev.streamingResponse + newContent;
+          // Log progress every 50 characters
+          if (newResponse.length % 50 < newContent.length) {
+            console.log('📝 [WS] Streaming progress:', newResponse.length, 'chars');
+          }
+          return {
+            ...prev,
+            streamingResponse: newResponse,
+            statusMessage: null,
+            currentPhase: 'generate',  // Tokens mean we're generating
+          };
+        });
         break;
 
       case 'thinking':  // AI düşünce süreci
@@ -552,39 +563,52 @@ export function useChatWebSocket(
       
       case 'end':
       case 'complete':  // Backend may send 'complete' or 'end'
+        // CRITICAL: Streaming must stop - log for debugging
+        console.log('🏁 [WS Chat] Received END message:', { 
+          type: message.type, 
+          stats: message.stats,
+          response_id: message.response_id,
+          hasModelInfo: !!message.model_info 
+        });
+        
         // End mesajı artık model bilgilerini de içerir
-        setStreamState(prev => ({
-          ...prev,
-          isStreaming: false,
-          stats: message.stats || null,
-          statusMessage: null,
-          currentPhase: 'complete',  // Mark as complete
-          // Model bilgilerini routingInfo'ya ekle (eğer yoksa)
-          routingInfo: prev.routingInfo || (message.model_info ? {
-            ...message.model_info,
-            decision_source: message.model_info.decision_source || '',
-            response_id: message.response_id || '',
-            attempt_number: 1,
-            reasoning: '',
-          } as ModelRoutingInfo : null) || (message.response_id ? {
-            model_size: message.model_size as 'small' | 'large',
-            model_name: message.model_name || '',
-            model_icon: message.model_icon || '',
-            model_display_name: message.model_display_name || '',
-            confidence: message.confidence || 0,
-            decision_source: message.decision_source || '',
-            response_id: message.response_id || '',
-            attempt_number: message.attempt_number || 1,
-          } : null),
-        }));
+        setStreamState(prev => {
+          console.log('🏁 [WS Chat] Setting isStreaming to FALSE, prev state:', prev.isStreaming);
+          return {
+            ...prev,
+            isStreaming: false,
+            stats: message.stats || null,
+            statusMessage: null,
+            currentPhase: 'complete',  // Mark as complete
+            // Model bilgilerini routingInfo'ya ekle (eğer yoksa)
+            routingInfo: prev.routingInfo || (message.model_info ? {
+              ...message.model_info,
+              decision_source: message.model_info.decision_source || '',
+              response_id: message.response_id || '',
+              attempt_number: 1,
+              reasoning: '',
+            } as ModelRoutingInfo : null) || (message.response_id ? {
+              model_size: message.model_size as 'small' | 'large',
+              model_name: message.model_name || '',
+              model_icon: message.model_icon || '',
+              model_display_name: message.model_display_name || '',
+              confidence: message.confidence || 0,
+              decision_source: message.decision_source || '',
+              response_id: message.response_id || '',
+              attempt_number: message.attempt_number || 1,
+            } : null),
+          };
+        });
         break;
 
       case 'stopped':
       case 'cancelled':
+        console.log('🛑 [WS Chat] Received STOP/CANCEL message');
         setStreamState(prev => ({
           ...prev,
           isStreaming: false,
           statusMessage: 'Yanıt durduruldu',
+          currentPhase: 'stopped',
         }));
         break;
       

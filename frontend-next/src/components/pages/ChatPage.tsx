@@ -49,6 +49,10 @@ import { sendChatMessage, generateSessionTitle, getSession } from '@/lib/api';
 import { cn, generateId, formatDate } from '@/lib/utils';
 import { useChatWebSocket } from '@/hooks/useWebSocket';
 import { ModelBadge, ComparisonView } from '@/components/chat/ModelBadge';
+import StreamingDebugPanel from '@/components/debug/StreamingDebugPanel';
+
+// Debug mode - set to true to show debug panel
+const DEBUG_STREAMING = true;
 
 // Sample questions with multi-language support
 const sampleQuestions = {
@@ -302,8 +306,8 @@ export function ChatPage() {
   }, [wsReceivedSessionId, currentSessionId, setNewSessionId]);
 
   // Timer for elapsed time during response - Tab gizli olduğunda bile doğru çalışsın
-  // Also includes streaming timeout protection (120 seconds max)
-  const STREAMING_TIMEOUT_SECONDS = 120;
+  // Also includes streaming timeout protection (180 seconds max)
+  const STREAMING_TIMEOUT_SECONDS = 180;
   useEffect(() => {
     if (isTyping) {
       // Başlangıç zamanını kaydet
@@ -318,25 +322,12 @@ export function ChatPage() {
           
           // STREAMING TIMEOUT: Force stop if streaming takes too long
           if (elapsed > STREAMING_TIMEOUT_SECONDS) {
-            console.warn(`⏱️ [TIMEOUT] Streaming exceeded ${STREAMING_TIMEOUT_SECONDS}s, forcing stop`);
-            // Force stop streaming
+            console.warn(`⏱️ [TIMEOUT] Streaming exceeded ${STREAMING_TIMEOUT_SECONDS}s, calling wsStopStream`);
+            // Use wsStopStream to properly signal backend - this will trigger "stopped" message
+            // which will set wsIsStreaming=false and let the completion effect handle cleanup
             wsStopStream();
-            setIsTyping(false);
-            setIsStreaming(false);
-            
-            // If we have partial response, save it
-            if (wsStreamingResponse && pendingMessageRef.current) {
-              const assistantMessage: Message = {
-                id: generateId(),
-                role: 'assistant',
-                content: wsStreamingResponse + '\n\n*[Yanıt zaman aşımına uğradı]*',
-                timestamp: new Date(),
-                isError: true,
-                errorDetails: { type: 'timeout', suggestion: 'Lütfen tekrar deneyin' },
-              };
-              addMessage(assistantMessage);
-              pendingMessageRef.current = null;
-            }
+            // Don't manually set isTyping/isStreaming or clear pendingMessageRef here
+            // The stopped/end message handler will do proper cleanup
           }
         }
       }, 100);
@@ -352,23 +343,65 @@ export function ChatPage() {
         clearInterval(timerRef.current);
       }
     };
-  }, [isTyping, wsStopStream, wsStreamingResponse, addMessage, setIsTyping, setIsStreaming]);
+  }, [isTyping, wsStopStream]);
 
   // Sync WebSocket streaming response with store
+  // Also track last activity time for inactivity timeout
+  const lastActivityRef = useRef<number>(Date.now());
   useEffect(() => {
     if (wsStreamingResponse) {
       setStreamingContent(wsStreamingResponse);
+      lastActivityRef.current = Date.now(); // Update last activity on new content
     }
   }, [wsStreamingResponse, setStreamingContent]);
 
-  // Sync WebSocket streaming state with store
-  // BUG FIX: wsIsStreaming false olduğunda isTyping de false olmalı
-  // Böylece timer düzgün durur ve durum diğer sayfalara yayılmaz
+  // INACTIVITY TIMEOUT: If no new tokens for 30 seconds, force stop streaming
+  // Increased from 15s to 30s to allow for slow LLM responses
+  const INACTIVITY_TIMEOUT_MS = 30000;
   useEffect(() => {
+    if (!isTyping) return;
+    
+    const checkInactivity = setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed > INACTIVITY_TIMEOUT_MS && isTyping) {
+        console.warn(`⏱️ [INACTIVITY] No tokens for ${elapsed}ms, forcing stop via wsStopStream`);
+        // Use wsStopStream to properly signal backend and trigger end message
+        wsStopStream();
+        // Don't manually set isTyping/isStreaming here - let the "end" message handler do it
+        // This ensures proper cleanup and message saving
+      }
+    }, 2000);
+    
+    return () => clearInterval(checkInactivity);
+  }, [isTyping, wsStopStream]);
+
+  // Sync WebSocket streaming state with store
+  // CRITICAL: Only sync when wsIsStreaming actually changes
+  // Use ref to track if we started streaming from handleSend
+  const streamingStartedRef = useRef<boolean>(false);
+  
+  useEffect(() => {
+    console.log('🔄 [SYNC] wsIsStreaming changed:', wsIsStreaming, 'streamingStartedRef:', streamingStartedRef.current);
     setIsStreaming(wsIsStreaming);
-    // wsIsStreaming true olduğunda isTyping true, false olduğunda isTyping false
-    setIsTyping(wsIsStreaming);
+    
+    if (wsIsStreaming) {
+      // Backend sent "start" - streaming is truly active
+      setIsTyping(true);
+      streamingStartedRef.current = true;
+      lastActivityRef.current = Date.now();
+      console.log('🔄 [SYNC] Streaming STARTED, isTyping=true');
+    } else if (streamingStartedRef.current) {
+      // Backend sent "end" - streaming completed
+      // Only reset if we actually started streaming
+      console.log('🔄 [SYNC] Streaming ENDED, isTyping=false');
+      streamingStartedRef.current = false;
+      // Don't set isTyping=false here - let completion effect do it after adding message
+    }
   }, [wsIsStreaming, setIsStreaming, setIsTyping]);
+
+  // REMOVED: Phase completion effect - Bu effect "phase: complete" status mesajı gelince
+  // erken tetikleniyordu ve "end" mesajı gelmeden UI'ı kapatıyordu.
+  // Artık sadece wsIsStreaming'e (yani gerçek "end" mesajına) güveniyoruz.
 
   // Handle WebSocket errors - stop streaming and show error message
   useEffect(() => {
@@ -467,9 +500,23 @@ export function ChatPage() {
   } | null>(null);
 
   // Handle WebSocket streaming completion
+  // This effect adds the assistant message when streaming finishes
+  const prevWsIsStreamingRef = useRef<boolean>(wsIsStreaming);
+  
   useEffect(() => {
-    // When streaming stops and we have content, add the assistant message
-    if (!wsIsStreaming && wsStreamingResponse && pendingMessageRef.current) {
+    // Log state for debugging
+    console.log('🔍 [COMPLETION CHECK] wsIsStreaming:', wsIsStreaming, 
+                'prevWsIsStreaming:', prevWsIsStreamingRef.current,
+                'wsStreamingResponse length:', wsStreamingResponse?.length || 0,
+                'pendingMessageRef:', !!pendingMessageRef.current);
+    
+    // Detect transition from streaming to not streaming
+    const wasStreaming = prevWsIsStreamingRef.current;
+    prevWsIsStreamingRef.current = wsIsStreaming;
+    
+    // When streaming JUST stopped (was true, now false) and we have content
+    if (wasStreaming && !wsIsStreaming && wsStreamingResponse && pendingMessageRef.current) {
+      console.log('✅ [COMPLETION] Streaming just ended, adding assistant message, length:', wsStreamingResponse.length);
       const { startTime } = pendingMessageRef.current;
       const responseTime = (Date.now() - startTime) / 1000;
       
@@ -497,8 +544,9 @@ export function ChatPage() {
       };
       addMessage(assistantMessage);
       
-      // Clear pending and streaming state
+      // Clear pending and streaming state - THIS IS WHERE isTyping should be reset
       pendingMessageRef.current = null;
+      console.log('✅ [COMPLETION] Setting isTyping=false after adding message');
       setIsTyping(false);
       setStreamingContent('');
       wsResetRoutingState?.();
@@ -560,6 +608,7 @@ export function ChatPage() {
 
     // Store pending message for when streaming completes
     pendingMessageRef.current = { userMessage, startTime };
+    console.log('📤 [SEND] Message sent, pendingMessageRef SET, startTime:', startTime);
 
     // Try WebSocket first if connected
     if (wsConnected) {
@@ -2352,6 +2401,22 @@ export function ChatPage() {
           onSelect={handleConfirmComparison}
           onClose={() => setComparisonModal(null)}
           language={language}
+        />
+      )}
+
+      {/* Debug Panel - Only shown when DEBUG_STREAMING is true */}
+      {DEBUG_STREAMING && (
+        <StreamingDebugPanel
+          wsIsStreaming={wsIsStreaming}
+          wsStreamingResponse={wsStreamingResponse}
+          wsCurrentPhase={wsCurrentPhase}
+          isTyping={isTyping}
+          isStreaming={isStreaming}
+          streamingContent={streamingContent}
+          pendingMessageRef={pendingMessageRef}
+          streamingStartedRef={streamingStartedRef}
+          prevWsIsStreamingRef={prevWsIsStreamingRef}
+          elapsedTime={elapsedTime}
         />
       )}
     </div>

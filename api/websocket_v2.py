@@ -2189,6 +2189,17 @@ Lütfen genel bilginle kapsamlı yanıt ver ve yanıtının başına "💡 Genel
                 "elapsed_ms": stats.duration_ms,
                 "stream_id": stream_id,
             })
+            # CRITICAL: Send end message on timeout so frontend can reset state
+            logger.info(f"🏁 [TIMEOUT] Sending end message after timeout")
+            await self._send({
+                "type": "end",
+                "response_id": response_id if 'response_id' in dir() else str(uuid.uuid4()),
+                "stats": stats.to_dict() if stats else {},
+                "error": True,
+                "timeout": True,
+                "ts": int(time.time() * 1000),
+                "stream_id": stream_id,
+            })
         
         except asyncio.CancelledError:
             stats.was_stopped = True
@@ -2200,6 +2211,16 @@ Lütfen genel bilginle kapsamlı yanıt ver ve yanıtının başına "💡 Genel
                     "type": "stopped",
                     "elapsed_ms": stats.duration_ms,
                     "tokens": stats.token_count,
+                    "stream_id": stream_id,
+                })
+                # CRITICAL: Also send end message for cancelled state
+                logger.info(f"🏁 [CANCELLED] Sending end message after cancel")
+                await self._send({
+                    "type": "end",
+                    "response_id": response_id if 'response_id' in dir() else str(uuid.uuid4()),
+                    "stats": stats.to_dict() if stats else {},
+                    "cancelled": True,
+                    "ts": int(time.time() * 1000),
                     "stream_id": stream_id,
                 })
             except Exception:
@@ -2214,9 +2235,20 @@ Lütfen genel bilginle kapsamlı yanıt ver ve yanıtının başına "💡 Genel
                 "message": str(e)[:300],
                 "elapsed_ms": stats.duration_ms,
             })
+            # Error durumunda da end benzeri mesaj gönder
+            await self._send({
+                "type": "end",
+                "response_id": response_id if 'response_id' in dir() else str(uuid.uuid4()),
+                "stats": stats.to_dict() if stats else {},
+                "error": True,
+                "ts": int(time.time() * 1000),
+            })
         
         finally:
             self.conn.is_streaming = False
+            # CRITICAL: Ensure end message is ALWAYS sent
+            # This fixes the frontend hanging issue
+            logger.info(f"🏁 [FINALLY] Stream ending for {self.conn.client_id}, was_stopped={stats.was_stopped if stats else 'N/A'}")
 
     async def _stream_response(
         self, 
@@ -2397,20 +2429,49 @@ Lütfen genel bilginle kapsamlı yanıt ver ve yanıtının başına "💡 Genel
                         break
                     
                     if chunk:
-                        stats.token_count += 1
-                        stats.char_count += len(chunk)
-                        full_response += chunk
-                        
-                        # Token'ı buffer'a kaydet
-                        token = stream_buffer.add_token(stream_id, chunk)
-                        
-                        # ANLIK gönder - index ile (resume için gerekli)
-                        await self._send({
-                            "type": "token",
-                            "content": chunk,
-                            "index": token.index if token else token_index
-                        })
-                        token_index += 1
+                        # Dict format: {"type": "content"|"thinking", "content": "..."}
+                        if isinstance(chunk, dict):
+                            chunk_content = chunk.get("content", "")
+                            chunk_type = chunk.get("type", "content")
+                            
+                            if chunk_type == "thinking":
+                                # Thinking content - ayrı mesaj olarak gönder
+                                await self._send({
+                                    "type": "thinking",
+                                    "content": chunk_content,
+                                    "index": token_index
+                                })
+                                token_index += 1
+                            else:
+                                # Normal content
+                                stats.token_count += 1
+                                stats.char_count += len(chunk_content)
+                                full_response += chunk_content
+                                
+                                # Token'ı buffer'a kaydet
+                                token = stream_buffer.add_token(stream_id, chunk_content)
+                                
+                                # ANLIK gönder - index ile (resume için gerekli)
+                                await self._send({
+                                    "type": "token",
+                                    "content": chunk_content,
+                                    "index": token.index if token else token_index
+                                })
+                                token_index += 1
+                        else:
+                            # Backward compatibility - string
+                            chunk_str = str(chunk)
+                            stats.token_count += 1
+                            stats.char_count += len(chunk_str)
+                            full_response += chunk_str
+                            
+                            token = stream_buffer.add_token(stream_id, chunk_str)
+                            await self._send({
+                                "type": "token",
+                                "content": chunk_str,
+                                "index": token.index if token else token_index
+                            })
+                            token_index += 1
                 
                 stats.end_time = time.time()
                 self.conn.total_tokens += stats.token_count

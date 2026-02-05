@@ -687,7 +687,8 @@ class LLMManager:
             else:
                 raise
         finally:
-            executor.shutdown(wait=False)
+            # Note: Using shared self._executor, don't shutdown
+            pass
     
     def chat(
         self,
